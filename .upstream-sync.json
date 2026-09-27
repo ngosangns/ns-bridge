@@ -5,10 +5,10 @@
     "remote": "upstream",
     "branch": "main"
   },
-  "syncedCommit": "dfb44189ad67723e56373ae3613bae69510f0375",
-  "syncedTag": "v0.12.0",
-  "syncedAt": "2026-09-23",
-  "_syncNote": "Đã review và port ngữ nghĩa toàn bộ 36 commit trong range 1e4295b3d..dfb44189a (release 0.11.0 + 0.12.0). Phần pi-specific (footer, pi-auth-store, PKCE login, loadKiroUsageTracking đọc ~/.pi/agent) giữ trong notPorted.",
+  "syncedCommit": "0899ed9c823e3bea592f642472f134f4439e4fee",
+  "syncedTag": "v0.12.1",
+  "syncedAt": "2026-09-27",
+  "_syncNote": "Đã review và port ngữ nghĩa toàn bộ commit trong range dfb44189a..0899ed9c8 (release 0.12.1): sa-east-1 -> us-east-1 trong API_REGION_MAP (#128). Phần IDC_PROBE_REGIONS của login.ts không port vì repo không có IDC probe flow. Phần pi-specific (footer, pi-auth-store, PKCE login, loadKiroUsageTracking đọc ~/.pi/agent) giữ trong notPorted.",
   "pathMapping": {
     "src/bracket-tool-parser.ts": "packages/kiro-core/src/bracket-tool-parser.ts",
     "src/cache-estimator.ts": "packages/kiro-core/src/cache-estimator.ts",
