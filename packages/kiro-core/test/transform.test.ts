@@ -11,6 +11,7 @@ import {
   sanitizeSurrogates,
   TOOL_RESULT_LIMIT,
   toKiroToolName,
+  toKiroToolUseId,
   truncate,
 } from "../src/transform.js";
 import type {
@@ -131,6 +132,22 @@ describe("Feature 5: Message Transformation", () => {
         properties: { p: { type: "string" } },
       });
     });
+
+    it("omits description when empty or absent — Kiro rejects an explicit '' but accepts a missing key", () => {
+      const [empty, absent] = convertToolsToKiro([
+        { name: "noop", description: "", parameters: {} },
+        { name: "read", description: undefined as unknown as string, parameters: {} },
+      ]);
+      expect("description" in empty.toolSpecification).toBe(false);
+      expect("description" in absent.toolSpecification).toBe(false);
+      const [kept] = convertToolsToKiro([{ name: "bash", description: "Run cmd", parameters: {} }]);
+      expect(kept.toolSpecification.description).toBe("Run cmd");
+    });
+
+    it("stringifies a non-string description rather than relaying it", () => {
+      const [r] = convertToolsToKiro([{ name: "t", description: 42 as unknown as string, parameters: {} }]);
+      expect(r.toolSpecification.description).toBe("42");
+    });
   });
 
   describe("toKiroToolName", () => {
@@ -157,6 +174,23 @@ describe("Feature 5: Message Transformation", () => {
 
     it("still yields a legal name when nothing survives the rewrite", () => {
       expect(toKiroToolName(":::…")).toMatch(legal);
+    });
+
+    it("coerces non-string names — a verbatim non-string would land on the wire without a name key", () => {
+      for (const name of [undefined, null, 123] as unknown as string[]) {
+        const wire = toKiroToolName(name);
+        expect(typeof wire).toBe("string");
+        expect(wire).toMatch(legal);
+      }
+    });
+  });
+
+  describe("toKiroToolUseId", () => {
+    it("coerces non-string ids so a numeric foreign id never reaches the wire verbatim", () => {
+      const id = toKiroToolUseId(123 as unknown as string);
+      expect(id).toBe("123");
+      expect(typeof toKiroToolUseId({} as unknown as string)).toBe("string");
+      expect(toKiroToolUseId({} as unknown as string)).toMatch(/^pi_/);
     });
   });
 

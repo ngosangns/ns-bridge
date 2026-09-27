@@ -19,7 +19,7 @@ export interface KiroToolResult {
   toolUseId: string;
 }
 export interface KiroToolSpec {
-  toolSpecification: { name: string; description: string; inputSchema: { json: Record<string, unknown> } };
+  toolSpecification: { name: string; description?: string; inputSchema: { json: Record<string, unknown> } };
 }
 export interface KiroUserInputMessage {
   content: string;
@@ -77,8 +77,13 @@ const KIRO_TOOL_USE_ID_PATTERN = /^[a-zA-Z0-9_.:-]{1,64}$/;
  * the mapping must be stable rather than random.
  */
 export function toKiroToolUseId(toolUseId: string): string {
-  if (KIRO_TOOL_USE_ID_PATTERN.test(toolUseId)) return toolUseId;
-  const digest = createHash("sha256").update(toolUseId).digest("base64url").slice(0, 32);
+  // A non-string id (a numeric one from a foreign provider's history) stringified
+  // below keeps the pattern test honest: without it `test(123)` coerces anyway
+  // and the NUMBER is returned verbatim, landing on the wire as `"toolUseId":
+  // 123`, which Kiro rejects.
+  const id = typeof toolUseId === "string" ? toolUseId : String(toolUseId);
+  if (KIRO_TOOL_USE_ID_PATTERN.test(id)) return id;
+  const digest = createHash("sha256").update(id).digest("base64url").slice(0, 32);
   return `pi_${digest}`;
 }
 
@@ -101,9 +106,13 @@ const KIRO_TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
  * calls back through {@link kiroToolNameAliases}.
  */
 export function toKiroToolName(name: string): string {
-  if (KIRO_TOOL_NAME_PATTERN.test(name)) return name;
-  const clean = name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 55);
-  const digest = createHash("sha256").update(name).digest("base64url").slice(0, 8);
+  // Coerce first: `test(undefined)` would pass ("undefined" is legal) and the
+  // raw non-string then lands in `toolSpecification.name` — a missing `name`
+  // key is rejected with the same "Invalid tool use format" as an illegal one.
+  const str = typeof name === "string" ? name : String(name);
+  if (KIRO_TOOL_NAME_PATTERN.test(str)) return str;
+  const clean = str.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 55);
+  const digest = createHash("sha256").update(str).digest("base64url").slice(0, 8);
   return `${clean || "tool"}_${digest}`;
 }
 
@@ -206,11 +215,25 @@ function toKiroInputSchema(parameters: Record<string, unknown>): Record<string, 
   return { type: "object", properties: {} };
 }
 
+/**
+ * Kiro's description contract, probed against the live service (2026-09-27):
+ * an explicitly-empty string is rejected with `400 {"message":"Invalid tool
+ * use format."}` while an ABSENT key, `null`, whitespace, and arbitrarily long
+ * text all pass. Hosts that fill a missing description with `""` — the natural
+ * default for a spec-less MCP tool — trip this on the first turn, so the key
+ * is left off rather than relayed empty. A non-string value is stringified:
+ * the wire needs text here and any non-empty rendering beats a rejected body.
+ */
+function toKiroToolDescription(description: unknown): { description: string } | Record<string, never> {
+  if (typeof description === "string") return description === "" ? {} : { description };
+  return description == null ? {} : { description: String(description) };
+}
+
 export function convertToolsToKiro(tools: KiroTool[]): KiroToolSpec[] {
   return tools.map((tool) => ({
     toolSpecification: {
       name: toKiroToolName(tool.name),
-      description: tool.description,
+      ...toKiroToolDescription(tool.description),
       inputSchema: { json: toKiroInputSchema(tool.parameters) },
     },
   }));
