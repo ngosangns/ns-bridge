@@ -10,6 +10,7 @@ import {
   type LlmResolvedModelInfo,
   type ReasoningEffortId,
   type StreamChunk,
+  type TokenUsage,
   type ToolCallId,
 } from "@deepseek-ai/dsh-llm";
 import {
@@ -18,7 +19,9 @@ import {
   type KiroEffort,
   type KiroModel,
   type KiroTool,
+  type KiroUsage,
   resolveApiRegion,
+  resolveKiroUsageTracking,
   streamKiro,
 } from "ns-kiro-core";
 import { toLlmError } from "./errors.js";
@@ -46,6 +49,36 @@ const EFFORT_NAMES: Record<KiroEffort, string> = {
   xhigh: "Extra high",
   max: "Maximum",
 };
+
+/**
+ * Project one core usage record onto the harness token buckets.
+ *
+ * Kiro reports no cache counters. The session pill treats a missing
+ * `cacheReadTokens` as zero, which is the "Cache hit 0%" reading, and a
+ * turn drops its cache sum unless every step reported both cache fields.
+ * Those fields also have to add up to `totalTokens` or the harness discards
+ * the sample. Zeros cover a cold prefix; a later step in the same session
+ * carries the core's repeated-prefix estimate.
+ */
+function toHarnessUsage(usage: KiroUsage): TokenUsage {
+  const cacheReadTokens = usage.cacheRead ?? 0;
+  const cacheWriteTokens = usage.cacheWrite ?? 0;
+  const summed = usage.input + cacheReadTokens + cacheWriteTokens + usage.output;
+  if (usage.totalTokens !== summed) {
+    return {
+      inputTokens: usage.input,
+      outputTokens: usage.output,
+      totalTokens: usage.totalTokens,
+    };
+  }
+  return {
+    inputTokens: usage.input,
+    outputTokens: usage.output,
+    totalTokens: summed,
+    cacheReadTokens,
+    cacheWriteTokens,
+  };
+}
 
 export class KiroAdapter extends LlmAdapter {
   constructor(private readonly options: KiroAdapterOptions) {
@@ -131,6 +164,11 @@ export class KiroAdapter extends LlmAdapter {
       sessionId: options.sessionId,
       signal: options.signal,
       profileArn: credentials.profileArn,
+      // Kiro bills a repeated prefix for about half the credits and reports
+      // no cache counters. Without this opt-in the harness has nothing to
+      // draw except 0%. Dollar estimation stays off: Kiro publishes no
+      // per-token price.
+      usageTracking: resolveKiroUsageTracking({ estimateCacheUsage: true }),
       // The Harness assembler has no way to un-deliver a block, so the core must
       // settle a degenerate response rather than replay over one already sent.
       canDiscardEmittedBlocks: false,
@@ -191,18 +229,7 @@ export class KiroAdapter extends LlmAdapter {
           };
           break;
         case "usage":
-          yield {
-            type: "usage",
-            usage: {
-              inputTokens: event.usage.input,
-              outputTokens: event.usage.output,
-              totalTokens: event.usage.totalTokens,
-              // Optional on both sides, so an unreported count stays absent
-              // instead of being reported as a cache miss.
-              ...(event.usage.cacheRead !== undefined ? { cacheReadTokens: event.usage.cacheRead } : {}),
-              ...(event.usage.cacheWrite !== undefined ? { cacheWriteTokens: event.usage.cacheWrite } : {}),
-            },
-          };
+          yield { type: "usage", usage: toHarnessUsage(event.usage) };
           break;
         case "done":
           yield {

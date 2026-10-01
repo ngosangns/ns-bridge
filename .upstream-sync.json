@@ -221,8 +221,8 @@
       "upstreamPath": "src/stream.ts, src/usage-tracking.ts, src/cache-estimator.ts, src/footer*.ts",
       "since": "2026-09-23",
       "what": "Estimate chỉ chạy khi host truyền KiroStreamRequest.usageTracking (opt-in, mặc định KIRO_USAGE_TRACKING_DISABLED). Không có loadKiroUsageTracking — host tự resolve settings rồi truyền resolveKiroUsageTracking(section). Upstream đọc ~/.pi/agent/settings.json trong extension.",
-      "why": "kiro-core host-neutral: không đọc file của host cụ thể. Cả OMP lẫn dsh hiện chưa truyền usageTracking nên estimation mặc định tắt — đúng ý upstream (opt-in).",
-      "risk": "Khi một host muốn bật, nó resolve section 'usageTracking' của chính nó qua resolveKiroUsageTracking rồi truyền vào request. Test: packages/kiro-core/test/usage-tracking.test.ts, cache-estimator.test.ts, stream.test.ts (nhóm estimate)."
+      "why": "kiro-core host-neutral: không đọc file của host cụ thể. OMP chưa truyền usageTracking nên estimation mặc định tắt — đúng ý upstream (opt-in). dsh-llm-kiro bật estimateCacheUsage vì harness vẽ 'Cache hit 0%' khi cacheReadTokens vắng, trong khi Kiro không báo counter. Dollar estimate vẫn tắt.",
+      "risk": "Khi một host muốn bật, nó resolve section 'usageTracking' của chính nó qua resolveKiroUsageTracking rồi truyền vào request. Test: packages/kiro-core/test/usage-tracking.test.ts, cache-estimator.test.ts, stream.test.ts (nhóm estimate), packages/dsh-llm-kiro/test/adapter.test.ts."
     },
     {
       "path": "packages/kiro-core/src/kiro-cli.ts (getKiroCliDbPath)",

@@ -79,5 +79,10 @@ dsh --profile <profile> "what changed in this repo?"
 - A degenerate response is retried inside the adapter only while nothing has
   been delivered: the Harness assembler cannot un-deliver a block, so a response
   already streamed out is settled rather than replayed.
+- Cache hit in the harness is an estimate. Kiro caches a repeated prefix
+  server-side and reports no cache token counts, and the harness draws
+  "Cache hit 0%" when those counts are missing. The adapter reclassifies the
+  repeated prefix of one session as a cache read. The first call in a process
+  has nothing to compare, and a gap longer than five minutes starts over.
 
 Part of [ns-kiro-provider](https://github.com/ngosangns/ns-kiro-provider).
