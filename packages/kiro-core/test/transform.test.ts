@@ -10,6 +10,7 @@ import {
   relocateDisplacedToolResults,
   sanitizeSurrogates,
   TOOL_RESULT_LIMIT,
+  toKiroToolInput,
   toKiroToolName,
   toKiroToolUseId,
   truncate,
@@ -210,6 +211,15 @@ describe("Feature 5: Message Transformation", () => {
       const r = convertImagesToKiro([{ mimeType: "image/png", data: "b64" }]);
       expect(r[0]).toEqual({ format: "png", source: { bytes: "b64" } });
     });
+
+    it("writes jpg as jpeg and strips a data-URL prefix from the bytes", () => {
+      const r = convertImagesToKiro([{ mimeType: "image/jpg", data: "data:image/jpg;base64,aGVsbG8=" }]);
+      expect(r).toEqual([{ format: "jpeg", source: { bytes: "aGVsbG8=" } }]);
+    });
+
+    it("drops a format the runtime does not accept instead of failing the request", () => {
+      expect(convertImagesToKiro([{ mimeType: "image/svg+xml", data: "PHN2Zy8+" }])).toEqual([]);
+    });
   });
 
   describe("buildHistory", () => {
@@ -232,6 +242,27 @@ describe("Feature 5: Message Transformation", () => {
       const { history } = buildHistory(msgs, "M");
       const entry = history.find((h) => h.assistantResponseMessage?.toolUses);
       expect(entry?.assistantResponseMessage?.toolUses?.[0].name).toBe("bash");
+    });
+
+    it("unwraps a JSON-string tool input into an object", () => {
+      const a = assistant("");
+      a.content = [
+        {
+          type: "toolCall",
+          id: "tc1",
+          name: "bash",
+          arguments: '{"cmd":"ls"}' as unknown as Record<string, unknown>,
+        },
+      ];
+      const msgs: KiroMessage[] = [user("go"), a, toolResult("tc1", "ok"), user("next")];
+      const { history } = buildHistory(msgs, "M");
+      const entry = history.find((h) => h.assistantResponseMessage?.toolUses);
+      expect(entry?.assistantResponseMessage?.toolUses?.[0].input).toEqual({ cmd: "ls" });
+    });
+
+    it("replaces a non-object tool input with an empty object", () => {
+      expect(toKiroToolInput(["ls"])).toEqual({});
+      expect(toKiroToolInput("not json")).toEqual({});
     });
 
     it("sanitizes a history toolUse name the same way the spec catalog does", () => {

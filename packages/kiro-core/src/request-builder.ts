@@ -28,6 +28,7 @@ import {
   relocateDisplacedToolResults,
   sanitizeSurrogates,
   TOOL_RESULT_LIMIT,
+  toKiroToolInput,
   toKiroToolName,
   toKiroToolUseId,
   truncate,
@@ -126,7 +127,7 @@ export function buildKiroRequest(params: BuildKiroRequestParams): BuiltKiroReque
         armToolUses.push({
           name: toKiroToolName(block.name),
           toolUseId: toKiroToolUseId(block.id),
-          input: block.arguments,
+          input: toKiroToolInput(block.arguments),
         });
       }
     }
@@ -157,7 +158,8 @@ export function buildKiroRequest(params: BuildKiroRequestParams): BuiltKiroReque
       currentToolResults.push(toolResultOf(m));
       toolResultImages.push(...extractImages(m));
     }
-    if (toolResultImages.length > 0) currentImages = convertImagesToKiro(toolResultImages);
+    const convertedToolImages = convertImagesToKiro(toolResultImages);
+    if (convertedToolImages.length > 0) currentImages = convertedToolImages;
     // A tool turn carries its payload in `userInputMessageContext.toolResults`,
     // so it needs no text. Leaving this empty also leaves the fallback below
     // free to fill in only genuinely payload-less turns.
@@ -169,7 +171,8 @@ export function buildKiroRequest(params: BuildKiroRequestParams): BuiltKiroReque
       currentToolResults.push(toolResultOf(m));
       toolResultImages.push(...extractImages(m));
     }
-    if (toolResultImages.length > 0) currentImages = convertImagesToKiro(toolResultImages);
+    const convertedToolImages = convertImagesToKiro(toolResultImages);
+    if (convertedToolImages.length > 0) currentImages = convertedToolImages;
     // Empty by design — `toolResults` is this turn's payload.
     currentContent = "";
   } else if (firstMsg?.role === "user") {
@@ -197,8 +200,8 @@ export function buildKiroRequest(params: BuildKiroRequestParams): BuiltKiroReque
     if (finalTools.length > 0) uimc.tools = finalTools;
   }
   if (firstMsg?.role === "user") {
-    const imgs = extractImages(firstMsg);
-    if (imgs.length > 0) currentImages = convertImagesToKiro(imgs);
+    const imgs = convertImagesToKiro(extractImages(firstMsg));
+    if (imgs.length > 0) currentImages = imgs;
   }
   // A turn with neither text nor tool results has no payload at all: an
   // image-only user message, or an empty-text one. Send a neutral prompt so

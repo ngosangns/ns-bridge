@@ -4,8 +4,11 @@ import { createHash } from "node:crypto";
 
 import type { KiroImageContent, KiroMessage, KiroTool, KiroToolResultMessage } from "./types.js";
 
+/** Formats `generateAssistantResponse` accepts on `images[].format`. */
+export type KiroImageFormat = "png" | "jpeg" | "gif" | "webp";
+
 export interface KiroImage {
-  format: string;
+  format: KiroImageFormat;
   source: { bytes: string };
 }
 export interface KiroToolUse {
@@ -239,8 +242,67 @@ export function convertToolsToKiro(tools: KiroTool[]): KiroToolSpec[] {
   }));
 }
 
+const KIRO_IMAGE_FORMAT_ALIASES: Record<string, KiroImageFormat> = {
+  png: "png",
+  "x-png": "png",
+  jpeg: "jpeg",
+  jpg: "jpeg",
+  pjpeg: "jpeg",
+  gif: "gif",
+  webp: "webp",
+};
+
+/**
+ * Map a host MIME type onto Kiro's image-format enum.
+ *
+ * `image/jpg` is a common alias the runtime rejects (`ImageFormatUnsupported`);
+ * the accepted spelling is `jpeg`. A subtype outside the enum is dropped rather
+ * than sent, because one illegal image fails the whole request.
+ */
+function toKiroImageFormat(mimeType: string): KiroImageFormat | undefined {
+  const subtype = mimeType.trim().toLowerCase().split("/").pop()?.split(";")[0]?.trim() ?? "";
+  return KIRO_IMAGE_FORMAT_ALIASES[subtype];
+}
+
+/** Kiro's `source.bytes` is raw base64. A data-URL prefix is not part of the blob. */
+function toKiroImageBytes(data: string): string {
+  const trimmed = data.trim();
+  const marker = "base64,";
+  if (!trimmed.startsWith("data:") || !trimmed.includes(marker)) return trimmed;
+  return trimmed.slice(trimmed.indexOf(marker) + marker.length);
+}
+
 export function convertImagesToKiro(images: Array<{ mimeType: string; data: string }>): KiroImage[] {
-  return images.map((img) => ({ format: img.mimeType.split("/")[1] || "png", source: { bytes: img.data } }));
+  const out: KiroImage[] = [];
+  for (const img of images) {
+    const format = toKiroImageFormat(img.mimeType);
+    const bytes = toKiroImageBytes(img.data);
+    if (!format || !bytes) continue;
+    out.push({ format, source: { bytes } });
+  }
+  return out;
+}
+
+/**
+ * `toolUses[].input` has to be a JSON object. A string that still parses as
+ * one is unwrapped; anything else becomes `{}` so the field stays legal
+ * instead of failing the request with "Invalid tool use format."
+ */
+export function toKiroToolInput(input: unknown): Record<string, unknown> {
+  if (isPlainObject(input)) return input;
+  if (typeof input === "string") {
+    try {
+      const parsed: unknown = JSON.parse(input);
+      if (isPlainObject(parsed)) return parsed;
+    } catch {
+      // Not JSON. Fall through to the empty object.
+    }
+  }
+  return {};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function toolResultOf(msg: KiroToolResultMessage): KiroToolResult {
@@ -277,12 +339,12 @@ export function buildHistory(
         content = `${systemPrompt}\n\n${content}`;
         systemPrepended = true;
       }
-      const images = extractImages(msg);
+      const images = convertImagesToKiro(extractImages(msg));
       const uim: KiroUserInputMessage = {
         content: sanitizeSurrogates(content),
         modelId,
         origin: "KIRO_CLI",
-        ...(images.length > 0 ? { images: convertImagesToKiro(images) } : {}),
+        ...(images.length > 0 ? { images } : {}),
       };
       const prevUim = history[history.length - 1]?.userInputMessage;
       if (prevUim) {
@@ -324,7 +386,7 @@ export function buildHistory(
           armToolUses.push({
             name: toKiroToolName(block.name),
             toolUseId: toKiroToolUseId(block.id),
-            input: block.arguments,
+            input: toKiroToolInput(block.arguments),
           });
           armHadBlocks = true;
         }
@@ -355,13 +417,15 @@ export function buildHistory(
         // user actually wrote (or a prior turn's tool carrier) — leave it
         // byte-identical. `toolResults` is the payload; text is not needed to
         // carry it, and appending narration here rewrites a human utterance.
-        if (trImages.length > 0) prevTr.images = [...(prevTr.images || []), ...convertImagesToKiro(trImages)];
+        const images = convertImagesToKiro(trImages);
+        if (images.length > 0) prevTr.images = [...(prevTr.images || []), ...images];
         if (!prevTr.userInputMessageContext) prevTr.userInputMessageContext = {};
         prevTr.userInputMessageContext.toolResults = [
           ...(prevTr.userInputMessageContext.toolResults || []),
           ...toolResults,
         ];
       } else {
+        const images = convertImagesToKiro(trImages);
         history.push({
           userInputMessage: {
             // Empty by design: `toolResults` is this turn's payload. See
@@ -369,7 +433,7 @@ export function buildHistory(
             content: "",
             modelId,
             origin: "KIRO_CLI",
-            ...(trImages.length > 0 ? { images: convertImagesToKiro(trImages) } : {}),
+            ...(images.length > 0 ? { images } : {}),
             userInputMessageContext: { toolResults },
           },
         });

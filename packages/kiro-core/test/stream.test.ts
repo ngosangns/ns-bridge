@@ -228,6 +228,146 @@ describe("streamKiro — request shape", () => {
     expect(body.conversationState.conversationId).toBe("session-42");
   });
 
+  it("writes the sent fields in the runtime shape and leaves the unused ones off", async () => {
+    const fetchMock = stubFetch(makeOkResponse(TEXT_ONLY));
+    const profileArn = "arn:aws:codewhisperer:us-east-1:111111111111:profile/from-model";
+    const messages: KiroMessage[] = [
+      { role: "user", content: [{ type: "text", text: "look" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "call-1",
+            name: "read",
+            arguments: '{"path":"/tmp/a"}' as unknown as Record<string, unknown>,
+          },
+        ],
+        stopReason: "toolUse",
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "read",
+        content: [{ type: "text", text: "file body" }],
+        isError: false,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "again" },
+          { type: "image", data: "data:image/jpg;base64,aGVsbG8=", mimeType: "image/jpg" },
+        ],
+      },
+    ];
+    await collect(
+      streamKiro(
+        makeRequest({
+          model: makeModel({ profileArn }),
+          messages,
+          tools: [{ name: "read", description: "Read a file", parameters: {} }],
+          sessionId: "session-42",
+          systemPrompt: "Be brief",
+        }),
+      ),
+    );
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("generateAssistantResponse");
+    expect((init.headers as Record<string, string>)["x-amzn-kiro-agent-mode"]).toBe("vibe");
+
+    const body = requestBody(fetchMock);
+    expect(body).toMatchObject({
+      profileArn,
+      agentMode: "vibe",
+      conversationState: {
+        chatTriggerType: "MANUAL",
+        agentTaskType: "vibe",
+        conversationId: "session-42",
+      },
+    });
+    expect(body.systemPrompt).toBeUndefined();
+    expect(body.additionalModelRequestFields).toBeUndefined();
+
+    const state = body.conversationState as {
+      workspaceId?: string;
+      agentContinuationId?: string;
+      history: Array<Record<string, unknown>>;
+      currentMessage: { userInputMessage: Record<string, unknown> };
+    };
+    expect(state.workspaceId).toBeUndefined();
+    expect(state.agentContinuationId).toBeUndefined();
+
+    const history = state.history;
+    const firstUser = history[0]?.userInputMessage as { content: string; modelId: string; origin: string };
+    expect(firstUser.content.startsWith("Be brief")).toBe(true);
+    expect(firstUser.modelId).toBe("claude-sonnet-4.5");
+    expect(firstUser.origin).toBe("KIRO_CLI");
+
+    const assistant = history.find((entry) => {
+      const message = entry.assistantResponseMessage as { toolUses?: unknown[] } | undefined;
+      return message?.toolUses;
+    })?.assistantResponseMessage as { toolUses: Array<{ name: string; toolUseId: string; input: unknown }> };
+    expect(assistant.toolUses[0]).toEqual({ name: "read", toolUseId: "call-1", input: { path: "/tmp/a" } });
+
+    const carrier = history.find((entry) => {
+      const message = entry.userInputMessage as {
+        userInputMessageContext?: { toolResults?: unknown[] };
+      };
+      return message?.userInputMessageContext?.toolResults;
+    })?.userInputMessage as {
+      userInputMessageContext: {
+        toolResults: Array<{ status: string; toolUseId: string; content: Array<{ text: string }> }>;
+      };
+    };
+    expect(carrier.userInputMessageContext.toolResults[0]).toEqual({
+      content: [{ text: "file body" }],
+      status: "success",
+      toolUseId: "call-1",
+    });
+
+    const current = state.currentMessage.userInputMessage;
+    expect(current.content).toBe("again");
+    expect(current.modelId).toBe("claude-sonnet-4.5");
+    expect(current.origin).toBe("KIRO_CLI");
+    expect(current.images).toEqual([{ format: "jpeg", source: { bytes: "aGVsbG8=" } }]);
+    const tools = (
+      current.userInputMessageContext as {
+        tools: Array<{
+          toolSpecification: { name: string; description?: string; inputSchema: { json: { type: string } } };
+        }>;
+      }
+    ).tools;
+    expect(tools[0]?.toolSpecification).toEqual({
+      name: "read",
+      description: "Read a file",
+      inputSchema: { json: { type: "object" } },
+    });
+
+    const unused = [
+      "systemPrompt",
+      "workspaceId",
+      "agentContinuationId",
+      "editorState",
+      "shellState",
+      "gitState",
+      "envState",
+      "consoleState",
+      "userSettings",
+      "additionalContext",
+      "appStudioContext",
+      "diagnostic",
+      "messageId",
+      "supplementaryWebLinks",
+      "reasoningContent",
+      "clientCacheConfig",
+      "useClientCachingOnly",
+      "cachePoint",
+    ];
+    const json = JSON.stringify(body);
+    for (const key of unused) expect(json).not.toContain(`"${key}"`);
+  });
+
   it("sends the placeholder prompt for an image-only turn so the attachment still lands", async () => {
     const fetchMock = stubFetch(makeOkResponse(TEXT_ONLY));
     const messages: KiroMessage[] = [
