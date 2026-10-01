@@ -11,7 +11,7 @@ import {
   sanitizeHistory,
   stripHistoryImages,
 } from "../src/history.js";
-import type { KiroHistoryEntry, KiroToolResult, KiroToolSpec, KiroToolUse } from "../src/transform.js";
+import type { KiroHistoryEntry, KiroImage, KiroToolResult, KiroToolSpec, KiroToolUse } from "../src/transform.js";
 
 const userEntry = (content: string, toolResults?: KiroToolResult[]): KiroHistoryEntry => ({
   userInputMessage: {
@@ -253,7 +253,7 @@ describe("Feature 6: History Management", () => {
     });
 
     it("does not mutate the original history array", () => {
-      const images = [{ format: "png", source: { bytes: "data" } }];
+      const images: KiroImage[] = [{ format: "png", source: { bytes: "data" } }];
       const h: KiroHistoryEntry[] = [{ userInputMessage: { content: "hi", modelId: "M", origin: "KIRO_CLI", images } }];
       stripHistoryImages(h);
       expect(h[0].userInputMessage?.images).toEqual(images);
