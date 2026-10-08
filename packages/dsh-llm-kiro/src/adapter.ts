@@ -10,16 +10,14 @@ import {
   type LlmResolvedModelInfo,
   type ReasoningEffortId,
   type StreamChunk,
-  type TokenUsage,
-  type ToolCallId,
 } from "@deepseek-ai/dsh-llm";
+import { streamToDsh } from "ns-bridge-core/dsh";
 import {
   getCachedModels,
   type KiroCredentials,
   type KiroEffort,
   type KiroModel,
   type KiroTool,
-  type KiroUsage,
   resolveApiRegion,
   resolveKiroUsageTracking,
   streamKiro,
@@ -49,36 +47,6 @@ const EFFORT_NAMES: Record<KiroEffort, string> = {
   xhigh: "Extra high",
   max: "Maximum",
 };
-
-/**
- * Project one core usage record onto the harness token buckets.
- *
- * Kiro reports no cache counters. The session pill treats a missing
- * `cacheReadTokens` as zero, which is the "Cache hit 0%" reading, and a
- * turn drops its cache sum unless every step reported both cache fields.
- * Those fields also have to add up to `totalTokens` or the harness discards
- * the sample. Zeros cover a cold prefix; a later step in the same session
- * carries the core's repeated-prefix estimate.
- */
-function toHarnessUsage(usage: KiroUsage): TokenUsage {
-  const cacheReadTokens = usage.cacheRead ?? 0;
-  const cacheWriteTokens = usage.cacheWrite ?? 0;
-  const summed = usage.input + cacheReadTokens + cacheWriteTokens + usage.output;
-  if (usage.totalTokens !== summed) {
-    return {
-      inputTokens: usage.input,
-      outputTokens: usage.output,
-      totalTokens: usage.totalTokens,
-    };
-  }
-  return {
-    inputTokens: usage.input,
-    outputTokens: usage.output,
-    totalTokens: summed,
-    cacheReadTokens,
-    cacheWriteTokens,
-  };
-}
 
 export class KiroAdapter extends LlmAdapter {
   constructor(private readonly options: KiroAdapterOptions) {
@@ -153,111 +121,29 @@ export class KiroAdapter extends LlmAdapter {
       parameters: tool.parameters,
     }));
 
-    const openBlocks = new Set<number>();
-    for await (const event of streamKiro({
-      model: { ...model, region, ...(credentials.profileArn ? { profileArn: credentials.profileArn } : {}) },
-      messages: projected.messages,
-      systemPrompt: system,
-      tools,
-      effort: options.reasoningEffort as KiroEffort | undefined,
-      accessToken: credentials.access,
-      sessionId: options.sessionId,
-      signal: options.signal,
-      profileArn: credentials.profileArn,
-      // Kiro bills a repeated prefix for about half the credits and reports
-      // no cache counters. Without this opt-in the harness has nothing to
-      // draw except 0%. Dollar estimation stays off: Kiro publishes no
-      // per-token price.
-      usageTracking: resolveKiroUsageTracking({ estimateCacheUsage: true }),
-      // The Harness assembler has no way to un-deliver a block, so the core must
-      // settle a degenerate response rather than replay over one already sent.
-      canDiscardEmittedBlocks: false,
-    })) {
-      switch (event.type) {
-        case "text_start":
-          openBlocks.add(event.index);
-          yield { type: "block-start", index: event.index, blockType: "text" };
-          break;
-        case "text_delta":
-          yield { type: "text-delta", index: event.index, text: event.delta };
-          break;
-        case "text_end":
-          openBlocks.delete(event.index);
-          yield { type: "block-end", index: event.index, block: { type: "text", text: event.text } };
-          break;
-        case "thinking_start":
-          openBlocks.add(event.index);
-          yield { type: "block-start", index: event.index, blockType: "reasoning" };
-          break;
-        case "thinking_delta":
-          yield { type: "reasoning-delta", index: event.index, text: event.delta };
-          break;
-        case "thinking_end":
-          openBlocks.delete(event.index);
-          yield { type: "block-end", index: event.index, block: { type: "reasoning", text: event.thinking } };
-          break;
-        case "tool_call_start":
-          openBlocks.add(event.index);
-          yield { type: "block-start", index: event.index, blockType: "tool-call" };
-          yield {
-            type: "tool-call-delta",
-            index: event.index,
-            id: event.id as ToolCallId,
-            name: event.name,
-            argumentsDelta: "",
-          };
-          break;
-        case "tool_call_delta":
-          yield {
-            type: "tool-call-delta",
-            index: event.index,
-            id: event.id as ToolCallId,
-            argumentsDelta: event.argumentsDelta,
-          };
-          break;
-        case "tool_call_end":
-          openBlocks.delete(event.index);
-          yield {
-            type: "block-end",
-            index: event.index,
-            block: {
-              type: "tool-call",
-              id: event.id as ToolCallId,
-              name: event.name,
-              arguments: JSON.stringify(event.arguments),
-            },
-          };
-          break;
-        case "usage":
-          yield { type: "usage", usage: toHarnessUsage(event.usage) };
-          break;
-        case "done":
-          yield {
-            type: "finish",
-            reason:
-              event.stopReason === "toolUse"
-                ? { kind: "tool-calls" }
-                : event.stopReason === "length"
-                  ? { kind: "max-tokens" }
-                  : { kind: "stop" },
-            // The finish union carries no message field for a successful
-            // reason, so a terminal diagnostic rides the replay envelope —
-            // the harness stores it on the assembled message's model source.
-            ...(event.errorMessage ? { replayState: { response: { errorMessage: event.errorMessage } } } : {}),
-          };
-          break;
-        // `start` needs no chunk. `reset` can arrive on a mid-stream-error
-        // retry; this adapter cannot un-deliver a block, so it ignores the
-        // marker and lets the retried attempt continue on fresh indexes.
-      }
-    }
-
-    // A block the core opened but never closed would leave the assembler waiting
-    // for content that is not coming. That is only reachable if the core adds an
-    // exit path before its terminal events, so close them rather than trust it.
-    for (const index of openBlocks) {
-      yield { type: "block-end", index, block: { type: "text", text: "" } };
-    }
+    // Event translation (blocks, usage, finish, unclosed-block safety) is
+    // shared with every dsh adapter in ns-bridge-core/dsh.
+    yield* streamToDsh(
+      streamKiro({
+        model: { ...model, region, ...(credentials.profileArn ? { profileArn: credentials.profileArn } : {}) },
+        messages: projected.messages,
+        systemPrompt: system,
+        tools,
+        effort: options.reasoningEffort as KiroEffort | undefined,
+        accessToken: credentials.access,
+        sessionId: options.sessionId,
+        signal: options.signal,
+        profileArn: credentials.profileArn,
+        // Kiro bills a repeated prefix for about half the credits and reports
+        // no cache counters. Without this opt-in the harness has nothing to
+        // draw except 0%. Dollar estimation stays off: Kiro publishes no
+        // per-token price.
+        usageTracking: resolveKiroUsageTracking({ estimateCacheUsage: true }),
+        // The Harness assembler has no way to un-deliver a block, so the core must
+        // settle a degenerate response rather than replay over one already sent.
+        canDiscardEmittedBlocks: false,
+      }),
+    );
   }
 
   private catalog(region?: string): KiroModel[] {

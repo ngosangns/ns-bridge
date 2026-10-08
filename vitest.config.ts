@@ -8,6 +8,12 @@ export default defineConfig({
     projects: [
       {
         test: {
+          name: "bridge",
+          include: ["packages/bridge-core/test/**/*.test.ts"],
+        },
+      },
+      {
+        test: {
           name: "kiro",
           include: ["packages/{kiro-core,omp-provider-kiro,dsh-llm-kiro}/test/**/*.test.ts"],
           setupFiles: ["./packages/kiro-core/test/setup.ts"],

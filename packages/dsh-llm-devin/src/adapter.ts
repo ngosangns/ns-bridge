@@ -10,14 +10,12 @@ import {
   type LlmResolvedModelInfo,
   type ReasoningEffortId,
   type StreamChunk,
-  type TokenUsage,
-  type ToolCallId,
 } from "@deepseek-ai/dsh-llm";
+import { streamToDsh } from "ns-bridge-core/dsh";
 import {
   type DevinCredentials,
   type DevinEffort,
   type DevinTool,
-  type DevinUsage,
   fetchDevinModels,
   getCachedModels,
   isCacheStale,
@@ -48,34 +46,6 @@ const EFFORT_NAMES: Record<DevinEffort, string> = {
   xhigh: "Extra high",
   max: "Maximum",
 };
-
-/**
- * Project one core usage record onto the harness token buckets.
- *
- * Devin reports real cache counters when the Cascade backend bills them.
- * The session pill treats a missing `cacheReadTokens` as zero, and a turn
- * drops its cache sum unless every step reported both cache fields — and the
- * fields have to add up to `totalTokens` or the harness discards the sample.
- */
-function toHarnessUsage(usage: DevinUsage): TokenUsage {
-  const cacheReadTokens = usage.cacheRead ?? 0;
-  const cacheWriteTokens = usage.cacheWrite ?? 0;
-  const summed = usage.input + cacheReadTokens + cacheWriteTokens + usage.output;
-  if (usage.totalTokens !== summed) {
-    return {
-      inputTokens: usage.input,
-      outputTokens: usage.output,
-      totalTokens: usage.totalTokens,
-    };
-  }
-  return {
-    inputTokens: usage.input,
-    outputTokens: usage.output,
-    totalTokens: summed,
-    cacheReadTokens,
-    cacheWriteTokens,
-  };
-}
 
 export class DevinAdapter extends LlmAdapter {
   constructor(private readonly options: DevinAdapterOptions) {
@@ -176,103 +146,19 @@ export class DevinAdapter extends LlmAdapter {
       parameters: tool.parameters,
     }));
 
-    const openBlocks = new Set<number>();
-    for await (const event of streamDevin({
-      model,
-      messages: projected.messages,
-      systemPrompt: system,
-      tools,
-      effort: options.reasoningEffort as DevinEffort | undefined,
-      apiKey: credentials.access,
-      sessionId: options.sessionId,
-      signal: options.signal,
-    })) {
-      switch (event.type) {
-        case "text_start":
-          openBlocks.add(event.index);
-          yield { type: "block-start", index: event.index, blockType: "text" };
-          break;
-        case "text_delta":
-          yield { type: "text-delta", index: event.index, text: event.delta };
-          break;
-        case "text_end":
-          openBlocks.delete(event.index);
-          yield { type: "block-end", index: event.index, block: { type: "text", text: event.text } };
-          break;
-        case "thinking_start":
-          openBlocks.add(event.index);
-          yield { type: "block-start", index: event.index, blockType: "reasoning" };
-          break;
-        case "thinking_delta":
-          yield { type: "reasoning-delta", index: event.index, text: event.delta };
-          break;
-        case "thinking_end":
-          openBlocks.delete(event.index);
-          yield { type: "block-end", index: event.index, block: { type: "reasoning", text: event.thinking } };
-          break;
-        case "tool_call_start":
-          openBlocks.add(event.index);
-          yield { type: "block-start", index: event.index, blockType: "tool-call" };
-          yield {
-            type: "tool-call-delta",
-            index: event.index,
-            id: event.id as ToolCallId,
-            name: event.name,
-            argumentsDelta: "",
-          };
-          break;
-        case "tool_call_delta":
-          yield {
-            type: "tool-call-delta",
-            index: event.index,
-            id: event.id as ToolCallId,
-            argumentsDelta: event.argumentsDelta,
-          };
-          break;
-        case "tool_call_end":
-          openBlocks.delete(event.index);
-          yield {
-            type: "block-end",
-            index: event.index,
-            block: {
-              type: "tool-call",
-              id: event.id as ToolCallId,
-              name: event.name,
-              // The Harness keeps the model's raw JSON and reports invalid
-              // arguments back to the model; re-serializing a parsed preview
-              // would run a truncated call with auto-closed arguments.
-              arguments: event.argumentsJson.trim() ? event.argumentsJson : "{}",
-            },
-          };
-          break;
-        case "usage":
-          yield { type: "usage", usage: toHarnessUsage(event.usage) };
-          break;
-        case "done":
-          yield {
-            type: "finish",
-            reason:
-              event.stopReason === "toolUse"
-                ? { kind: "tool-calls" }
-                : event.stopReason === "length"
-                  ? { kind: "max-tokens" }
-                  : { kind: "stop" },
-            // The finish union carries no message field for a successful
-            // reason, so a terminal diagnostic rides the replay envelope —
-            // the harness stores it on the assembled message's model source.
-            ...(event.errorMessage ? { replayState: { response: { errorMessage: event.errorMessage } } } : {}),
-          };
-          break;
-        // `start` needs no chunk. `reset` can arrive on a mid-stream-error
-        // retry; this adapter cannot un-deliver a block, so it ignores the
-        // marker and lets the retried attempt continue on fresh indexes.
-      }
-    }
-
-    // A block the core opened but never closed would leave the assembler waiting
-    // for content that is not coming. Close them rather than trust it.
-    for (const index of openBlocks) {
-      yield { type: "block-end", index, block: { type: "text", text: "" } };
-    }
+    // Event translation (blocks, usage, finish, unclosed-block safety) is
+    // shared with every dsh adapter in ns-bridge-core/dsh.
+    yield* streamToDsh(
+      streamDevin({
+        model,
+        messages: projected.messages,
+        systemPrompt: system,
+        tools,
+        effort: options.reasoningEffort as DevinEffort | undefined,
+        apiKey: credentials.access,
+        sessionId: options.sessionId,
+        signal: options.signal,
+      }),
+    );
   }
 }

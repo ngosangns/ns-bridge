@@ -1,0 +1,52 @@
+{
+  "name": "ns-bridge-core",
+  "version": "0.1.0",
+  "description": "Host-neutral vocabulary and host bridges (Pi / OMP / DeepSeek Harness) shared by the ns-bridge vendor providers; a dependency, not for direct install",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./pi": {
+      "types": "./dist/pi/index.d.ts",
+      "default": "./dist/pi/index.js"
+    },
+    "./dsh": {
+      "types": "./dist/dsh/index.d.ts",
+      "default": "./dist/dsh/index.js"
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
+    "directory": "packages/bridge-core"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "prepublishOnly": "pnpm run check && pnpm run build"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.1.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@types/node": "^22.20.4",
+    "ns-devin-core": "workspace:*",
+    "ns-kiro-core": "workspace:*"
+  }
+}
