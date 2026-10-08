@@ -10,8 +10,9 @@ adapters — not meant to be installed on its own.
 `BridgeMessage`, `BridgeTool`, `BridgeContext`, `BridgeStreamEvent`,
 `BridgeUsage`, `BridgeEffort`, `BridgeStopReason`. `ns-kiro-core` and
 `ns-devin-core` emit this shape structurally — their own request and event
-types are assignable to it — so a vendor core does not depend on this package,
-and this package does not depend on a vendor core.
+types are assignable to it (each core's `vocabulary.test.ts` pins that). The
+cores depend on this package for the sidecar client (`ns-bridge-core/sidecar`);
+this package never depends on a vendor core.
 
 ## Pi-family bridge (`ns-bridge-core/pi`)
 

@@ -63,12 +63,6 @@ importers:
       ns-bridge-bin:
         specifier: workspace:*
         version: link:../bridge-bin
-      ns-devin-core:
-        specifier: workspace:*
-        version: link:../devin-core
-      ns-kiro-core:
-        specifier: workspace:*
-        version: link:../kiro-core
 
   packages/devin-core:
     dependencies:
@@ -144,6 +138,9 @@ importers:
       js-tiktoken:
         specifier: ^1.0.21
         version: 1.0.21
+      ns-bridge-core:
+        specifier: workspace:^
+        version: link:../bridge-core
     devDependencies:
       '@smithy/types':
         specifier: ^4.18.0

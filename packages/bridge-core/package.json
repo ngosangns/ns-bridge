@@ -54,8 +54,6 @@
     "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
     "@types/node": "^22.20.4",
-    "ns-bridge-bin": "workspace:*",
-    "ns-devin-core": "workspace:*",
-    "ns-kiro-core": "workspace:*"
+    "ns-bridge-bin": "workspace:*"
   }
 }
