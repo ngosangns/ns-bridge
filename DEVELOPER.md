@@ -213,6 +213,14 @@ dependency order. It refuses to run when
 - a planned package depends on a sibling whose code changed since that
   sibling's released version (bump the sibling too).
 
+A package npm has never seen is left out of the plan with a warning: trusted
+publishing cannot create a package, so its first version is published by hand
+(`npm publish` with 2FA, dependencies first) and its trusted publisher
+registered afterwards (`npm trust github <name> --file publish.yml --repo
+ngosangns/ns-bridge --allow-publish`). A planned package that depends on one
+is refused until then; an optional peer (ns-bridge-core → ns-bridge-bin) does
+not count.
+
 Then it packs with `pnpm pack` (which rewrites `workspace:*` to exact versions),
 verifies every packed manifest (no `workspace:` ranges left, every internal pin
 on npm or in this run, `repository.url` naming this repo), and publishes with

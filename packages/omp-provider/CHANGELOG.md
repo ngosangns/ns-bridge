@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+Bundles `@ngosangns/ns-pi-provider@0.4.0`.
+
+- Kiro and Devin calls run in the Go `ns-bridge` sidecar when a binary is installed, and
+  in-process otherwise (see the Pi adapter's changelog); `NS_BRIDGE_ENGINE=ts` opts out.
+
 ## 0.4.0
 
 Bundles `@ngosangns/ns-pi-provider@0.3.0`.

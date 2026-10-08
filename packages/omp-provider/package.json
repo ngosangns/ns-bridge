@@ -1,6 +1,6 @@
 {
   "name": "ns-omp-provider",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "OMP (oh-my-pi) plugin: Kiro, Devin, and Grok providers from @ngosangns/ns-pi-provider, wrapped for OMP's provider/extension API.",
   "type": "module",
   "license": "MIT",

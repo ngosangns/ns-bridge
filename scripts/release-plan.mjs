@@ -14,6 +14,11 @@
 // Topological order already puts the platform packages before ns-bridge-bin,
 // whose optionalDependencies pin them.
 //
+// A package npm has never seen is left out of the CI plan with a warning:
+// trusted publishing cannot create a package, so its first version is
+// published by hand (2FA) and its trusted publisher registered afterwards.
+// A planned package that depends on one is refused until then.
+//
 //   node scripts/release-plan.mjs            # human-readable plan
 //   node scripts/release-plan.mjs --json     # [{dir,name,version}] for CI
 //   node scripts/release-plan.mjs --tag ns-kiro-core@0.3.9
@@ -85,6 +90,22 @@ function isPublished(name, version) {
     const stderr = String(error.stderr ?? "");
     if (stderr.includes("E404") || stderr.includes("404")) return false;
     throw new Error(`npm view ${name}@${version} failed: ${stderr || error.message}`);
+  }
+}
+
+/**
+ * Whether npm has any version of `name`. Trusted publishing (OIDC) cannot
+ * create a package: its first version must be published by hand (with the
+ * account's 2FA), and the trusted publisher registered afterwards.
+ */
+function existsOnNpm(name) {
+  try {
+    execFileSync("npm", ["view", name, "name"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return true;
+  } catch (error) {
+    const stderr = String(error.stderr ?? "");
+    if (stderr.includes("E404") || stderr.includes("404")) return false;
+    throw new Error(`npm view ${name} failed: ${stderr || error.message}`);
   }
 }
 
@@ -166,7 +187,7 @@ function checkBinaryLockstep(plan) {
   }
 }
 
-const plan = topoSort()
+const unpublished = topoSort()
   .filter(({ manifest }) => !isPublished(manifest.name, manifest.version))
   .map(({ dir, manifest }) => ({
     dir,
@@ -174,11 +195,16 @@ const plan = topoSort()
     version: manifest.version,
     tag: tagFor(manifest.name, manifest.version),
   }));
-checkBinaryLockstep(plan);
+checkBinaryLockstep(unpublished);
+
+// First releases need a human (see existsOnNpm); everything else goes to CI.
+const firstReleases = unpublished.filter((entry) => !existsOnNpm(entry.name));
+const firstReleaseNames = new Set(firstReleases.map((entry) => entry.name));
+const plan = unpublished.filter((entry) => !firstReleaseNames.has(entry.name));
 
 // A pending package pinning a sibling that is published-but-stale would ship
 // against code it was not built with. Refuse rather than publish it broken.
-const pendingNames = new Set(plan.map((entry) => entry.name));
+const pendingNames = new Set(unpublished.map((entry) => entry.name));
 const stale = packages.filter(
   ({ dir, manifest }) => !pendingNames.has(manifest.name) && changedSinceRelease(dir, manifest),
 );
@@ -187,6 +213,11 @@ const blockers = [];
 for (const entry of plan) {
   const { manifest } = byName.get(entry.name);
   for (const dep of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies })) {
+    if (firstReleaseNames.has(dep)) {
+      blockers.push(
+        `${entry.name}@${entry.version} depends on ${dep}, which has never been published; publish it by hand first (see below)`,
+      );
+    }
     if (staleNames.has(dep)) {
       blockers.push(
         `${entry.name}@${entry.version} depends on ${dep}, whose code changed since ${dep}@${byName.get(dep).manifest.version} was released; bump ${dep} too`,
@@ -200,6 +231,10 @@ const tagIndex = args.indexOf("--tag");
 if (tagIndex !== -1) {
   const tag = args[tagIndex + 1];
   const match = plan.find((entry) => entry.tag === tag);
+  if (!match && firstReleases.some((entry) => entry.tag === tag)) {
+    console.error(`::error::${tag} is a first release, which trusted publishing cannot create; publish it by hand`);
+    process.exit(1);
+  }
   if (!match) {
     const known = packages.find(({ manifest }) => tagFor(manifest.name, "") === tag.replace(/@[^@]*$/, "@"));
     console.error(
@@ -212,6 +247,14 @@ if (tagIndex !== -1) {
   }
 }
 
+if (firstReleases.length > 0) {
+  console.error(
+    `::warning::not published by CI (never on npm; trusted publishing cannot create a package): ` +
+      `${firstReleases.map((entry) => `${entry.name}@${entry.version}`).join(", ")}. ` +
+      `Publish each by hand once, in this order (npm publish <dir> --access public, with 2FA), ` +
+      `then register the trusted publisher: npm trust github <name> --file publish.yml --repo ngosangns/ns-bridge --allow-publish`,
+  );
+}
 for (const blocker of blockers) console.error(`::error::${blocker}`);
 if (!args.includes("--json")) {
   for (const { manifest } of stale) {

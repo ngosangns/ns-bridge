@@ -15,7 +15,9 @@ name: Publish
 #
 # The run publishes every public package whose package.json version is not on
 # npm yet, dependencies first (scripts/release-plan.mjs), and refuses a tag
-# whose package is not part of that plan.
+# whose package is not part of that plan. A package npm has never seen is left
+# out with a warning: trusted publishing cannot create one, so its first
+# version is published by hand and its trusted publisher registered after.
 #
 # The six ns-bridge-bin packages (resolver + five platform binaries) share one
 # version and are released together; their binaries are cross-compiled from
@@ -133,8 +135,14 @@ jobs:
               const url = ((manifest.repository || {}).url || "").replace(/^git\+/, "").replace(/\.git$/, "");
               if (url !== process.env.EXPECTED_REPO) fail(`${file} declares repository "${url}", expected ${process.env.EXPECTED_REPO}`);
               const runtime = { ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies };
+              // An optional peer is never installed for the package, so it
+              // need not be on npm yet (ns-bridge-bin before its first release).
+              const optionalPeers = new Set(
+                Object.entries(manifest.peerDependenciesMeta || {}).filter(([, meta]) => meta && meta.optional).map(([dep]) => dep),
+              );
               for (const [dep, range] of Object.entries(runtime)) {
                 if (String(range).startsWith("workspace:")) fail(`${file} still carries ${dep}@${range}`);
+                if (optionalPeers.has(dep) && !(manifest.dependencies || {})[dep] && !(manifest.optionalDependencies || {})[dep]) continue;
                 if (!dep.startsWith("ns-") && !dep.startsWith("@ngosangns/")) continue;
                 if (pending.has(`${dep}@${range}`)) continue;
                 try {

@@ -1,3 +1,15 @@
+## 0.4.0
+
+Runs on `ns-bridge-core@0.2.0`, `ns-kiro-core@0.4.0` and `ns-devin-core@0.3.0`.
+
+### Changed
+- Kiro and Devin calls run in the Go `ns-bridge` sidecar when a binary is installed
+  (`NS_BRIDGE_BIN`, the `ns-bridge-bin` package, or `ns-bridge` on `PATH`), and in-process
+  otherwise — streaming, Kiro's catalog refresh / usage / token refresh, and Devin's model
+  discovery and usage. Behaviour is unchanged (differential tests hold the two engines to the
+  same events, errors and request bytes). `NS_BRIDGE_ENGINE=ts` (or `NS_BRIDGE_ENGINE_KIRO=ts` /
+  `NS_BRIDGE_ENGINE_DEVIN=ts`) keeps everything in TypeScript.
+
 ## 0.3.0
 
 Moved into the [ns-bridge](https://github.com/ngosangns/ns-bridge) monorepo.
