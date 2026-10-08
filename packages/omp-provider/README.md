@@ -19,7 +19,7 @@ Shared command: `/ns-pi status | refresh [all\|kiro\|devin\|grok]`.
 ## Install
 
 ```bash
-# from npm (after first publish)
+# from npm
 omp plugin install ns-omp-provider
 
 # from git
@@ -77,7 +77,11 @@ Or allow-list only what you want: `NS_OMP_PROVIDERS=devin,grok`.
   models from `omp models` even though the provider is registered. After
   `/login` (or with CLI creds present) the live catalog, including Devin
   `swe-2-*`, appears via `fetchDynamicModels`.
-- **Upstream pin** — this release bundles `@ngosangns/ns-pi-provider@0.1.7`.
+- **Kiro catalog** — models come only from Kiro's `ListAvailableModels`
+  (since ns-pi-provider 0.2.0): with no Kiro credential and no saved catalog
+  snapshot, `kiro` registers zero models, and `-1m` long-context variants are
+  not offered.
+- **Upstream pin** — this release bundles `@ngosangns/ns-pi-provider@0.2.0`.
   Bumping it is a deliberate change (rebuild + retest).
 
 ## Development
@@ -95,14 +99,14 @@ your real `~/.omp`.
 
 ## Publish
 
-Push a tag matching `package.json` (e.g. `v0.1.0`) to run
+Push a tag matching `package.json` (e.g. `v0.2.0`) to run
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which
 publishes with **provenance** from a GitHub-hosted runner:
 
 ```bash
 # bump "version" in package.json first, then
 npm run check
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 Auth, in the order npm tries it:
