@@ -1,6 +1,11 @@
 // Public surface of the host-neutral Devin (Cascade) core.
 
 export {
+  DEFAULT_DEVIN_CAPACITY_RETRY,
+  type DevinCapacityRetryPolicy,
+  streamDevinWithCapacityRetry,
+} from "./capacity-retry.js";
+export {
   assignDevinModel,
   DEVIN_ASSIGN_MODEL_PATH,
   DEVIN_AUTH_PATH,

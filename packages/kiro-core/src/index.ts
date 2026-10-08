@@ -58,6 +58,14 @@ export {
   validateKiroConversation,
   validateKiroToolStructure,
 } from "./history-validator.js";
+export {
+  KIRO_NO_SESSION_MESSAGE,
+  type KiroHostLoginCallbacks,
+  loginKiroFromSession,
+  type ResolvedKiroRequestCredentials,
+  resolveKiroRequestCredentials,
+} from "./host-auth.js";
+export { type KiroHostModel, toKiroModelForHost } from "./host-model.js";
 export { parseInvokeToolCalls } from "./invoke-tool-parser.js";
 export {
   getKiroCliCredentials,

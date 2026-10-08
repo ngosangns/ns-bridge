@@ -5,8 +5,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { registerKiroProvider, refreshKiroModels, KIRO_PROVIDER_ID } from "./kiro/register.js";
-import { registerDevinProvider, refreshDevinModels, DEVIN_PROVIDER_ID } from "./devin/register.js";
+import { registerKiroProvider, refreshKiroModels, kiroCatalogStatus, KIRO_PROVIDER_ID } from "./kiro/register.js";
+import { registerDevinProvider, refreshDevinModels, devinCatalogStatus, DEVIN_PROVIDER_ID } from "./devin/register.js";
 import { registerGrokProvider, refreshGrokModels, GROK_PROVIDER_ID } from "./grok/register.js";
 import { getDefaultCatalogCache } from "./shared/index.js";
 
@@ -61,13 +61,17 @@ export async function registerAllProviders(
       const target = (parts[1] || "all").toLowerCase();
 
       if (action === "status") {
+        // Kiro and Devin catalogs live in their vendor cores (shared with the
+        // OMP and DeepSeek Harness adapters); Grok's in this package's cache.
         const cache = getDefaultCatalogCache();
-        const lines = [KIRO_PROVIDER_ID, DEVIN_PROVIDER_ID, GROK_PROVIDER_ID].map((id) => {
-          const hit = cache.lookup(id);
-          return hit.hit
-            ? `${id}: ${hit.snapshot.models.length} model(s) cached (age ${Math.round((Date.now() - hit.snapshot.fetchedAt) / 1000)}s)`
-            : `${id}: no cache (${hit.reason})`;
-        });
+        const grok = cache.lookup(GROK_PROVIDER_ID);
+        const lines = [
+          kiroCatalogStatus(),
+          devinCatalogStatus(),
+          grok.hit
+            ? `${GROK_PROVIDER_ID}: ${grok.snapshot.models.length} model(s) cached (age ${Math.round((Date.now() - grok.snapshot.fetchedAt) / 1000)}s)`
+            : `${GROK_PROVIDER_ID}: no cache (${grok.reason})`,
+        ];
         ctx.ui.notify(lines.join("\n"), "info");
         return;
       }

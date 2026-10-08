@@ -27,7 +27,7 @@
     "oauth"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "main": "./index.ts",
   "types": "./index.ts",
@@ -82,5 +82,10 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"
+  },
+  "dependencies": {
+    "ns-bridge-core": "workspace:*",
+    "ns-devin-core": "workspace:*",
+    "ns-kiro-core": "workspace:*"
   }
 }

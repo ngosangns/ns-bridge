@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Bundle src/index.ts (+ the @ngosangns/ns-pi-provider sources it imports) into
+ * Bundle src/index.ts (+ the @ngosangns/ns-pi-provider sources it imports, and
+ * through them ns-kiro-core, ns-devin-core and ns-bridge-core) into
  * dist/index.js for OMP.
  *
  * - `@earendil-works/pi-ai` and `/compat`  → src/compat/pi-ai.ts
@@ -40,25 +41,6 @@ const piCompatPlugin = {
   },
 };
 
-// kiro/register.ts derives its root (config.json, debug/) as three dirname()s
-// above its own source file (src/kiro/register.ts → package root). Bundled
-// into dist/index.js that would point *above* this package, so re-anchor it
-// to this package's root (dist/index.js → two dirname()s).
-const KIRO_ROOT_FROM = "const EXTENSION_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));";
-const KIRO_ROOT_TO = "const EXTENSION_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));";
-const kiroRootPlugin = {
-  name: "kiro-extension-root",
-  setup(b) {
-    b.onLoad({ filter: /(?:ns-)?pi-provider[\\/]src[\\/]kiro[\\/]register\.ts$/ }, (args) => {
-      const source = readFileSync(args.path, "utf8");
-      if (!source.includes(KIRO_ROOT_FROM)) {
-        return { errors: [{ text: `kiro EXTENSION_ROOT pattern not found in ${args.path}; update scripts/build.mjs` }] };
-      }
-      return { contents: source.replace(KIRO_ROOT_FROM, KIRO_ROOT_TO), loader: "ts" };
-    });
-  },
-};
-
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const upstream = JSON.parse(
   readFileSync(resolve(root, "node_modules/@ngosangns/ns-pi-provider/package.json"), "utf8"),
@@ -77,7 +59,7 @@ const result = await build({
   sourcemap: false,
   legalComments: "eof",
   external: ["@oh-my-pi/*"],
-  plugins: [piCompatPlugin, kiroRootPlugin],
+  plugins: [piCompatPlugin],
   // Some bundled CommonJS-style helpers call require(); give ESM output one.
   banner: {
     js: [

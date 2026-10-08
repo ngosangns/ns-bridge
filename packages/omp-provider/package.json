@@ -27,7 +27,7 @@
     "oauth"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -75,7 +75,8 @@
     "@types/node": "^22.18.6",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "ns-bridge-core": "workspace:*"
   },
   "publishConfig": {
     "access": "public",

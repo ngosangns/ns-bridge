@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { refreshKiroModels, resolveKiroDiscoveryToken } from "../../src/kiro/register.js";
+import { refreshKiroModels } from "../../src/kiro/register.js";
 import { refreshDevinModels, resolveDevinToken } from "../../src/devin/register.js";
 import { refreshGrokModels, grokAuthPresent } from "../../src/grok/register.js";
 
@@ -17,20 +17,14 @@ function has(path: string): boolean {
 }
 
 describe.runIf(LIVE)("live smoke (creds)", () => {
-  it("kiro discovery when token present", async () => {
-    const token = resolveKiroDiscoveryToken();
-    if (!token) {
-      console.info("[live] kiro: skip (no token)");
-      return;
-    }
-    const result = await refreshKiroModels({ force: true, token: token.token });
-    // Live ListAvailableModels can fail (region/entitlement/token type); do not fail the suite.
+  it("kiro catalog when a session is present", async () => {
+    const result = await refreshKiroModels({ force: true });
     if (result.models.length === 0) {
-      console.info("[live] kiro: discovery returned 0 models (token present; using graceful empty)");
+      console.info("[live] kiro: skip (no kiro-cli / IDE session, no KIRO_API_KEY)");
       return;
     }
     expect(result.models[0].cost).toHaveProperty("cacheRead");
-    console.info(`[live] kiro: ${result.models.length} models (source=${token.source === "env" ? "env" : "file"})`);
+    console.info(`[live] kiro: ${result.models.length} models (${result.region})`);
   });
 
   it("devin discovery when token present", async () => {

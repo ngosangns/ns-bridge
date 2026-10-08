@@ -135,6 +135,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
@@ -162,6 +165,16 @@ importers:
         version: link:../bridge-core
 
   packages/pi-provider:
+    dependencies:
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
+      ns-devin-core:
+        specifier: workspace:*
+        version: link:../devin-core
+      ns-kiro-core:
+        specifier: workspace:*
+        version: link:../kiro-core
     devDependencies:
       '@earendil-works/pi-ai':
         specifier: ^1.1.0
