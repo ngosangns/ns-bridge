@@ -1,0 +1,90 @@
+name: Publish
+
+# Publishes ns-omp-provider to npm via trusted publishing (OIDC): no npm token
+# is stored anywhere. npm only lets a trusted publisher be attached to a package
+# that already exists, so bootstrap once from a logged-in machine:
+#   npm publish --access public            # first version, manual (2FA)
+#   npm trust github ns-omp-provider --file publish.yml \
+#     --repo ngosangns/ns-omp-provider --allow-publish
+# (Alternatively set an `NPM_TOKEN` repo secret; npm falls back to it when no
+# OIDC trust is configured.)
+#
+# Trigger by pushing a tag that matches package.json:
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Build and pack, but do not publish"
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Node 22 ships npm 10, which predates trusted publishing.
+      - name: Upgrade npm for trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Verify the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(node -p "require('./package.json').version")
+          if [ "$version" != "$tag" ]; then
+            echo "::error::package.json is $version but the tag says $tag"
+            exit 1
+          fi
+
+      - name: Pack
+        run: |
+          mkdir -p tarballs
+          npm pack --pack-destination tarballs
+          ls -l tarballs
+
+      - name: Verify packed package declares this repository
+        run: |
+          expected="https://github.com/${{ github.repository }}"
+          tarball=(tarballs/ns-omp-provider-*.tgz)
+          url=$(tar -xzOf "${tarball[0]}" package/package.json | node -p "(JSON.parse(require('fs').readFileSync(0,'utf8')).repository || {}).url || ''")
+          normalized="${url#git+}"
+          normalized="${normalized%.git}"
+          echo "${tarball[0]} -> ${normalized:-<none>}"
+          if [ "$normalized" != "$expected" ]; then
+            echo "::error::tarball declares '${url:-<none>}' but provenance requires $expected"
+            exit 1
+          fi
+
+      - name: Publish
+        run: |
+          dry_run=""
+          if [ "${{ inputs.dry-run }}" = "true" ]; then
+            dry_run="--dry-run"
+            echo "dry run: npm will validate the publish without uploading"
+          fi
+          # `./` is load-bearing: a bare `tarballs/name.tgz` looks like owner/repo to npm.
+          npm publish ./tarballs/ns-omp-provider-*.tgz --access public --provenance $dry_run
+        env:
+          # Empty unless the optional NPM_TOKEN secret exists; OIDC takes precedence.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
