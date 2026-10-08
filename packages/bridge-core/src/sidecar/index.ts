@@ -12,6 +12,17 @@ export {
   SIDECAR_BIN_PACKAGE,
 } from "./binary.js";
 export {
+  type BridgeEngine,
+  type BridgeEngineSetting,
+  bridgeEngineSetting,
+  DEFAULT_BRIDGE_ENGINE,
+  type EngineStreamOptions,
+  engineStream,
+  NS_BRIDGE_ENGINE_ENV,
+  selectBridgeEngine,
+  sidecarBinaryAvailable,
+} from "./engine.js";
+export {
   isSidecarError,
   SidecarError,
   type SidecarErrorDetails,

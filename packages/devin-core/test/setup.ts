@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "vitest";
 
+// The Go toolchain keeps its build cache under the real home; the differential
+// tests build the sidecar with it.
+process.env.NS_BRIDGE_TEST_REAL_HOME ??= process.env.HOME;
+
 const testHome = mkdtempSync(join(tmpdir(), "devin-core-test-"));
 
 // Source modules resolve cache and credential paths from the home directory at

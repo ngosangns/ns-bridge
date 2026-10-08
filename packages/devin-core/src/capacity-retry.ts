@@ -1,6 +1,7 @@
 // ABOUTME: Optional capacity backoff around streamDevin, for hosts with no retry loop of their own.
 // ABOUTME: Retries only while nothing but `start` has been produced, so no content is ever replayed.
 
+import { selectDevinEngine, streamDevinOnEngine } from "./engine.js";
 import { isDevinCapacityError } from "./errors.js";
 import { type DevinStreamRequest, streamDevin } from "./stream.js";
 import type { DevinStreamEvent } from "./types.js";
@@ -54,6 +55,11 @@ export async function* streamDevinWithCapacityRetry(
   policy: DevinCapacityRetryPolicy = DEFAULT_DEVIN_CAPACITY_RETRY,
   stream: (request: DevinStreamRequest) => AsyncIterable<DevinStreamEvent> = streamDevin,
 ): AsyncIterable<DevinStreamEvent> {
+  // On the Go engine the sidecar runs the same backoff itself.
+  if (stream === streamDevin && selectDevinEngine(request) === "go") {
+    yield* streamDevinOnEngine(request, policy, streamDevin);
+    return;
+  }
   for (let attempt = 0; ; attempt++) {
     let heldStart: DevinStreamEvent | undefined;
     let committed = false;

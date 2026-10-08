@@ -47,7 +47,8 @@ cores hand `streamToPi` / `streamToDsh` today. Contract:
 | --- | --- |
 | `go/internal/bridge` | The vocabulary in Go (mirrors `packages/bridge-core/src/types.ts`), the envelope, the NDJSON writer, terminal errors |
 | `go/internal/sidecar` | One call's lifecycle: envelope, vendor dispatch, cancellation on stdin EOF / SIGTERM, exit codes |
-| `go/internal/vendors/<id>` | A vendor core. Only `echo` (no network, for tests) so far |
+| `go/internal/vendors/<id>` | A vendor core: `devin` (Cascade over Connect), `echo` (no network, for tests) |
+| `go/internal/{jsjson,pbwire,httpx,logx}` | Shared plumbing: JSON with `JSON.stringify` byte parity, the protobuf wire format, the Node-like HTTP client, `[vendor]` stderr diagnostics |
 | `go/cmd/ns-bridge` | The CLI: `stream --vendor <id>`, `vendors`, `version` |
 | `packages/bridge-core/src/sidecar` | The TypeScript client: `sidecarStream(vendor, request, { signal })`, `SidecarError`, `resolveSidecarBinary` |
 | `packages/bridge-bin*` | Distribution: `ns-bridge-bin` + five platform packages (npm, bun and pnpm install only the matching one, no install scripts) |
@@ -57,9 +58,22 @@ The client finds the binary through `NS_BRIDGE_BIN`, an explicit path,
 `ns-bridge-bin` (an optional peer of `ns-bridge-core`: an adapter that runs a
 vendor in the sidecar depends on it), then `ns-bridge` on `PATH`.
 
-Status: M1 (protocol, client, echo vendor, binary packages). Kiro and Devin
-still run on the TypeScript cores; no adapter depends on `ns-bridge-bin` yet. Change `types.ts` and
-`go/internal/bridge` together — the JSON must stay identical.
+Which engine runs a call is chosen per call by `NS_BRIDGE_ENGINE`
+(`go`, `ts` or `auto`; `NS_BRIDGE_ENGINE_<VENDOR>` overrides it for one
+vendor). The vendor cores' public stream functions (`streamDevin`,
+`streamDevinWithCapacityRetry`) dispatch through `engineStream` and map
+sidecar failures back to the core's own error classes, so every adapter
+(dsh, Pi, OMP) follows the switch without changes. A request that injects
+its own `fetch` always runs in process.
+
+Differential tests (`packages/*-core/test/engine-diff.test.ts`) run the same
+turns against one scripted server through both engines and require equal
+events, errors and request bytes.
+
+Status: M2 — Devin streaming (GetUserJwt, AssignModel, GetChatMessage,
+capacity backoff) runs in Go behind `NS_BRIDGE_ENGINE=go`; the default is
+still `ts`. Change `types.ts` and `go/internal/bridge` together — the JSON
+must stay identical.
 
 ### The `kiro` provider id in OMP
 

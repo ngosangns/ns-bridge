@@ -34,8 +34,8 @@ ns-bridge stream --vendor <id>
 | `ns-bridge vendors` | Vendor ids this binary serves, one per line |
 | `ns-bridge version` | `ns-bridge <version> (protocol <n>)` |
 
-Vendors in v1: `echo` only — a test vendor with no network (see
-[echo](#the-echo-vendor)). `kiro` and `devin` arrive with M2/M3.
+Vendors: `devin` (see [devin](#the-devin-vendor)) and `echo`, a test vendor
+with no network (see [echo](#the-echo-vendor)).
 
 The client finds the binary via `NS_BRIDGE_BIN`, then an explicit path from the
 adapter, then the one `ns-bridge-bin` installed for this machine (from its
@@ -192,6 +192,38 @@ on the same pipes:
 Commands will be `ns-bridge login --vendor <id>`, `ns-bridge models --vendor
 <id>` and `ns-bridge usage --vendor <id>`. A v1 client never sees these lines;
 adding them bumps the protocol version only if a v1 client could receive one.
+
+## Choosing the engine
+
+`ns-bridge-core/sidecar` exports `engineStream`, which the vendor cores' public
+stream functions call. It reads, per vendor:
+
+| Variable | Values |
+| --- | --- |
+| `NS_BRIDGE_ENGINE_<VENDOR>` (e.g. `NS_BRIDGE_ENGINE_DEVIN`) | `go`, `ts`, `auto`; wins for that vendor |
+| `NS_BRIDGE_ENGINE` | `go`, `ts`, `auto` |
+
+`go` always runs the binary (a missing binary is an `unavailable` error);
+`ts` always runs the in-process TypeScript core; `auto` runs the binary when
+one can be found (`NS_BRIDGE_BIN`, `ns-bridge-bin`, `PATH`) and falls back to
+TypeScript when it cannot start. The binary's stderr is forwarded to the
+host's stderr, as the in-process cores' console output was.
+
+## The devin vendor
+
+`request` is `DevinStreamRequest` (`packages/devin-core/src/stream.ts`) minus
+`signal`/`fetch`: `model` (a `DevinModelSpec`, `baseUrl` included), `messages`,
+`systemPrompt` (string or string[]), `tools`, `effort`, `apiKey` (the session
+token — login stays in TypeScript), `conversationId`/`sessionId`, `maxTokens`,
+`temperature`, `topP`, `stopSequences`, `chatModelUid`, plus `capacityRetry:
+{maxRetries, baseDelayMs, maxDelayMs}` to run `streamDevinWithCapacityRetry`'s
+backoff in the binary.
+
+Errors: an HTTP rejection carries `status` (and `retryAfterMs`); a Connect
+trailer rejection carries its code as `reasonCode`; `kind` follows
+`isDevin{ContextOverflow,RateLimit,Capacity,Auth}Error` in that order.
+`devinErrorFromSidecar` rebuilds `DevinApiError` / `DevinStreamError` /
+`DevinProtocolError` from them.
 
 ## The echo vendor
 

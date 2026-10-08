@@ -18,6 +18,7 @@ import (
 
 	"github.com/ngosangns/ns-bridge/go/internal/bridge"
 	"github.com/ngosangns/ns-bridge/go/internal/sidecar"
+	"github.com/ngosangns/ns-bridge/go/internal/vendors/devin"
 	"github.com/ngosangns/ns-bridge/go/internal/vendors/echo"
 )
 
@@ -30,7 +31,8 @@ const exitUsage = 2
 
 func registry() sidecar.Registry {
 	return sidecar.Registry{
-		"echo": echo.Vendor{},
+		"devin": devin.Vendor{},
+		"echo":  echo.Vendor{},
 	}
 }
 

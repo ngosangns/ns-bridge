@@ -39,6 +39,12 @@ export {
   normalizeDevinModels,
 } from "./discovery.js";
 export {
+  DEVIN_SIDECAR_VENDOR,
+  devinErrorFromSidecar,
+  selectDevinEngine,
+  toDevinSidecarRequest,
+} from "./engine.js";
+export {
   type ConnectTrailerError,
   createDevinHttpError,
   DevinApiError,
@@ -106,6 +112,7 @@ export {
   type DevinStreamRequest,
   LARGE_HISTORY_RECOVERY_BYTES,
   streamDevin,
+  streamDevinInProcess,
 } from "./stream.js";
 export * from "./types.js";
 export {

@@ -37,6 +37,12 @@ export interface SidecarStreamOptions {
   env?: NodeJS.ProcessEnv;
   /** Grace period between cancellation steps. */
   killGraceMs?: number;
+  /**
+   * Where the binary's diagnostics (stderr) go besides the crash tail: the
+   * host's stderr by default, as the in-process cores' console output did;
+   * `false` keeps them private.
+   */
+  stderr?: NodeJS.WritableStream | false;
 }
 
 /**
@@ -92,7 +98,9 @@ export async function* sidecarStream(
     notify();
   });
   child.stderr.setEncoding("utf8");
+  const stderrSink = options.stderr === undefined ? process.stderr : options.stderr;
   child.stderr.on("data", (chunk: string) => {
+    if (stderrSink) stderrSink.write(chunk);
     stderr = (stderr + chunk).slice(-STDERR_TAIL_BYTES);
   });
   // A binary that exits before reading stdin makes the write fail with EPIPE;

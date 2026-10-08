@@ -1,7 +1,7 @@
 {
   "name": "ns-devin-core",
   "version": "0.2.1",
-  "description": "Shared Devin (Cognition Cascade) protocol core — credentials, model discovery, Connect streaming; a dependency, not for direct install",
+  "description": "Shared Devin (Cognition Cascade) protocol core \u2014 credentials, model discovery, Connect streaming; a dependency, not for direct install",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,6 +25,9 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "prepublishOnly": "pnpm run check && pnpm run build"
+  },
+  "dependencies": {
+    "ns-bridge-core": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^22.20.4"

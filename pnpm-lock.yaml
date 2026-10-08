@@ -71,6 +71,10 @@ importers:
         version: link:../kiro-core
 
   packages/devin-core:
+    dependencies:
+      ns-bridge-core:
+        specifier: workspace:^
+        version: link:../bridge-core
     devDependencies:
       '@types/node':
         specifier: ^22.20.4

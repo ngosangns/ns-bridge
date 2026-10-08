@@ -12,7 +12,7 @@ func TestCommands(t *testing.T) {
 		t.Fatalf("version: %d %q", code, out.String())
 	}
 	out.Reset()
-	if code := run([]string{"vendors"}, nil, &out, &errOut); code != 0 || strings.TrimSpace(out.String()) != "echo" {
+	if code := run([]string{"vendors"}, nil, &out, &errOut); code != 0 || strings.TrimSpace(out.String()) != strings.Join(registry().IDs(), "\n") || !strings.Contains(out.String(), "echo") {
 		t.Fatalf("vendors: %d %q", code, out.String())
 	}
 	if code := run([]string{"stream"}, nil, &out, &errOut); code != exitUsage {

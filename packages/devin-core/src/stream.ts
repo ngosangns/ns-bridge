@@ -3,6 +3,7 @@
 
 import { assignDevinModel, DEVIN_CHAT_MESSAGE_PATH, type FetchImpl, fetchDevinAuthMetadata } from "./client.js";
 import { ConnectFrameReader, encodeConnectFrame } from "./connect.js";
+import { streamDevinOnEngine } from "./engine.js";
 import { createDevinHttpError, DevinProtocolError, DevinStreamError, readConnectTrailerError } from "./errors.js";
 import { parseStreamingJsonThrottled, parseToolCallArguments } from "./json.js";
 import {
@@ -72,14 +73,24 @@ export function calculateDevinCost(
 }
 
 /**
- * Stream one Cascade turn as neutral block events.
+ * Stream one Cascade turn as neutral block events, on the engine
+ * `NS_BRIDGE_ENGINE` selects: the ns-bridge Go sidecar or this package's
+ * in-process TypeScript core ({@link streamDevinInProcess}). A request that
+ * injects its own `fetch` always runs in process.
+ */
+export function streamDevin(request: DevinStreamRequest): AsyncIterable<DevinStreamEvent> {
+  return streamDevinOnEngine(request, undefined, streamDevinInProcess);
+}
+
+/**
+ * Stream one Cascade turn in this process (the TypeScript engine).
  *
  * Auth is `GetUserJwt` (session token → user JWT + optional edge URL), then —
  * for router models — `AssignModel`, then `GetChatMessage`. Errors surface as
  * throws: `DevinApiError` on the HTTP envelope, `DevinStreamError` on a Connect
  * trailer rejection, `DevinProtocolError` on malformed wire data.
  */
-export async function* streamDevin(request: DevinStreamRequest): AsyncIterable<DevinStreamEvent> {
+export async function* streamDevinInProcess(request: DevinStreamRequest): AsyncIterable<DevinStreamEvent> {
   const model = request.model;
   const fetchImpl = request.fetch ?? fetch;
   const baseUrl = (model.baseUrl || DEVIN_DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -323,7 +334,7 @@ export async function* streamDevin(request: DevinStreamRequest): AsyncIterable<D
         const moved =
           responseUsage === undefined
             ? totalTokens > 0 || credits !== 0
-            : totalTokens !== responseUsage.totalTokens || credits !== responseUsage.credits;
+            : totalTokens !== responseUsage.totalTokens || credits !== (responseUsage.credits ?? 0);
         if (!moved) continue;
         responseUsage = {
           ...usage,
