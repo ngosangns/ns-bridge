@@ -1,0 +1,74 @@
+## 0.2.2
+
+- fix(grok): show the Grok agent's own tool activity in the reply. Grok (ACP mode) edits files and runs commands **inside its own process** and reports them only as ACP `tool_call` / `tool_call_update` notifications, which the provider dropped (only an opt-in `[grok tool: …]` note hidden in the collapsed thinking block). In Pi and OMP a turn therefore looked like read-only reasoning/speculation even when Grok had edited files, and long turns showed nothing for minutes. Each tool is now rendered as a visible Markdown list line in the answer text — `` - Read `a.ts` ``, `` - Edit `a.ts` (+1 −1) ``, `` - Write `NOTES.md` (+1 −0) ``, `` - Run `npm test` ``, with `✗ … failed: <first line>` on failure; paths are relative to the session cwd. They are text, never `toolCall` blocks, so the host never tries to re-run them. On by default; `PI_GROK_SDK_SHOW_TOOLS=0` hides them.
+- fix(grok): prefix cold-start prompts with a short bridge note — the host system prompt lists Pi/OMP tools (`read`/`bash`/`edit`/`write`, OMP hashline edit) that the Grok agent cannot call; the note tells Grok to act with its built-in tools (`read_file`, `search_replace`, `write`, `run_terminal_command`) rather than describing edits or writing tool calls as text. `PI_GROK_SDK_BRIDGE_NOTE=0` disables it.
+
+## 0.2.1
+
+- fix(kiro): honour `metadataEvent` stop reasons (ported from ns-kiro-provider kiro-core `1e363bc` / upstream pi-provider-kiro #174). `MAX_TOKENS` now reports `length` even when a tool call parsed, so Pi/OMP agent loops refuse to run a cut-off tool call with partial arguments; `END_TURN`/`TOOL_USE` settle `stop`/`toolUse` as before.
+- fix(kiro): terminal stops end the request as errors instead of a silent `stop` — `CONTENT_FILTERED` (redacted, clamped `stopDetails`), `MODEL_CONTEXT_WINDOW_EXCEEDED` (worded `context_length_exceeded` so Pi/OMP auto-compaction detects overflow), and `PAUSE_TURN`. Thrown before tool calls close, so a refused turn's tool calls never reach the host as completed. No automatic retry is added (live Kiro marks every normal turn `END_TURN`).
+- fix(kiro): read `metadataEvent.tokenUsage` (uncached/input, output, cache read/write, `contextUsagePercentage`), merged across split frames, when the service reports it.
+- fix(kiro): mid-stream `:message-type: exception` frames (e.g. throttling) surface as errors instead of being dropped.
+
+## 0.2.0
+
+### Breaking (kiro)
+
+- Kiro models now come **only** from `ListAvailableModels` (scoped to the credential's region/org/entitlement); the package no longer ships a static Kiro model list.
+- Without a Kiro credential **and** without a saved catalog snapshot (`~/.pi/agent/cache/ns-pi-provider/kiro.models.json`), the `kiro` provider registers with **zero models**. Log in (`/login kiro`) or set `KIRO_API_KEY` to populate it; `config.json` `models` remains a manual override.
+- Derived long-context `-1m` variants (e.g. `claude-sonnet-4-6-1m`) are no longer offered — the API does not advertise them and `claude-sonnet-4.5-1m` was already rejected (`INVALID_MODEL_ID`). Update any settings/default model that referenced a `-1m` id.
+
+### Changes
+
+- fix(kiro): convert wire `modelId` to Kiro's dot form — discovery returns pi dash-form IDs (`claude-sonnet-4-5`) but `GenerateAssistantResponse` requires dot form (`claude-sonnet-4.5`), so every discovered model failed with `INVALID_MODEL_ID` on stream.
+- refactor(kiro): drop the package-shipped model catalog — `ListAvailableModels` is now the sole catalog source (scoped to the key's region/org/entitlement), so the offered set can no longer drift stale. `config.json` `models` remains a user override for custom upstreams; derived `-1m` variants are no longer offered since the API does not advertise them.
+- feat(kiro): await model discovery before first `registerProvider` so `--list-models` / headless `-p` see the full catalog without a `session_start` (same pattern as devin).
+- feat(kiro): carry `thinkingLevelMap` through discovered models (opus 4.6/4.7 thinking levels incl. `xhigh`) via a client-side name heuristic — the API does not report it.
+- chore(kiro): remove vendored dead code (`stream.ts` + `tokenizer.ts`/`thinking-parser.ts`/`event-parser.ts`/`transform.ts`/`models.ts`) that pinned the static catalog and was never wired into the provider.
+- fix(grok): scope ACP agent disposal to the shutting-down session (port of upstream pi-grok-sdk `45fde95`) — `session_shutdown` now disposes only that session's pool entry (keyed by its session file/id) instead of every agent, `session_start` for another session no longer tears down the previous scope, and a single module-level `process.exit` hook replaces one per registration. Multi-session hosts sharing one Node process no longer kill other open chats' Grok agents.
+- chore: dev/test against `@earendil-works/pi-ai` / `pi-coding-agent` 1.1.0 (peer ranges unchanged: `*`).
+- test: extension registration accepts an empty kiro catalog when no credential or cached `ListAvailableModels` snapshot exists (hermetic CI no longer depends on `~/.pi` cache).
+- test(kiro): add live per-model probe (`tests/live/kiro-models.test.ts`) streaming a minimal request through every discovered model; opt-in via `NS_PI_LIVE=1`, `NS_PI_MODEL_FILTER`, `NS_PI_MODEL_TIMEOUT_MS`.
+
+## 0.1.7
+
+- fix(kiro): read tools/system prompt via `getCurrentTools` / `getCurrentSystemPrompt` after Pi `normalizeContext` — `context.tools`/`context.systemPrompt` are empty once the transcript protocol folds them into a leading system message, so Kiro requests went out with zero tools and no system prompt (models answered in plain text and hallucinated command output). Same root cause as the devin fix in 0.1.5.
+- fix(grok): answer agent→client JSON-RPC requests — `_x.ai/ask_user_question` gets `{cancelled:true}`, `session/request_permission` auto-selects an `allow_*` option (matches `--always-approve`), unknown methods get `-32601`. Previously unanswered requests blocked the agent forever (`pi auth check`/headless hangs).
+- fix(grok): resolve the system prompt from transcript system messages in prompt building and history fingerprints (same transcript-protocol drop).
+
+## 0.1.6
+
+- fix(devin): retry serving-model capacity pressure — trailer-only "capacity issues" errors and HTTP 503 before any emitted content now retry with exponential backoff (5s → 10s → 20s, max 3) instead of failing the stream outright; mid-stream capacity trailers still surface as errors to avoid replaying emitted deltas.
+- chore: enable `allowImportingTsExtensions` so `npm run typecheck` covers the `.ts`-extension imports used across src/tests (unblocks `prepublishOnly`).
+
+## 0.1.5
+
+- fix(devin): read tools/system prompt via `getCurrentTools` / `getCurrentSystemPrompt` after Pi `normalizeContext` (tools live on system `toolsAdded`, so `context.tools` was always empty under RPC).
+- fix(devin): assemble swe-2 streamed tool calls — args-only protobuf frames no longer mint a new id/name (`tool`), so bash/read/edit/write actually execute under Pi RPC.
+- fix(devin): encode assistant history as role `2` (user=1, tool=4); treat stop reason `10` as `toolUse`.
+
+## 0.1.4
+
+- Republish of 0.1.3 (Devin await catalog before register) after npm staged-version conflict.
+
+# Changelog
+
+## 0.1.3
+
+- fix(devin): await `refreshDevinModels` in async extension factory before first `registerProvider`, so `pi --list-models` / `-p` see discovered models (e.g. `swe-2-medium`/`high`/`max`) without interactive `session_start`.
+
+## 0.1.2
+
+- fix(devin): escape `$` in CLI session tokens when seeding Pi `apiKey` (`devin-session-token$…` → `$$`) so `--list-models` marks Devin configured.
+
+## 0.1.1
+
+- fix(kiro): OAuth discovery — omit `tokentype=API_KEY` for IdC/SSO bearers so model listing works with Builder ID / Google / GitHub sessions.
+- fix(devin): resolve CLI `credentials.toml` (`windsurf_api_key`) for model registration and auth without requiring a prior `/login` when credentials already exist (Pi `--list-models` no longer needs a `devin` entry in `auth.json`).
+
+## 0.1.0
+
+- Initial unified package registering `kiro`, `devin`, and `grok` providers.
+- Disk TTL + ETag/version model catalog cache shared across providers.
+- `/ns-pi refresh|status` command and per-provider refresh hooks.
+- Hermetic vitest coverage for cache hits, auth resolve, model mapping.
