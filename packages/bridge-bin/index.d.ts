@@ -15,7 +15,7 @@ export interface BinaryPathOptions {
   platform?: string;
   /** Override `process.arch` (tests). */
   arch?: string;
-  /** Directories to resolve the platform package from, instead of this package's. */
+  /** Look only in `<path>/node_modules/<platform package>` for these paths, instead of resolving from this package. */
   paths?: string[];
 }
 
