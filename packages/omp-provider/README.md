@@ -96,17 +96,27 @@ your real `~/.omp`.
 ## Publish
 
 Push a tag matching `package.json` (e.g. `v0.1.0`) to run
-[`.github/workflows/publish.yml`](.github/workflows/publish.yml). Auth is npm
-**trusted publishing (OIDC)** with provenance — no long-lived token.
-
-npm can only attach a trusted publisher to a package that already exists, so
-bootstrap once from a logged-in machine:
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml), which
+publishes with **provenance** from a GitHub-hosted runner:
 
 ```bash
-npm run check && npm publish --access public      # first version (2FA prompt)
-npm trust github ns-omp-provider --file publish.yml \
-  --repo ngosangns/ns-omp-provider --allow-publish
+# bump "version" in package.json first, then
+npm run check
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
-After that every `vX.Y.Z` tag publishes from CI. (Fallback: add an `NPM_TOKEN`
-repository secret; the workflow passes it to npm when OIDC is not configured.)
+Auth, in the order npm tries it:
+
+1. **Trusted publishing (OIDC)**, if a trusted publisher is attached to the
+   package. npm only allows that once the package exists:
+   ```bash
+   npm trust github ns-omp-provider --file publish.yml \
+     --repo ngosangns/ns-omp-provider --allow-publish
+   ```
+2. **`NPM_TOKEN` repository secret** (currently set): a granular npm token with
+   package write and "bypass 2FA", passed to npm as `NODE_AUTH_TOKEN`. This
+   covers the first publish. After trusted publishing is configured the secret
+   can be removed (`gh secret delete NPM_TOKEN --repo ngosangns/ns-omp-provider`).
+
+Manual publish from a logged-in machine still works:
+`npm run check && npm publish --access public`.

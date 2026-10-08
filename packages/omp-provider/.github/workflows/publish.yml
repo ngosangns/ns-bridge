@@ -1,15 +1,22 @@
 name: Publish
 
-# Publishes ns-omp-provider to npm via trusted publishing (OIDC): no npm token
-# is stored anywhere. npm only lets a trusted publisher be attached to a package
-# that already exists, so bootstrap once from a logged-in machine:
-#   npm publish --access public            # first version, manual (2FA)
-#   npm trust github ns-omp-provider --file publish.yml \
-#     --repo ngosangns/ns-omp-provider --allow-publish
-# (Alternatively set an `NPM_TOKEN` repo secret; npm falls back to it when no
-# OIDC trust is configured.)
+# Publishes ns-omp-provider to npm with provenance. Two auth modes:
+#
+# 1. `NPM_TOKEN` repository secret (configured): a granular npm token with
+#    package write + "bypass 2FA". setup-node writes an .npmrc that reads it
+#    from NODE_AUTH_TOKEN. This is what makes the very first publish possible
+#    from CI, since npm cannot attach a trusted publisher to a package that
+#    does not exist yet.
+# 2. npm trusted publishing (OIDC): once the package exists you can run
+#      npm trust github ns-omp-provider --file publish.yml \
+#        --repo ngosangns/ns-omp-provider --allow-publish
+#    npm >= 11.5 tries OIDC first and falls back to NODE_AUTH_TOKEN, so the
+#    secret can then be deleted without touching this workflow.
 #
 # Trigger by pushing a tag that matches package.json:
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
 #   git tag v0.1.0 && git push origin v0.1.0
 
 on:
@@ -78,6 +85,11 @@ jobs:
 
       - name: Publish
         run: |
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            echo "auth: NPM_TOKEN secret present (OIDC still preferred if a trusted publisher is configured)"
+          else
+            echo "auth: no NPM_TOKEN secret, relying on npm trusted publishing (OIDC)"
+          fi
           dry_run=""
           if [ "${{ inputs.dry-run }}" = "true" ]; then
             dry_run="--dry-run"
@@ -86,5 +98,5 @@ jobs:
           # `./` is load-bearing: a bare `tarballs/name.tgz` looks like owner/repo to npm.
           npm publish ./tarballs/ns-omp-provider-*.tgz --access public --provenance $dry_run
         env:
-          # Empty unless the optional NPM_TOKEN secret exists; OIDC takes precedence.
+          # Empty when the NPM_TOKEN secret is absent; npm then uses OIDC only.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
