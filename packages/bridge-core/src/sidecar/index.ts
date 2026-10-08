@@ -2,7 +2,15 @@
 // The events it yields feed `streamToPi` (./pi) and `streamToDsh` (./dsh)
 // exactly as an in-process vendor core's would.
 
-export { DEFAULT_SIDECAR_COMMAND, NS_BRIDGE_BIN_ENV, resolveSidecarBinary } from "./binary.js";
+export {
+  DEFAULT_SIDECAR_COMMAND,
+  findPackagedSidecarBinary,
+  NS_BRIDGE_BIN_ENV,
+  type PackagedSidecarBinary,
+  type ResolveSidecarBinaryOptions,
+  resolveSidecarBinary,
+  SIDECAR_BIN_PACKAGE,
+} from "./binary.js";
 export {
   isSidecarError,
   SidecarError,

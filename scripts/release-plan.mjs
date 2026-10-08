@@ -8,6 +8,12 @@
 // does not have, dependencies before dependents. Publishing a dependent before
 // the exact version it pins would leave it briefly uninstallable.
 //
+// The six ns-bridge-bin packages (the resolver + five platform binaries) ship
+// together at one version: the script refuses mismatched versions, and treats
+// a change under go/ as a change to all six (it is what their tarballs carry).
+// Topological order already puts the platform packages before ns-bridge-bin,
+// whose optionalDependencies pin them.
+//
 //   node scripts/release-plan.mjs            # human-readable plan
 //   node scripts/release-plan.mjs --json     # [{dir,name,version}] for CI
 //   node scripts/release-plan.mjs --tag ns-kiro-core@0.3.9
@@ -20,6 +26,16 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const packagesDir = join(root, "packages");
 
+/** The six packages that carry the Go sidecar; they ship at one version. */
+const BINARY_PACKAGE_DIRS = new Set([
+  "packages/bridge-bin",
+  "packages/bridge-bin-darwin-arm64",
+  "packages/bridge-bin-darwin-x64",
+  "packages/bridge-bin-linux-arm64",
+  "packages/bridge-bin-linux-x64",
+  "packages/bridge-bin-win32-x64",
+]);
+
 const packages = readdirSync(packagesDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => {
@@ -30,6 +46,7 @@ const packages = readdirSync(packagesDir, { withFileTypes: true })
   .filter(({ manifest }) => !manifest.private);
 
 const byName = new Map(packages.map((pkg) => [pkg.manifest.name, pkg]));
+const binaryPackages = packages.filter(({ dir }) => BINARY_PACKAGE_DIRS.has(dir));
 
 /** Workspace packages this one needs, at any dependency kind (bundled devDeps still order the build). */
 function internalDeps(manifest) {
@@ -83,7 +100,10 @@ export function tagFor(name, version) {
 function releaseBase(dir, manifest) {
   const tag = tagFor(manifest.name, manifest.version);
   try {
-    return execFileSync("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}^{commit}`], { cwd: root, encoding: "utf8" }).trim();
+    return execFileSync("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}^{commit}`], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
   } catch {
     const out = execFileSync("git", ["log", "-1", "--format=%H", "-G", '"version"', "--", join(dir, "package.json")], {
       cwd: root,
@@ -97,25 +117,64 @@ function releaseBase(dir, manifest) {
  * True when shipped code changed after the released version: a dependent packed
  * now would pin that version and get the old code, missing whatever it imports
  * from the new one. Tests and docs do not ship, so they do not count.
+ *
+ * For the binary packages, a change under go/ (or the build script) counts as
+ * a change to every one of them: that is what the published tarball actually
+ * contains.
  */
 function changedSinceRelease(dir, manifest) {
   const base = releaseBase(dir, manifest);
   if (!base) return true;
+  const paths = [dir, `:!${dir}/test`, `:!${dir}/tests`, `:!${dir}/**/*.md`];
+  if (BINARY_PACKAGE_DIRS.has(dir)) {
+    paths.push("go", "scripts/build-sidecar.mjs");
+  }
   try {
-    execFileSync(
-      "git",
-      ["diff", "--quiet", base, "HEAD", "--", dir, `:!${dir}/test`, `:!${dir}/tests`, `:!${dir}/**/*.md`],
-      { cwd: root },
-    );
+    execFileSync("git", ["diff", "--quiet", base, "HEAD", "--", ...paths], { cwd: root });
     return false;
   } catch {
     return true;
   }
 }
 
+/**
+ * The binary packages share one version and ship together. Refuse a plan that
+ * would split them: mismatched versions, or some of the six pending while
+ * others are already on npm at that version.
+ *
+ * A go/ change after a release marks all six stale (see changedSinceRelease);
+ * like any stale package that is a note, and a blocker for whatever pins
+ * ns-bridge-bin in the plan.
+ */
+function checkBinaryLockstep(plan) {
+  if (binaryPackages.length === 0) return;
+  const versions = new Set(binaryPackages.map(({ manifest }) => manifest.version));
+  if (versions.size !== 1) {
+    console.error(
+      `::error::the ns-bridge-bin packages must share one version; have ${[...versions].sort().join(", ")}. Bump all six together.`,
+    );
+    process.exit(1);
+  }
+  const pendingNames = new Set(plan.map((entry) => entry.name));
+  const pending = binaryPackages.filter(({ manifest }) => pendingNames.has(manifest.name));
+  if (pending.length > 0 && pending.length < binaryPackages.length) {
+    const published = binaryPackages.filter(({ manifest }) => !pendingNames.has(manifest.name));
+    console.error(
+      `::warning::${published.map(({ manifest }) => manifest.name).join(", ")} already on npm at ${[...versions][0]}; ` +
+        `publishing only ${pending.map(({ manifest }) => manifest.name).join(", ")} (resuming a partial release)`,
+    );
+  }
+}
+
 const plan = topoSort()
   .filter(({ manifest }) => !isPublished(manifest.name, manifest.version))
-  .map(({ dir, manifest }) => ({ dir, name: manifest.name, version: manifest.version, tag: tagFor(manifest.name, manifest.version) }));
+  .map(({ dir, manifest }) => ({
+    dir,
+    name: manifest.name,
+    version: manifest.version,
+    tag: tagFor(manifest.name, manifest.version),
+  }));
+checkBinaryLockstep(plan);
 
 // A pending package pinning a sibling that is published-but-stale would ship
 // against code it was not built with. Refuse rather than publish it broken.
@@ -156,7 +215,9 @@ if (tagIndex !== -1) {
 for (const blocker of blockers) console.error(`::error::${blocker}`);
 if (!args.includes("--json")) {
   for (const { manifest } of stale) {
-    console.error(`note: ${manifest.name}@${manifest.version} is on npm but its code changed since; bump it before the next release`);
+    console.error(
+      `note: ${manifest.name}@${manifest.version} is on npm but its code changed since; bump it before the next release`,
+    );
   }
 }
 if (blockers.length > 0) process.exit(1);

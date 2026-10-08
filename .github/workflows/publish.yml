@@ -16,6 +16,10 @@ name: Publish
 # The run publishes every public package whose package.json version is not on
 # npm yet, dependencies first (scripts/release-plan.mjs), and refuses a tag
 # whose package is not part of that plan.
+#
+# The six ns-bridge-bin packages (resolver + five platform binaries) share one
+# version and are released together; their binaries are cross-compiled from
+# go/ here (scripts/build-sidecar.mjs), never committed.
 
 on:
   push:
@@ -43,6 +47,12 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # Go builds the sidecar binaries the ns-bridge-bin-* packages carry, and
+      # bridge-core's sidecar tests build and drive one.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache: false
 
       # Node 22 ships npm 10, which predates trusted publishing.
       - name: Upgrade npm for trusted publishing
@@ -55,6 +65,13 @@ jobs:
       # `check` typechecks against built declarations, so the build comes first.
       - run: pnpm -r build
       - run: pnpm -r check
+      - name: Go (gofmt, vet, test)
+        working-directory: go
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "::error::gofmt needed: $unformatted"; exit 1; fi
+          go vet ./...
+          go test ./...
       - run: pnpm test
 
       - name: Plan
@@ -67,6 +84,13 @@ jobs:
           fi
           echo "plan=$(node scripts/release-plan.mjs --json)" >> "$GITHUB_OUTPUT"
 
+      # The ns-bridge-bin-<os>-<cpu> packages carry a binary that is not in git:
+      # cross-compile every target (CGO off, version from ns-bridge-bin) into
+      # packages/bridge-bin-*/bin before packing. Cheap, so it runs whether or
+      # not the plan includes them.
+      - name: Build sidecar binaries
+        run: node scripts/build-sidecar.mjs
+
       # `pnpm pack`, not `npm pack`: dependents reference the cores through
       # `workspace:*`, and only pnpm rewrites that to the real version. Packing
       # with npm would publish the literal `workspace:*` and the package would
@@ -77,7 +101,13 @@ jobs:
         run: |
           mkdir -p tarballs
           for dir in $(node -p "JSON.parse(process.env.PLAN).map((e) => e.dir).join(' ')"); do
-            (cd "$dir" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/tarballs")
+            case "$dir" in
+              # The platform binary packages have no workspace: ranges to
+              # rewrite, and pnpm pack drops the executable bit on files not
+              # named in "bin"; npm pack keeps bin/ns-bridge executable.
+              packages/bridge-bin-*) (cd "$dir" && npm pack --pack-destination "$GITHUB_WORKSPACE/tarballs") ;;
+              *) (cd "$dir" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/tarballs") ;;
+            esac
           done
           ls -l tarballs
 
@@ -111,6 +141,22 @@ jobs:
                   execFileSync("npm", ["view", `${dep}@${range}`, "version"], { stdio: "ignore" });
                 } catch {
                   if (!siblings.has(dep)) fail(`${file} pins ${dep}@${range}, which is neither on npm nor in this run`);
+                }
+              }
+              // A binary package must carry its binary, executable, and the
+              // one this runner can execute must report the package version.
+              if (manifest.name.startsWith("ns-bridge-bin-")) {
+                const exe = manifest.os?.[0] === "win32" ? "ns-bridge.exe" : "ns-bridge";
+                const listing = execFileSync("tar", ["-tvzf", `tarballs/${file}`], { encoding: "utf8" });
+                const entry = listing.split("\n").find((line) => line.endsWith(` package/bin/${exe}`));
+                if (!entry) fail(`${file} carries no bin/${exe}`);
+                else if (exe === "ns-bridge" && !/^-rwx/.test(entry)) fail(`${file}: bin/${exe} is not executable (${entry.split(" ")[0]})`);
+                if (entry && manifest.os?.[0] === process.platform && manifest.cpu?.[0] === process.arch) {
+                  const scratch = execFileSync("mktemp", ["-d"], { encoding: "utf8" }).trim();
+                  execFileSync("tar", ["-xzf", `tarballs/${file}`, "-C", scratch]);
+                  const reported = execFileSync(`${scratch}/package/bin/${exe}`, ["version"], { encoding: "utf8" }).trim();
+                  if (!reported.startsWith(`ns-bridge ${manifest.version} `)) fail(`${file}: binary reports "${reported}", expected ${manifest.version}`);
+                  else console.log(`${file}: ${reported}`);
                 }
               }
               console.log(`${file}: ok`);

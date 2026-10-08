@@ -38,8 +38,10 @@ Vendors in v1: `echo` only — a test vendor with no network (see
 [echo](#the-echo-vendor)). `kiro` and `devin` arrive with M2/M3.
 
 The client finds the binary via `NS_BRIDGE_BIN`, then an explicit path from the
-adapter, then `ns-bridge` on `PATH`. (M1 adds the per-platform
-`ns-bridge-bin-*` npm packages ahead of the `PATH` fallback.)
+adapter, then the one `ns-bridge-bin` installed for this machine (from its
+`ns-bridge-bin-<os>-<cpu>` optional dependency), then `ns-bridge` on `PATH`.
+Targets: darwin-arm64, darwin-x64, linux-arm64, linux-x64, win32-x64 (pure Go,
+CGO off). `ns-bridge version` reports the npm version it shipped in.
 
 ## stdin: the request envelope
 

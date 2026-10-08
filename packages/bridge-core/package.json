@@ -39,10 +39,14 @@
     "prepublishOnly": "pnpm run check && pnpm run build"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-llm": ">=0.1.0-0"
+    "@deepseek-ai/dsh-llm": ">=0.1.0-0",
+    "ns-bridge-bin": "workspace:^"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "ns-bridge-bin": {
       "optional": true
     }
   },
@@ -50,6 +54,7 @@
     "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
     "@types/node": "^22.20.4",
+    "ns-bridge-bin": "workspace:*",
     "ns-devin-core": "workspace:*",
     "ns-kiro-core": "workspace:*"
   }

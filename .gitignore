@@ -9,3 +9,7 @@ tarballs/
 .smoke-home/
 coverage/
 .provider-creds/
+
+# Sidecar binaries: cross-compiled at pack time (scripts/build-sidecar.mjs)
+packages/bridge-bin-*/bin/
+packages/bridge-bin-*/LICENSE

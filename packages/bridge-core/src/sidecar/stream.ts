@@ -3,7 +3,7 @@
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import type { BridgeStreamEvent } from "../types.js";
-import { resolveSidecarBinary } from "./binary.js";
+import { DEFAULT_SIDECAR_COMMAND, findPackagedSidecarBinary, resolveSidecarBinary } from "./binary.js";
 import { SidecarError, type SidecarErrorPayload } from "./errors.js";
 
 /** The sidecar protocol version this client speaks. */
@@ -214,9 +214,13 @@ function parseLine(line: string, details: () => object): SidecarLine {
 function unavailable(binary: string, vendor: string, cause: unknown): SidecarError {
   const code = (cause as { code?: unknown } | undefined)?.code;
   const reason = code === "ENOENT" ? "not found" : code === "EACCES" ? "not executable" : String(cause);
+  // Falling back to PATH means the packaged binary was not usable; say why,
+  // since that is the install the user is expected to have.
+  const packaged = binary === DEFAULT_SIDECAR_COMMAND ? findPackagedSidecarBinary() : undefined;
+  const why = packaged && "error" in packaged ? ` ${packaged.error}.` : "";
   return new SidecarError(
     "unavailable",
-    `Cannot start the ns-bridge binary "${binary}" (${reason}). Install it or point NS_BRIDGE_BIN at one.`,
+    `Cannot start the ns-bridge binary "${binary}" (${reason}).${why} Install ns-bridge-bin or point NS_BRIDGE_BIN at a binary.`,
     { vendor, cause },
   );
 }

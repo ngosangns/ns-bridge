@@ -9,7 +9,7 @@ export default defineConfig({
       {
         test: {
           name: "bridge",
-          include: ["packages/bridge-core/test/**/*.test.ts"],
+          include: ["packages/{bridge-core,bridge-bin}/test/**/*.test.ts"],
         },
       },
       {

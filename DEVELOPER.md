@@ -5,7 +5,8 @@ project is and how to install/use it, see [README.md](README.md).
 
 ## Layout
 
-pnpm workspace, eight packages under `packages/`, in three layers:
+pnpm workspace, fourteen packages under `packages/`: eight in three layers, plus
+the six that ship the Go sidecar binary.
 
 | Layer | Package | Owns |
 | --- | --- | --- |
@@ -16,6 +17,8 @@ pnpm workspace, eight packages under `packages/`, in three layers:
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter behind an OMP-compat layer; `kiro` opt-in |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh` |
+| sidecar binary | [`ns-bridge-bin`](packages/bridge-bin) | `binaryPath()`: the Go binary installed for this machine, via the platform package below |
+| sidecar binary | `ns-bridge-bin-{darwin-arm64,darwin-x64,linux-arm64,linux-x64,win32-x64}` (`packages/bridge-bin-*`) | One binary each, `os`/`cpu`-gated optional dependencies of `ns-bridge-bin`; the binary is built at pack time, never committed |
 
 ### Where a change goes
 
@@ -46,10 +49,16 @@ cores hand `streamToPi` / `streamToDsh` today. Contract:
 | `go/internal/sidecar` | One call's lifecycle: envelope, vendor dispatch, cancellation on stdin EOF / SIGTERM, exit codes |
 | `go/internal/vendors/<id>` | A vendor core. Only `echo` (no network, for tests) so far |
 | `go/cmd/ns-bridge` | The CLI: `stream --vendor <id>`, `vendors`, `version` |
-| `packages/bridge-core/src/sidecar` | The TypeScript client: `sidecarStream(vendor, request, { signal })`, `SidecarError` |
+| `packages/bridge-core/src/sidecar` | The TypeScript client: `sidecarStream(vendor, request, { signal })`, `SidecarError`, `resolveSidecarBinary` |
+| `packages/bridge-bin*` | Distribution: `ns-bridge-bin` + five platform packages (npm, bun and pnpm install only the matching one, no install scripts) |
+| `scripts/build-sidecar.mjs` | Cross-compiles every target (CGO off, `-X main.version=<ns-bridge-bin version>`) into `packages/bridge-bin-*/bin` |
 
-Status: M0 (protocol, client, echo vendor). Kiro and Devin still run on the
-TypeScript cores; nothing ships the binary yet. Change `types.ts` and
+The client finds the binary through `NS_BRIDGE_BIN`, an explicit path,
+`ns-bridge-bin` (an optional peer of `ns-bridge-core`: an adapter that runs a
+vendor in the sidecar depends on it), then `ns-bridge` on `PATH`.
+
+Status: M1 (protocol, client, echo vendor, binary packages). Kiro and Devin
+still run on the TypeScript cores; no adapter depends on `ns-bridge-bin` yet. Change `types.ts` and
 `go/internal/bridge` together — the JSON must stay identical.
 
 ### The `kiro` provider id in OMP
@@ -127,13 +136,15 @@ A DSH profile can point at a local build with
 ## CI
 
 `.github/workflows/ci.yml` runs on push to `main` and on pull requests:
-`gofmt -l`, `go vet ./...` and `go test ./...` in `go/`, then
+`gofmt -l`, `go vet ./...` and `go test ./...` in `go/`,
+`node scripts/build-sidecar.mjs` (every target must cross-compile), then
 `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm -r build`, `pnpm -r check`,
 `pnpm test`. Run the same sequence locally before pushing.
 
 ## Releasing
 
-Every package keeps its own version; nothing forces them into lockstep.
+Every package keeps its own version; only the six sidecar binary packages
+move in lockstep (below).
 Publishing runs from `.github/workflows/publish.yml` using npm **trusted
 publishing** (OIDC) on the self-hosted runner, so no npm token is stored.
 
@@ -167,6 +178,26 @@ on npm or in this run, `repository.url` naming this repo), and publishes with
 see what a tag would ship. `workflow_dispatch` runs the same job, dry-run by
 default.
 
+### The sidecar binary packages
+
+`ns-bridge-bin` and the five `ns-bridge-bin-<os>-<cpu>` packages always share
+one version: bump all six together (`release-plan.mjs` refuses mismatched
+versions). A change under `go/` or to `scripts/build-sidecar.mjs` counts as a
+change to all six, so a package that depends on `ns-bridge-bin` cannot ship
+against a stale binary. Tag any one of them, e.g.
+`git tag ns-bridge-bin@0.2.0`.
+
+The workflow cross-compiles every target with `scripts/build-sidecar.mjs`
+before packing, packs the platform packages with `npm pack` (pnpm pack drops
+the executable bit on files not named in `bin`), and checks each tarball
+carries an executable binary; the one matching the runner must report the
+package version. Local dry run:
+
+```bash
+node scripts/build-sidecar.mjs            # all targets; --host for this machine only
+packages/bridge-bin-darwin-arm64/bin/ns-bridge version
+```
+
 Tags from before the merge were renamed to the same scheme
 (`ns-pi-provider@0.2.2`, `ns-omp-provider@0.3.1`, `ns-devin-core@0.2.0`, …);
 the former ns-kiro-provider `v*` tags are kept and mirrored as
@@ -186,10 +217,29 @@ For each package: Settings → Trusted Publisher → GitHub Actions, with
 or `npm trust github <package> --file publish.yml --repo ngosangns/ns-bridge --allow-publish`.
 
 npm only allows a trusted publisher on a package that exists, so a brand-new
-package (`ns-bridge-core`) needs its first version published by hand from a
-logged-in machine (`pnpm --filter ns-bridge-core build && cd packages/bridge-core
-&& pnpm pack && npm publish ./ns-bridge-core-<v>.tgz --access public`) before the
-workflow can take over.
+package needs its first version published by hand from a logged-in machine
+before the workflow can take over:
+
+- a TypeScript package (as `ns-bridge-core` was): `pnpm --filter <name> build &&
+  cd packages/<dir> && pnpm pack && npm publish ./<name>-<v>.tgz --access public`;
+- the sidecar binary packages: build every target, `npm pack` each platform
+  package and `pnpm pack` `ns-bridge-bin`, then publish the five platform
+  tarballs before `ns-bridge-bin` (its optional dependencies pin them):
+
+  ```bash
+  node scripts/build-sidecar.mjs
+  mkdir -p /tmp/nsb && for t in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-x64; do
+    (cd packages/bridge-bin-$t && npm pack --pack-destination /tmp/nsb)
+  done
+  (cd packages/bridge-bin && pnpm pack --pack-destination /tmp/nsb)
+  for t in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-x64; do
+    npm publish /tmp/nsb/ns-bridge-bin-$t-<v>.tgz --access public
+  done
+  npm publish /tmp/nsb/ns-bridge-bin-<v>.tgz --access public
+  ```
+
+Until a new package exists on npm with its trusted publisher set, every
+release plan includes it, and the workflow's publish of it fails.
 
 ### Why `pnpm pack` and `npm publish`, not one tool
 

@@ -1,0 +1,44 @@
+{
+  "name": "ns-bridge-bin",
+  "version": "0.1.0",
+  "description": "Installs the ns-bridge Go sidecar binary for this machine and tells you where it is (binaryPath())",
+  "license": "MIT",
+  "author": "ngosangns",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
+    "directory": "packages/bridge-bin"
+  },
+  "keywords": [
+    "ns-bridge",
+    "sidecar",
+    "binary"
+  ],
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "ns-bridge-bin-darwin-arm64": "workspace:*",
+    "ns-bridge-bin-darwin-x64": "workspace:*",
+    "ns-bridge-bin-linux-arm64": "workspace:*",
+    "ns-bridge-bin-linux-x64": "workspace:*",
+    "ns-bridge-bin-win32-x64": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

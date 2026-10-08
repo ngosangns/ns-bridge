@@ -1,0 +1,27 @@
+{
+  "name": "ns-bridge-bin-linux-arm64",
+  "version": "0.1.0",
+  "description": "The ns-bridge Go sidecar binary for Linux arm64; installed by ns-bridge-bin, not on its own",
+  "license": "MIT",
+  "author": "ngosangns",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
+    "directory": "packages/bridge-bin-linux-arm64"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "preferUnplugged": true,
+  "files": [
+    "bin/ns-bridge",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

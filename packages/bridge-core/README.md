@@ -52,6 +52,6 @@ for `streamToPi` or `streamToDsh`. Protocol:
 | --- | --- |
 | `sidecarStream(vendor, request, { signal, binary, env })` | Start `ns-bridge stream --vendor <vendor>`, yield `BridgeStreamEvent`s; abort closes stdin, then SIGTERM, then SIGKILL |
 | `SidecarError`, `isSidecarError` | The typed failure: `kind`, `status`, `retryAfterMs`, `reasonCode`, `exitCode`, `stderr` |
-| `resolveSidecarBinary` | `NS_BRIDGE_BIN`, then the explicit path, then `ns-bridge` on PATH |
+| `resolveSidecarBinary`, `findPackagedSidecarBinary` | `NS_BRIDGE_BIN`, then the explicit path, then the binary [`ns-bridge-bin`](../bridge-bin) installed (an optional peer), then `ns-bridge` on PATH |
 
 Needs `node:child_process` (Node or Bun); the root and `./pi` / `./dsh` entries do not load it.

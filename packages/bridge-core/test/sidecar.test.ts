@@ -9,7 +9,13 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { streamToDsh } from "../src/dsh/index.js";
 import { streamToPi } from "../src/pi/index.js";
-import { isSidecarError, resolveSidecarBinary, SidecarError, sidecarStream } from "../src/sidecar/index.js";
+import {
+  findPackagedSidecarBinary,
+  isSidecarError,
+  resolveSidecarBinary,
+  SidecarError,
+  sidecarStream,
+} from "../src/sidecar/index.js";
 import type { BridgeStreamEvent } from "../src/types.js";
 
 const goModule = fileURLToPath(new URL("../../../go", import.meta.url));
@@ -62,10 +68,24 @@ class FakePiStream {
 const model = { id: "echo-1", api: "echo-api", provider: "echo" };
 
 describe("resolveSidecarBinary", () => {
-  it("prefers NS_BRIDGE_BIN, then the explicit path, then ns-bridge on PATH", () => {
-    expect(resolveSidecarBinary("/opt/x", { NS_BRIDGE_BIN: "/env/ns-bridge" })).toBe("/env/ns-bridge");
-    expect(resolveSidecarBinary("/opt/x", { NS_BRIDGE_BIN: "  " })).toBe("/opt/x");
-    expect(resolveSidecarBinary(undefined, {})).toBe("ns-bridge");
+  const packaged = () => ({ path: "/pkg/ns-bridge" });
+  const missing = () => ({ error: "ns-bridge-bin is not installed" });
+
+  it("prefers NS_BRIDGE_BIN, then the explicit path, then ns-bridge-bin, then ns-bridge on PATH", () => {
+    expect(resolveSidecarBinary("/opt/x", { NS_BRIDGE_BIN: "/env/ns-bridge" }, { packaged })).toBe("/env/ns-bridge");
+    expect(resolveSidecarBinary("/opt/x", { NS_BRIDGE_BIN: "  " }, { packaged })).toBe("/opt/x");
+    expect(resolveSidecarBinary(undefined, {}, { packaged })).toBe("/pkg/ns-bridge");
+    expect(resolveSidecarBinary(undefined, {}, { packaged: missing })).toBe("ns-bridge");
+  });
+
+  it("finds the binary ns-bridge-bin installed, or says why not", () => {
+    const found = findPackagedSidecarBinary();
+    if ("path" in found) {
+      expect(found.path).toMatch(/bridge-bin-[a-z0-9]+-[a-z0-9]+[/\\]bin[/\\]ns-bridge(\.exe)?$/);
+    } else {
+      // A checkout that has not run scripts/build-sidecar.mjs links the package without a binary.
+      expect(found.error).toMatch(/ns-bridge-bin/);
+    }
   });
 });
 

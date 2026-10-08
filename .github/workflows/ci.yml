@@ -28,6 +28,10 @@ jobs:
           if [ -n "$unformatted" ]; then echo "::error::gofmt needed: $unformatted"; exit 1; fi
           go vet ./...
           go test ./...
+      # Every release target must keep cross-compiling (CGO off). Also puts this
+      # runner's binary where ns-bridge-bin finds it for the sidecar tests.
+      - name: Cross-compile the sidecar
+        run: node scripts/build-sidecar.mjs
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       # `check` typechecks against built declarations, so the build comes first.

@@ -21,6 +21,34 @@ importers:
         specifier: ^3.2.7
         version: 3.2.7(@types/node@26.4.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
 
+  packages/bridge-bin:
+    optionalDependencies:
+      ns-bridge-bin-darwin-arm64:
+        specifier: workspace:*
+        version: link:../bridge-bin-darwin-arm64
+      ns-bridge-bin-darwin-x64:
+        specifier: workspace:*
+        version: link:../bridge-bin-darwin-x64
+      ns-bridge-bin-linux-arm64:
+        specifier: workspace:*
+        version: link:../bridge-bin-linux-arm64
+      ns-bridge-bin-linux-x64:
+        specifier: workspace:*
+        version: link:../bridge-bin-linux-x64
+      ns-bridge-bin-win32-x64:
+        specifier: workspace:*
+        version: link:../bridge-bin-win32-x64
+
+  packages/bridge-bin-darwin-arm64: {}
+
+  packages/bridge-bin-darwin-x64: {}
+
+  packages/bridge-bin-linux-arm64: {}
+
+  packages/bridge-bin-linux-x64: {}
+
+  packages/bridge-bin-win32-x64: {}
+
   packages/bridge-core:
     devDependencies:
       '@deepseek-ai/dsh-attachment':
@@ -32,6 +60,9 @@ importers:
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4
+      ns-bridge-bin:
+        specifier: workspace:*
+        version: link:../bridge-bin
       ns-devin-core:
         specifier: workspace:*
         version: link:../devin-core
