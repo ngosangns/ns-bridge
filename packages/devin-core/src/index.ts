@@ -36,6 +36,7 @@ export {
 export {
   type DevinModelDiscoveryOptions,
   fetchDevinModels,
+  fetchDevinModelsInProcess,
   normalizeDevinModels,
 } from "./discovery.js";
 export {
@@ -123,6 +124,7 @@ export {
   type DevinUsageUnit,
   type DevinUsageWindowId,
   fetchDevinUsage,
+  fetchDevinUsageInProcess,
 } from "./usage.js";
 export {
   type DeterministicUuid,

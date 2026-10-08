@@ -262,6 +262,25 @@ export interface DevinModelDiscoveryOptions {
  * caller's static seed survives a stale pinned identity.
  */
 export async function fetchDevinModels(options: DevinModelDiscoveryOptions): Promise<DevinModelSpec[] | null> {
+  // An injected fetch only exists in this process.
+  if (options.fetch) return fetchDevinModelsInProcess(options);
+  const { runDevinOp } = await import("./engine-ops.js");
+  return runDevinOp<DevinModelSpec[] | null, DevinModelSpec[] | null>({
+    op: "models",
+    request: () => ({
+      ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
+      ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    }),
+    inProcess: () => fetchDevinModelsInProcess(options),
+    fromWire: (models) => (Array.isArray(models) && models.length > 0 ? models : null),
+    fallback: null,
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+}
+
+/** {@link fetchDevinModels} in TypeScript, regardless of NS_BRIDGE_ENGINE. */
+export async function fetchDevinModelsInProcess(options: DevinModelDiscoveryOptions): Promise<DevinModelSpec[] | null> {
   const timeoutMs = options.timeoutMs ?? 5_000;
   const resolvedBaseUrl = (options.baseUrl ?? DEVIN_DEFAULT_BASE_URL).replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? fetch;

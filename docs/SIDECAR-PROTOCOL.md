@@ -201,6 +201,8 @@ binary that is missing or predates `call` falls back to TypeScript).
 | `kiro` | `refreshModels` | `{accessToken, region, profileArn?, known, cachePath}` | `{region, models}`; also rewrites the catalog cache file at `cachePath` (`~/.ns-kiro-provider-models-cache.json`) exactly as `updateKiroModelsCache` does |
 | `kiro` | `usage` | `{credentials}` | `KiroProviderUsage` |
 | `kiro` | `refreshToken` | `{credentials}` | `KiroCredentials` from the desktop, external-IdP or IAM Identity Center token endpoint (store selection and saving stay in TypeScript) |
+| `devin` | `models` | `{apiKey?, baseUrl?, timeoutMs?}` | `DevinModelSpec[]` (native `GetCliModelConfigs`, legacy-identity fallback, lane collapse, fusion routing, `localeCompare` order), or `null` on failure / an empty catalog |
+| `devin` | `usage` | `{apiKey?, baseUrl?}` | `{report, raw}`: the `DevinProviderUsage` minus `raw`, plus the base64 `GetUserStatusResponse` body the facade decodes into `raw`; `null` on failure |
 
 Kiro requests also carry `profileArnCache` / `profileRegions` (the facade's
 in-memory caches) and results return `kiroProfileArns` / `kiroProfileRegions`,
@@ -208,11 +210,18 @@ which `runKiroOp` folds back. `KIRO_DESKTOP_REFRESH_ENDPOINT` and
 `KIRO_OIDC_ENDPOINT` (`{region}` substituted) override the refresh hosts in
 both engines.
 
+Devin's operations are fail-soft in both engines: `runDevinOp`
+(`devin-core/src/engine-ops.ts`) turns a sidecar failure into the same `null`
+the TypeScript path returns for a failed request. A caller-injected `fetch`
+pins them to TypeScript. `refreshDevinToken` makes no request (Devin issues no
+refresh token), so it has no operation.
+
 ## Future: login and other host callbacks
 
 Interactive login (Devin PKCE, the Pi/OMP `oauth.login(callbacks)` hooks) needs
 the binary to ask the host for things mid-call: open a URL, prompt for a code,
-report progress. Planned for M4, as JSON-RPC 2.0 framed one message per line
+report progress. It stays in TypeScript for now (it is interactive, not a hot
+path); if it moves, the design is JSON-RPC 2.0 framed one message per line
 on the same pipes:
 
 - binary → host: a stdout line with `"jsonrpc":"2.0"` and a `method`

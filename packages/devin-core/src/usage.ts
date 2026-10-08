@@ -14,6 +14,7 @@ import {
   type Timestamp,
 } from "./proto/devin-messages.js";
 import { create } from "./proto/protobuf.js";
+import { decodeDevinUnaryMessage } from "./proto/wire-helpers.js";
 import { logger } from "./util.js";
 import { DEVIN_DEFAULT_BASE_URL, DEVIN_SESSION_TOKEN_PREFIX, devinCliMetadata, devinWireMetadata } from "./wire.js";
 
@@ -228,6 +229,39 @@ export interface DevinUsageFetchOptions {
  * failure — the usage panel is advisory and must not surface as an outage.
  */
 export async function fetchDevinUsage(options: DevinUsageFetchOptions): Promise<DevinProviderUsage | null> {
+  // An injected fetch only exists in this process.
+  if (options.fetch) return fetchDevinUsageInProcess(options);
+  if (!options.apiKey?.trim()) return null;
+  const { runDevinOp } = await import("./engine-ops.js");
+  return runDevinOp<DevinProviderUsage | null, DevinUsageWire | null>({
+    op: "usage",
+    request: () => ({
+      ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
+      ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+    }),
+    inProcess: () => fetchDevinUsageInProcess(options),
+    fromWire: devinUsageFromWire,
+    fallback: null,
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+}
+
+/** The sidecar's `usage` result: the report minus `raw`, plus the response body. */
+interface DevinUsageWire {
+  report: Omit<DevinProviderUsage, "raw">;
+  /** Base64 GetUserStatusResponse bytes, decoded here into `raw`. */
+  raw: string;
+}
+
+function devinUsageFromWire(wire: DevinUsageWire | null): DevinProviderUsage | null {
+  if (!wire || typeof wire.raw !== "string") return null;
+  const raw = decodeDevinUnaryMessage(GetUserStatusResponseSchema, Buffer.from(wire.raw, "base64"));
+  if (!raw) return null;
+  return { ...wire.report, raw };
+}
+
+/** {@link fetchDevinUsage} in TypeScript, regardless of NS_BRIDGE_ENGINE. */
+export async function fetchDevinUsageInProcess(options: DevinUsageFetchOptions): Promise<DevinProviderUsage | null> {
   const token = options.apiKey?.trim();
   if (!token) return null;
   const baseUrl = (options.baseUrl ?? DEVIN_DEFAULT_BASE_URL).replace(/\/+$/, "");

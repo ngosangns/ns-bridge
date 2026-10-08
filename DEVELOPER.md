@@ -84,17 +84,20 @@ events, errors and request bytes.
 Kiro's one-shot operations go the same way through `engineCall`
 (`kiro-core/src/engine-ops.ts`): `updateKiroModelsCache` (the binary writes
 the catalog cache file that the synchronous `getCachedModels` reads),
-`fetchKiroUsage`, and the network half of `refreshKiroToken`. Each has an
+`fetchKiroUsage`, and the network half of `refreshKiroToken`. Devin's
+`fetchDevinModels` and `fetchDevinUsage` use `runDevinOp`
+(`devin-core/src/engine-ops.ts`) and stay fail-soft. Each has an
 `…InProcess` twin that always runs TypeScript.
 
 Status: M4 — Devin streaming (GetUserJwt, AssignModel, GetChatMessage,
 capacity backoff) and Kiro streaming (profile resolution, 403 credential
 refresh via kiro-cli, capacity / request-rate / empty / echo retries, text
-tool-call recovery), plus Kiro's catalog refresh, usage and token refresh,
-run in Go behind `NS_BRIDGE_ENGINE=go`; the default is still `ts`. Still
-TypeScript-only: interactive login (Devin PKCE, Kiro API-key login, the
-hosts' `oauth.login` hooks), which needs host callbacks, and Devin's
-fail-soft model discovery and usage report. Change `types.ts` and `go/internal/bridge` together — the JSON
+tool-call recovery), Kiro's catalog refresh, usage and token refresh,
+and Devin's model discovery and usage report, run in Go behind
+`NS_BRIDGE_ENGINE=go`; the default is still `ts`. Still TypeScript-only:
+interactive login (Devin PKCE, Kiro API-key login, the hosts' `oauth.login`
+hooks), which needs host callbacks, and `refreshDevinToken`, which makes no
+request. Change `types.ts` and `go/internal/bridge` together — the JSON
 must stay identical.
 
 ### The `kiro` provider id in OMP

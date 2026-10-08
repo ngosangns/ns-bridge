@@ -6,7 +6,7 @@ import { applyCacheEstimate } from "./cache-estimator.js";
 import { debugLog, formatSafeError } from "./debug.js";
 import { getKiroRegionFromProfileArn } from "./endpoints.js";
 import { kiroErrorFromSidecar } from "./engine-ops.js";
-import { applyKiroProfileArnCacheChanges, KiroManagementHttpError, snapshotKiroProfileArnCache } from "./management.js";
+import { applyKiroProfileArnCacheChanges, snapshotKiroProfileArnCache } from "./management.js";
 import { isCacheStale, resolveKiroModel, updateKiroModelsCache } from "./models.js";
 import { capacityRetryConfig, firstTokenTimeoutForModel, retryConfig } from "./retry.js";
 import type { KiroStreamRequest } from "./stream.js";
