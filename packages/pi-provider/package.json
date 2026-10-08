@@ -7,12 +7,13 @@
   "author": "ngosangns",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ngosangns/ns-pi-provider.git"
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
+    "directory": "packages/pi-provider"
   },
   "bugs": {
-    "url": "https://github.com/ngosangns/ns-pi-provider/issues"
+    "url": "https://github.com/ngosangns/ns-bridge/issues"
   },
-  "homepage": "https://github.com/ngosangns/ns-pi-provider#readme",
+  "homepage": "https://github.com/ngosangns/ns-bridge/tree/main/packages/pi-provider#readme",
   "keywords": [
     "pi-package",
     "pi",
@@ -56,8 +57,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:live": "NS_PI_LIVE=1 vitest run tests/live",
-    "check": "npm run typecheck && npm test",
-    "prepublishOnly": "npm run check"
+    "check": "pnpm run typecheck",
+    "prepublishOnly": "pnpm run typecheck && pnpm test"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

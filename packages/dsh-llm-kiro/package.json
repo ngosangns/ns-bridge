@@ -15,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ngosangns/ns-kiro-provider.git",
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
     "directory": "packages/dsh-llm-kiro"
   },
   "keywords": [

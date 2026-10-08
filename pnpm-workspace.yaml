@@ -1,9 +1,10 @@
 packages:
   - packages/*
 
-# The omp host packages are here for their type declarations only — the bundle
+# The omp and pi host packages are here for their type declarations only — the bundle
 # marks them external — so their native transitive builds are dead weight.
 allowBuilds:
+  "@google/genai": false
   esbuild: true
   onnxruntime-node: false
   protobufjs: false
@@ -28,3 +29,11 @@ minimumReleaseAgeExclude:
   - '@oh-my-pi/pi-utils@18.2.7'
   - '@oh-my-pi/pi-wire@18.2.7'
   - '@oh-my-pi/snapcompact@18.2.7'
+  - '@earendil-works/chord@1.1.0'
+  - '@earendil-works/pi-agent-core@1.1.0'
+  - '@earendil-works/pi-ai@1.1.0'
+  - '@earendil-works/pi-codemode@1.1.0'
+  - '@earendil-works/pi-coding-agent@1.1.0'
+  - '@earendil-works/pi-mcp@1.1.0'
+  - '@earendil-works/pi-telemetry@1.1.0'
+  - '@earendil-works/pi-tui@1.1.0'

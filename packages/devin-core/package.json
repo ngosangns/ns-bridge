@@ -14,7 +14,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ngosangns/ns-devin-provider.git",
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
     "directory": "packages/devin-core"
   },
   "files": [

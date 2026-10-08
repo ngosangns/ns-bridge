@@ -49,7 +49,7 @@ const KIRO_ROOT_TO = "const EXTENSION_ROOT = dirname(dirname(fileURLToPath(impor
 const kiroRootPlugin = {
   name: "kiro-extension-root",
   setup(b) {
-    b.onLoad({ filter: /ns-pi-provider[\\/]src[\\/]kiro[\\/]register\.ts$/ }, (args) => {
+    b.onLoad({ filter: /(?:ns-)?pi-provider[\\/]src[\\/]kiro[\\/]register\.ts$/ }, (args) => {
       const source = readFileSync(args.path, "utf8");
       if (!source.includes(KIRO_ROOT_FROM)) {
         return { errors: [{ text: `kiro EXTENSION_ROOT pattern not found in ${args.path}; update scripts/build.mjs` }] };

@@ -1,7 +1,14 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
-    "includes": ["packages/*/src/**", "packages/*/test/**", "*.ts", "*.json"]
+    "includes": [
+      "packages/*/src/**",
+      "packages/*/test/**",
+      "*.ts",
+      "*.json",
+      "!packages/pi-provider/**",
+      "!packages/omp-provider/**"
+    ]
   },
   "formatter": {
     "enabled": true,

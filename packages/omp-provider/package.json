@@ -7,12 +7,13 @@
   "author": "ngosangns",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ngosangns/ns-omp-provider.git"
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
+    "directory": "packages/omp-provider"
   },
   "bugs": {
-    "url": "https://github.com/ngosangns/ns-omp-provider/issues"
+    "url": "https://github.com/ngosangns/ns-bridge/issues"
   },
-  "homepage": "https://github.com/ngosangns/ns-omp-provider#readme",
+  "homepage": "https://github.com/ngosangns/ns-bridge/tree/main/packages/omp-provider#readme",
   "keywords": [
     "omp",
     "omp-plugin",
@@ -54,8 +55,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "smoke": "node scripts/smoke-omp.mjs",
-    "check": "npm run typecheck && npm test && npm run build",
-    "prepublishOnly": "npm run check"
+    "check": "pnpm run typecheck",
+    "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run build"
   },
   "peerDependencies": {
     "@oh-my-pi/pi-ai": ">=18.8.0",
@@ -70,7 +71,7 @@
     }
   },
   "devDependencies": {
-    "@ngosangns/ns-pi-provider": "0.2.2",
+    "@ngosangns/ns-pi-provider": "workspace:*",
     "@types/node": "^22.18.6",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.2",

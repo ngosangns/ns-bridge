@@ -6,3 +6,6 @@ dist/
 .claude/settings.local.json
 tarballs/
 *.tgz
+.smoke-home/
+coverage/
+.provider-creds/
