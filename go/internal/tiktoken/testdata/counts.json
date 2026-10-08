@@ -1,0 +1,74 @@
+[
+  {
+    "text": "",
+    "count": 0
+  },
+  {
+    "text": "hello world",
+    "count": 2
+  },
+  {
+    "text": "Hello, World! It's a test. We'll see; they'd've DONE it'S",
+    "count": 19
+  },
+  {
+    "text": "  leading and trailing spaces   ",
+    "count": 6
+  },
+  {
+    "text": "tabs\tand\nnewlines\r\n\r\nmixed \n \n  end\n",
+    "count": 11
+  },
+  {
+    "text": "numbers 1234567 3.14159 -42 1e10 007",
+    "count": 18
+  },
+  {
+    "text": "unicode: héllo wörld naïve café — “quotes” 日本語のテキスト 한국어 العربية",
+    "count": 32
+  },
+  {
+    "text": "emoji 😀👍🏽 family 👨‍👩‍👧 flags 🇻🇳",
+    "count": 28
+  },
+  {
+    "text": "code: function f(x) { return x * 2; } // comment\n\tconst y = [1, 2, 3];",
+    "count": 29
+  },
+  {
+    "text": "symbols !!! ??? ... --- === +++ ***\n\n",
+    "count": 9
+  },
+  {
+    "text": "<thinking>I should call the tool</thinking>\n\n{\"path\":\"/tmp/a.txt\",\"content\":\"x\"}",
+    "count": 21
+  },
+  {
+    "text": "   \n\n\n   ",
+    "count": 3
+  },
+  {
+    "text": "a b c　d﻿e",
+    "count": 10
+  },
+  {
+    "text": "mixed123abc456def 12 345 6789",
+    "count": 12
+  },
+  {
+    "text": "'s 'S 't 're 'RE 've 'll 'd 'm 'x",
+    "count": 19
+  },
+  {
+    "text": "end with spaces    ",
+    "count": 4
+  },
+  {
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "count": 38
+  },
+  {
+    "text": "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. ",
+    "count": 201
+  }
+]

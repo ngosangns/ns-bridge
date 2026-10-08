@@ -31,11 +31,23 @@ export function resolveApiRegion(ssoRegion: string | undefined): string {
   return API_REGION_MAP[ssoRegion] ?? ssoRegion;
 }
 
+/** Overrides the runtime base URL; `{region}` is replaced with the region. */
+export const KIRO_RUNTIME_ENDPOINT_ENV = "KIRO_RUNTIME_ENDPOINT";
+/** Overrides the management base URL; `{region}` is replaced with the region. */
+export const KIRO_MANAGEMENT_ENDPOINT_ENV = "KIRO_MANAGEMENT_ENDPOINT";
+
+function endpointOverride(name: string, region: string): string | undefined {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+  const url = value.replaceAll("{region}", region);
+  return url.endsWith("/") ? url : `${url}/`;
+}
+
 export function getKiroEndpoints(region: string): KiroEndpoints {
   return {
     region,
-    management: `https://management.${region}.kiro.dev/`,
-    runtime: `https://runtime.${region}.kiro.dev/`,
+    management: endpointOverride(KIRO_MANAGEMENT_ENDPOINT_ENV, region) ?? `https://management.${region}.kiro.dev/`,
+    runtime: endpointOverride(KIRO_RUNTIME_ENDPOINT_ENV, region) ?? `https://runtime.${region}.kiro.dev/`,
   };
 }
 

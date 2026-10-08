@@ -32,6 +32,13 @@ export interface SidecarErrorPayload {
   status?: number;
   retryAfterMs?: number;
   reasonCode?: string;
+  /**
+   * The vendor core's own error class this failure stands for (e.g.
+   * `KiroApiError`), so a facade can rebuild it exactly.
+   */
+  vendorError?: string;
+  /** Per-provider retry counts the vendor spent before giving up. */
+  providerAttempts?: Record<string, number>;
 }
 
 export interface SidecarErrorDetails extends Partial<Omit<SidecarErrorPayload, "kind" | "message">> {
@@ -51,6 +58,8 @@ export class SidecarError extends Error {
   readonly status?: number;
   readonly retryAfterMs?: number;
   readonly reasonCode?: string;
+  readonly vendorError?: string;
+  readonly providerAttempts?: Record<string, number>;
   readonly exitCode?: number | null;
   readonly exitSignal?: NodeJS.Signals | null;
   readonly stderr?: string;
@@ -62,6 +71,8 @@ export class SidecarError extends Error {
     this.status = details.status;
     this.retryAfterMs = details.retryAfterMs;
     this.reasonCode = details.reasonCode;
+    this.vendorError = details.vendorError;
+    this.providerAttempts = details.providerAttempts;
     this.exitCode = details.exitCode;
     this.exitSignal = details.exitSignal;
     this.stderr = details.stderr;
@@ -77,6 +88,8 @@ export class SidecarError extends Error {
       status: payload.status,
       retryAfterMs: payload.retryAfterMs,
       reasonCode: payload.reasonCode,
+      vendorError: payload.vendorError,
+      providerAttempts: payload.providerAttempts,
     });
   }
 }

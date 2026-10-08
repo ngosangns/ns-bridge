@@ -27,8 +27,15 @@ type Error struct {
 	Message      string    `json:"message"`
 	Vendor       string    `json:"vendor,omitempty"`
 	Status       int       `json:"status,omitempty"`
-	RetryAfterMs int64     `json:"retryAfterMs,omitempty"`
+	RetryAfterMs *int64    `json:"retryAfterMs,omitempty"`
 	ReasonCode   string    `json:"reasonCode,omitempty"`
+	// VendorError names the error class the in-process TypeScript core
+	// throws for this failure (e.g. "KiroApiError"), so the client can
+	// rebuild it; empty when the failure has no vendor class.
+	VendorError string `json:"vendorError,omitempty"`
+	// ProviderAttempts counts the vendor-internal retries spent before the
+	// failure (Kiro: credentialRefresh, capacity).
+	ProviderAttempts map[string]int `json:"providerAttempts,omitempty"`
 }
 
 func (e *Error) Error() string {

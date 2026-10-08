@@ -74,7 +74,7 @@ func TestUsageKeepsUnreportedCountersAbsent(t *testing.T) {
 func TestTerminalErrorLine(t *testing.T) {
 	var out bytes.Buffer
 	w := NewWriter(&out)
-	if err := w.Fail(&Error{Kind: KindRateLimit, Message: "slow down", Vendor: "kiro", Status: 429, RetryAfterMs: 1500}); err != nil {
+	if err := w.Fail(&Error{Kind: KindRateLimit, Message: "slow down", Vendor: "kiro", Status: 429, RetryAfterMs: ptr(int64(1500))}); err != nil {
 		t.Fatal(err)
 	}
 	want := `{"type":"error","error":{"kind":"rate_limit","message":"slow down","vendor":"kiro","status":429,"retryAfterMs":1500}}` + "\n"
@@ -103,3 +103,5 @@ func TestContextDecodesBridgeMessages(t *testing.T) {
 		t.Fatalf("decoded %+v", ctx.Messages)
 	}
 }
+
+func ptr[T any](v T) *T { return &v }

@@ -34,7 +34,7 @@ ns-bridge stream --vendor <id>
 | `ns-bridge vendors` | Vendor ids this binary serves, one per line |
 | `ns-bridge version` | `ns-bridge <version> (protocol <n>)` |
 
-Vendors: `devin` (see [devin](#the-devin-vendor)) and `echo`, a test vendor
+Vendors: `devin` (see [devin](#the-devin-vendor)), `kiro` (see [kiro](#the-kiro-vendor)) and `echo`, a test vendor
 with no network (see [echo](#the-echo-vendor)).
 
 The client finds the binary via `NS_BRIDGE_BIN`, then an explicit path from the
@@ -121,6 +121,8 @@ A failed call ends with one line instead of `done`, and the process exits 1:
 | `status` | Upstream HTTP status, when there was one |
 | `retryAfterMs` | Back-off the vendor asked for |
 | `reasonCode` | The vendor's own code (`KIRO_REASON_CODES`, a Connect code, …) |
+| `vendorError` | The core's own error class this stands for (`KiroApiError`, `KiroManagementHttpError`, `Error`), so a facade rebuilds it exactly |
+| `providerAttempts` | Retries the vendor spent before giving up, by cause (`{credentialRefresh, capacity}`) |
 
 | `kind` | Meaning |
 | --- | --- |
@@ -224,6 +226,33 @@ trailer rejection carries its code as `reasonCode`; `kind` follows
 `isDevin{ContextOverflow,RateLimit,Capacity,Auth}Error` in that order.
 `devinErrorFromSidecar` rebuilds `DevinApiError` / `DevinStreamError` /
 `DevinProtocolError` from them.
+
+## The kiro vendor
+
+`request` is `KiroStreamRequest` (`packages/kiro-core/src/stream.ts`) minus
+`signal`: `model` (a `KiroModel` whose `kiroModelId` the facade has already
+resolved), `messages`, `systemPrompt`, `tools`, `effort`, `accessToken`,
+`sessionId`, `profileArn`, `canDiscardEmittedBlocks`, `usageTracking`, plus
+the state a one-call process cannot keep:
+
+| Field | |
+| --- | --- |
+| `conversationId` | `sessionId`, or one the facade minted (the cache estimator keys on it) |
+| `profileArnCache` | Resolved profile ARNs by `region:base64url(sha256(token))` |
+| `timeouts` | `{firstTokenMs, requestHeaderMs, idleMs?}` |
+| `capacityRetry` | `{maxRetries, baseDelayMs}` |
+| `testProfileArn` | Skip profile resolution (tests) |
+
+Extra event fields, stripped by the facade: `usage.kiroWireCache` (Kiro
+reported cache counters itself, so the cross-turn estimate is skipped), and
+on `done` `kiroProfileArns` (cache changes; `null` = invalidated),
+`kiroRuntimeRegion` and `kiroProfileArn`.
+
+Errors carry `vendorError` and, for `KiroApiError`, `status`, `reasonCode`,
+`retryAfterMs` and `providerAttempts`; `kiroErrorFromSidecar` rebuilds them.
+The binary reads kiro-cli's token store (read-only) and runs `kiro-cli debug
+refresh-auth-token` on a 403, as the TypeScript core does.
+`KIRO_RUNTIME_ENDPOINT` / `KIRO_MANAGEMENT_ENDPOINT` override the hosts.
 
 ## The echo vendor
 

@@ -95,6 +95,11 @@ export interface EngineStreamOptions<TEvent, TRequest> {
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   sidecar?: Omit<SidecarStreamOptions, "signal" | "env">;
+  /**
+   * Post-process the events the sidecar yields (never the in-process ones),
+   * e.g. to apply per-process state the binary cannot hold.
+   */
+  transform?: (events: AsyncIterable<TEvent>) => AsyncIterable<TEvent>;
   /** Force an engine (tests); defaults to {@link selectBridgeEngine}. */
   engine?: BridgeEngine;
 }
@@ -117,13 +122,14 @@ export async function* engineStream<TEvent, TRequest>(
   }
   let delivered = false;
   try {
-    for await (const event of sidecarStream(options.vendor, options.request(), {
+    const raw = sidecarStream(options.vendor, options.request(), {
       ...options.sidecar,
       ...(options.signal ? { signal: options.signal } : {}),
       env,
-    })) {
+    }) as AsyncIterable<TEvent>;
+    for await (const event of options.transform ? options.transform(raw) : raw) {
       delivered = true;
-      yield event as TEvent;
+      yield event;
     }
   } catch (error) {
     if (

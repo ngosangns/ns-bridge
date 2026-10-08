@@ -20,9 +20,19 @@ export {
   getKiroEndpoints,
   getKiroRegionFromEndpoint,
   getKiroRegionFromProfileArn,
+  KIRO_MANAGEMENT_ENDPOINT_ENV,
+  KIRO_RUNTIME_ENDPOINT_ENV,
   type KiroEndpoints,
   resolveApiRegion,
 } from "./endpoints.js";
+export {
+  KIRO_SIDECAR_VENDOR,
+  kiroErrorFromSidecar,
+  SidecarError,
+  selectKiroEngine,
+  streamKiroOnEngine,
+  toKiroSidecarRequest,
+} from "./engine.js";
 export {
   extractKiroReasonCode,
   KiroApiError,
@@ -80,11 +90,13 @@ export {
 } from "./kiro-cli.js";
 export { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro-ide.js";
 export {
+  applyKiroProfileArnCacheChanges,
   fetchKiroModelCatalog,
   type KiroCatalogModel,
   type KiroManagementAuth,
   KiroManagementHttpError,
   resolveKiroProfileArn,
+  snapshotKiroProfileArnCache,
 } from "./management.js";
 export {
   applyEffortLadder,
@@ -147,7 +159,7 @@ export {
   NON_RETRYABLE_BODY_PATTERNS,
   TOO_BIG_PATTERNS,
 } from "./retry.js";
-export { type KiroStreamRequest, resetProfileArnCache, streamKiro } from "./stream.js";
+export { type KiroStreamRequest, resetProfileArnCache, streamKiro, streamKiroInProcess } from "./stream.js";
 export { ThinkingTagParser } from "./thinking-parser.js";
 export { countTokens } from "./tokenizer.js";
 export { normalizeKiroToolName } from "./tool-name-aliases.js";

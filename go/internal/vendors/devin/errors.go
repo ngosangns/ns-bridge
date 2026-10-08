@@ -268,7 +268,9 @@ func toBridgeError(err error) *bridge.Error {
 	switch e := err.(type) {
 	case *APIError:
 		out.Status = e.Status
-		out.RetryAfterMs = retryAfterMs(e.Header)
+		if ms := retryAfterMs(e.Header); ms > 0 {
+			out.RetryAfterMs = &ms
+		}
 	case *StreamError:
 		out.ReasonCode = e.Code
 	case *ProtocolError:

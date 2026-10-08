@@ -47,3 +47,10 @@ func Line(prefix, message string, data map[string]any) {
 	defer mu.Unlock()
 	fmt.Fprintln(out, line)
 }
+
+// Warn prints one raw line (console.warn).
+func Warn(message string) {
+	mu.Lock()
+	defer mu.Unlock()
+	fmt.Fprintln(out, message)
+}

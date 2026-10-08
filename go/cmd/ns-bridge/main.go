@@ -20,6 +20,7 @@ import (
 	"github.com/ngosangns/ns-bridge/go/internal/sidecar"
 	"github.com/ngosangns/ns-bridge/go/internal/vendors/devin"
 	"github.com/ngosangns/ns-bridge/go/internal/vendors/echo"
+	"github.com/ngosangns/ns-bridge/go/internal/vendors/kiro"
 )
 
 // version is stamped at release with -ldflags "-X main.version=<v>".
@@ -33,6 +34,7 @@ func registry() sidecar.Registry {
 	return sidecar.Registry{
 		"devin": devin.Vendor{},
 		"echo":  echo.Vendor{},
+		"kiro":  kiro.Vendor{},
 	}
 }
 

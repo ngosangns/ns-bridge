@@ -6,6 +6,7 @@ import { applyCacheEstimate } from "./cache-estimator.js";
 import { debugEnabled, debugLog, formatSafeError, redactSensitiveText } from "./debug.js";
 import { buildKiroAdditionalModelRequestFields, clampKiroEffort, getKiroEffortConfig } from "./effort.js";
 import { getKiroEndpoints, getKiroRegionFromProfileArn } from "./endpoints.js";
+import { streamKiroOnEngine } from "./engine.js";
 import { extractKiroReasonCode, KiroApiError, parseRetryAfterMs } from "./errors.js";
 import { getKiroCliCredentials, getKiroCliCredentialsAllowExpired, refreshViaKiroCli } from "./kiro-cli.js";
 import {
@@ -190,6 +191,11 @@ function describeReturnedContent(kinds: string[]): string {
 let skipProfileResolutionForTests = false;
 const TEST_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:000000000000:profile/test";
 
+/** The profile ARN tests pin with `resetProfileArnCache(true)`, if any. */
+export function testProfileArnOverride(): string | undefined {
+  return skipProfileResolutionForTests ? TEST_PROFILE_ARN : undefined;
+}
+
 /** Reset profile resolution state — exported for stream tests. */
 export function resetProfileArnCache(resolved = false): void {
   resetKiroProfileArnCache();
@@ -227,6 +233,14 @@ function throwOnTerminalWireStop(wireStopReason: string | undefined, stopDetails
  * governs.
  */
 export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
+  yield* streamKiroOnEngine(request, streamKiroInProcess);
+}
+
+/**
+ * The in-process TypeScript implementation of {@link streamKiro}, which runs
+ * regardless of NS_BRIDGE_ENGINE (the fallback when the Go sidecar is absent).
+ */
+export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
   const { model, signal } = request;
 
   const initialAccessToken = request.accessToken;
