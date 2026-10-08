@@ -89,4 +89,4 @@ dsh --profile <profile> "what changed in this repo?"
   repeated prefix of one session as a cache read. The first call in a process
   has nothing to compare, and a gap longer than five minutes starts over.
 
-Part of [ns-kiro-provider](https://github.com/ngosangns/ns-kiro-provider).
+Part of [ns-bridge](https://github.com/ngosangns/ns-bridge).

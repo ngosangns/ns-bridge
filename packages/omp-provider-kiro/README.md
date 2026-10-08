@@ -17,8 +17,8 @@ To build from a clone instead — for developing this package or
 `ns-kiro-core` before a release — install from the path:
 
 ```bash
-git clone git@github.com:ngosangns/ns-kiro-provider.git
-cd ns-kiro-provider && pnpm install && pnpm -r build
+git clone git@github.com:ngosangns/ns-bridge.git
+cd ns-bridge && pnpm install && pnpm -r build
 omp plugin install ./packages/omp-provider-kiro
 ```
 
@@ -59,4 +59,7 @@ upstream shows up without a release here.
 - `KIRO_DEBUG=1` writes a full request/response trace to
   `~/.ns-kiro-provider/logs/kiro-debug.log`, with credentials redacted.
 
-Part of [ns-kiro-provider](https://github.com/ngosangns/ns-kiro-provider).
+This is the recommended Kiro path in OMP. `ns-omp-provider` can also register a
+`kiro` provider, but leaves it off by default so the two never fight over the id.
+
+Part of [ns-bridge](https://github.com/ngosangns/ns-bridge).

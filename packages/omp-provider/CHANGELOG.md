@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Moved into the [ns-bridge](https://github.com/ngosangns/ns-bridge) monorepo; bundles the
+workspace `@ngosangns/ns-pi-provider` (see its changelog: Kiro and Devin now run on the
+shared `ns-kiro-core` / `ns-devin-core`).
+
+- The opt-in `kiro` now logs in from the kiro-cli / Kiro IDE session, like
+  `ns-omp-provider-kiro`.
+- Build: the `kiroRootPlugin` esbuild shim is gone — it only existed for the Pi
+  adapter's former vendored Kiro code.
+
 ## 0.3.1
 
 Bundles `@ngosangns/ns-pi-provider@0.2.2`.

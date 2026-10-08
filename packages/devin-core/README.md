@@ -2,9 +2,10 @@
 
 Shared host-neutral core for Devin (Cognition Cascade): the Connect/protobuf
 wire protocol, PKCE + API-key credentials, model discovery, and the
-`DevinStreamEvent` streaming vocabulary. This package is a dependency of the
-host adapter (`ns-dsh-llm-devin`) — it is not meant
-to be installed or configured directly.
+`DevinStreamEvent` streaming vocabulary. The Devin vendor core of
+[ns-bridge](https://github.com/ngosangns/ns-bridge): a dependency of the Devin
+host adapters (`@ngosangns/ns-pi-provider`, `ns-omp-provider`,
+`ns-dsh-llm-devin`) — not meant to be installed or configured directly.
 
 ## What it does
 
@@ -19,6 +20,10 @@ to be installed or configured directly.
 - `loginDevinWithPkce()` — the CLI's browser PKCE flow against app.devin.ai.
 - `fetchDevinUsage()` — plan tier, credit buckets, and daily/weekly quota
   windows from `SeatManagementService/GetUserStatus`.
+- `streamDevinWithCapacityRetry(request, options)` — `streamDevin` plus a
+  bounded retry on capacity/overload errors raised before any output was
+  delivered. For hosts with no retry loop of their own (Pi, OMP); the Harness
+  has one and calls `streamDevin` directly.
 - A hand-rolled protobuf runtime (`proto/protobuf.ts`) plus the vendored
   Cascade message surface (`proto/devin-messages.ts`).
 

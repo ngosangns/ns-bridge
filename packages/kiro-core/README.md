@@ -2,12 +2,13 @@
 
 The Kiro (AWS CodeWhisperer/Q) protocol, with no host types in it.
 
-This package is the shared half of
-[ns-kiro-provider](https://github.com/ngosangns/ns-kiro-provider): everything a
-Kiro client needs that is not specific to one coding agent.
+This package is the Kiro vendor core of
+[ns-bridge](https://github.com/ngosangns/ns-bridge): everything a Kiro client
+needs that is not specific to one coding agent.
 
-Published on npm as `ns-kiro-core`. Pulled in as a dependency by the two
-adapters below — not meant to be installed on its own.
+Published on npm as `ns-kiro-core`. Pulled in as a dependency by the Kiro host
+adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
+`ns-dsh-llm-kiro` — not meant to be installed on its own.
 
 - **Endpoints** — SSO region to management/runtime host resolution.
 - **Model catalog** — the bootstrap list, the authenticated regional catalog,
@@ -51,7 +52,10 @@ for await (const event of streamKiro({
 ```
 
 An adapter owes two translations — host messages in, host stream events out —
-and nothing else. Block indexes are monotonic across the whole response,
+and nothing else; for Pi-family hosts and the Harness, `ns-bridge-core` already
+does both. `loginKiroFromSession` / `resolveKiroRequestCredentials` (session
+login and per-request credentials) and `toKiroModelForHost` (catalog entry to a
+host model) are the other pieces every host needs, so they live here too. Block indexes are monotonic across the whole response,
 including across an internal retry, so a host that cannot un-deliver a block
 still receives a coherent sequence; `canDiscardEmittedBlocks` tells the core
 which kind of host it is talking to.
@@ -68,6 +72,48 @@ sourced elsewhere:
 | `readKiroEventStream` | AWS event-stream framing and the stall timeouts; yields parsed wire events |
 | `KiroResponseAssembler` | Content blocks, thinking, tool calls, text-dialect recovery, usage, stop reason |
 | `abortableDelay`, `createResponseHeaderDeadline`, `logCapacityEvent` | Transport timing |
+
+## What Kiro reports, and what it does not
+
+Measured 2026-09-06 against `claude-sonnet-5` in `us-east-1`. Recorded here so
+the questions are not re-opened from first principles.
+
+**Token counts: none.** Kiro's `usage` frame is a billing record —
+`{unit: "credit", usage: 0.0659}` — not token counts. `usage.input` is therefore
+derived from the `contextUsagePercentage` frame, and `usage.output` from a
+tiktoken estimate over what the model emitted. `usage.credits` carries the
+figure Kiro actually bills.
+
+**Per-token prices: none.** Kiro bills in credits and publishes no per-token
+rates, so every model's `cost` stays zero. `kiro-cli chat --list-models` does
+publish a relative billing weight, which the catalog picks up as
+`rateMultiplier` — 2.2 for `claude-opus-5` against 0.05 for `qwen3-coder-next`.
+It is absent when kiro-cli is not installed.
+
+**Prompt caching: real, but not controllable.** Kiro caches prompts server-side
+on its own: a repeated prefix billed ~0.035 credits against ~0.066 for a fresh
+one, and a changed prefix went straight back to the full price. There is no way
+to ask for it — every model's `additionalModelRequestFieldsSchema` sets
+`"additionalProperties": false` and allows only `thinking`/`output_config`/
+`max_tokens` (Claude) or `reasoning` (GPT), so a `cachePoint` or `cache_control`
+field is rejected rather than honoured. Kiro also reports no cache token counts.
+
+Reasoning effort is part of the cache key: changing it misses even when the
+prompt is byte-identical, and each effort level then warms its own entry.
+
+**Stop reasons: reported when Kiro sends one, inferred otherwise.** Kiro now
+closes a turn with a `metadataEvent` `stopReason` (`END_TURN` on every ordinary
+turn checked, 2026-10-08). `MAX_TOKENS` is reported as `length`;
+`CONTENT_FILTERED`, `MODEL_CONTEXT_WINDOW_EXCEEDED` (phrased
+`context_length_exceeded`) and `PAUSE_TURN` end the call with an error and no
+retry. Without a stop reason, a turn with no tool call that never carried a
+`contextUsagePercentage` frame is reported as `length`. That frame arrived in
+every case checked — a short reply, a ~5000-character one, a tool-call turn, a
+model with no effort schema, and a non-Claude model — so its absence does mark
+an abnormal turn rather than a normal short answer.
+
+Set `KIRO_DEBUG=1` to log the frames verbatim (`~/.ns-kiro-provider/logs/`) if
+any of this needs re-checking against a newer Kiro.
 
 ## Credit
 

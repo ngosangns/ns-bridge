@@ -1,22 +1,31 @@
 name: Publish
 
-# Publishes all three packages to npm via trusted publishing (OIDC): no npm
-# token is stored anywhere, and no 2FA prompt blocks the run. npm verifies the
-# workflow identity instead, so the trusted publisher registered on npmjs.com
-# must name this repository AND this file (.github/workflows/publish.yml).
+# Publishes the workspace's npm packages via trusted publishing (OIDC): no npm
+# token is stored anywhere. npm verifies the workflow identity instead, so the
+# trusted publisher registered on npmjs.com for EACH package must name this
+# repository (ngosangns/ns-bridge) AND this file (.github/workflows/publish.yml).
 #
-# Trigger by pushing a tag that matches the version in package.json:
-#   git tag v0.2.0 && git push origin v0.2.0
+# Every package keeps its own version. To release:
+#   1. bump "version" in each package.json you want to ship (and anything that
+#      must ship with it — a dependent pins the exact core version it was packed
+#      against);
+#   2. commit and push to main;
+#   3. push one tag naming any one of them, scope dropped:
+#        git tag ns-kiro-core@0.3.9 && git push origin ns-kiro-core@0.3.9
+#
+# The run publishes every public package whose package.json version is not on
+# npm yet, dependencies first (scripts/release-plan.mjs), and refuses a tag
+# whose package is not part of that plan.
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["*@*"]
   workflow_dispatch:
     inputs:
       dry-run:
         description: "Build and pack, but do not publish"
         type: boolean
-        default: false
+        default: true
 
 jobs:
   publish:
@@ -48,80 +57,85 @@ jobs:
       - run: pnpm -r check
       - run: pnpm test
 
-      # A tag that disagrees with package.json would publish a version nobody
-      # asked for, under a tag pointing at different code. Refuse instead.
-      - name: Verify the tag matches every package version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Plan
+        id: plan
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          mismatch=0
-          for pkg in kiro-core omp-provider-kiro dsh-llm-kiro; do
-            version=$(node -p "require('./packages/$pkg/package.json').version")
-            if [ "$version" != "$tag" ]; then
-              echo "::error::packages/$pkg is $version but the tag says $tag"
-              mismatch=1
-            fi
-          done
-          exit $mismatch
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            node scripts/release-plan.mjs --tag "${GITHUB_REF_NAME}"
+          else
+            node scripts/release-plan.mjs
+          fi
+          echo "plan=$(node scripts/release-plan.mjs --json)" >> "$GITHUB_OUTPUT"
 
-      # `pnpm pack`, not `npm pack`: the adapters depend on ns-kiro-core through
+      # `pnpm pack`, not `npm pack`: dependents reference the cores through
       # `workspace:*`, and only pnpm rewrites that to the real version. Packing
       # with npm would publish the literal `workspace:*` and the package would
       # be uninstallable.
       - name: Pack
+        env:
+          PLAN: ${{ steps.plan.outputs.plan }}
         run: |
           mkdir -p tarballs
-          for pkg in kiro-core omp-provider-kiro dsh-llm-kiro; do
-            (cd "packages/$pkg" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/tarballs")
+          for dir in $(node -p "JSON.parse(process.env.PLAN).map((e) => e.dir).join(' ')"); do
+            (cd "$dir" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/tarballs")
           done
           ls -l tarballs
 
-      - name: Verify the packed dependency was resolved
+      # Two ways a packed manifest can be unpublishable: a `workspace:` range
+      # pnpm failed to rewrite, or a pin on a sibling version that is neither on
+      # npm nor in this run. And a repository.url that does not name this repo
+      # fails OIDC verification only at the real upload, so catch it here.
+      - name: Verify the packed manifests
+        env:
+          PLAN: ${{ steps.plan.outputs.plan }}
+          EXPECTED_REPO: https://github.com/${{ github.repository }}
         run: |
-          for tarball in tarballs/ns-omp-provider-kiro-*.tgz tarballs/ns-dsh-llm-kiro-*.tgz; do
-            dependency=$(tar -xzOf "$tarball" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).dependencies['ns-kiro-core']")
-            echo "$tarball -> ns-kiro-core@$dependency"
-            case "$dependency" in
-              workspace:*|undefined)
-                echo "::error::$tarball still carries an unresolved workspace dependency"
-                exit 1
-                ;;
-            esac
-          done
+          node --input-type=module -e '
+            import { execFileSync } from "node:child_process";
+            import { readdirSync } from "node:fs";
+            const plan = JSON.parse(process.env.PLAN);
+            const pending = new Set(plan.map((e) => `${e.name}@${e.version}`));
+            const siblings = new Set(plan.map((e) => e.name));
+            let failed = false;
+            const fail = (msg) => { console.log(`::error::${msg}`); failed = true; };
+            for (const file of readdirSync("tarballs")) {
+              const manifest = JSON.parse(execFileSync("tar", ["-xzOf", `tarballs/${file}`, "package/package.json"], { encoding: "utf8" }));
+              const url = ((manifest.repository || {}).url || "").replace(/^git\+/, "").replace(/\.git$/, "");
+              if (url !== process.env.EXPECTED_REPO) fail(`${file} declares repository "${url}", expected ${process.env.EXPECTED_REPO}`);
+              const runtime = { ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies };
+              for (const [dep, range] of Object.entries(runtime)) {
+                if (String(range).startsWith("workspace:")) fail(`${file} still carries ${dep}@${range}`);
+                if (!dep.startsWith("ns-") && !dep.startsWith("@ngosangns/")) continue;
+                if (pending.has(`${dep}@${range}`)) continue;
+                try {
+                  execFileSync("npm", ["view", `${dep}@${range}`, "version"], { stdio: "ignore" });
+                } catch {
+                  if (!siblings.has(dep)) fail(`${file} pins ${dep}@${range}, which is neither on npm nor in this run`);
+                }
+              }
+              console.log(`${file}: ok`);
+            }
+            process.exit(failed ? 1 : 0);
+          '
 
-      # A package whose repository.url does not match this repository used to
-      # fail only at the real upload, when provenance verification ran. The
-      # check stays as a sanity gate even though provenance is gone.
-      - name: Verify each package declares this repository
-        run: |
-          expected="https://github.com/${{ github.repository }}"
-          mismatch=0
-          for tarball in tarballs/*.tgz; do
-            url=$(tar -xzOf "$tarball" package/package.json | node -p "(JSON.parse(require('fs').readFileSync(0,'utf8')).repository || {}).url || ''")
-            normalized="${url#git+}"
-            normalized="${normalized%.git}"
-            echo "$tarball -> ${normalized:-<none>}"
-            if [ "$normalized" != "$expected" ]; then
-              echo "::error::$tarball declares '${url:-<none>}' but provenance requires $expected"
-              mismatch=1
-            fi
-          done
-          exit $mismatch
-
-      # Order matters: the adapters pin an exact ns-kiro-core version, so
-      # publishing them first would leave them briefly uninstallable.
+      # Order comes from the plan: dependencies before the packages that pin them.
       #
       # The `./` on the path is load-bearing. A bare `tarballs/name-x.tgz` looks
       # like `owner/repo` to npm, which resolves it as a git dependency and
       # fails with EALLOWGIT instead of reading the file.
       - name: Publish
+        env:
+          PLAN: ${{ steps.plan.outputs.plan }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           dry_run=""
-          if [ "${{ inputs.dry-run }}" = "true" ]; then
+          if [ "${DRY_RUN}" = "true" ]; then
             dry_run="--dry-run"
             echo "dry run: npm will validate the publish without uploading"
           fi
-          for name in ns-kiro-core ns-omp-provider-kiro ns-dsh-llm-kiro; do
-            echo "publishing $name"
-            npm publish ./tarballs/$name-*.tgz --access public --no-provenance $dry_run
+          node -p "JSON.parse(process.env.PLAN).map((e) => e.name.replace('@', '').replace('/', '-') + '-' + e.version + '.tgz').join('\n')" |
+          while read -r tarball; do
+            [ -n "$tarball" ] || continue
+            echo "publishing $tarball"
+            npm publish "./tarballs/$tarball" --access public --no-provenance $dry_run
           done

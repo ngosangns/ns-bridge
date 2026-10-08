@@ -1,4 +1,4 @@
-ns-kiro-provider
+ns-bridge
 Copyright (c) 2026 ngosangns
 
 This product includes software derived from pi-provider-kiro
@@ -12,3 +12,13 @@ validation and repair, retry classification and typed API errors, and opt-in
 usage/cost estimation. The port replaces the pi-ai message and event types with
 a host-neutral vocabulary so the same protocol code can serve both OMP and the
 DeepSeek Harness; the protocol behaviour itself is upstream's.
+
+This product includes software derived from oh-my-pi
+(https://github.com/can1357/oh-my-pi), licensed under the MIT License.
+
+`packages/devin-core` ports oh-my-pi's built-in Devin provider (the Cascade
+Connect/protobuf client, model discovery and wire types); see
+packages/devin-core/README.md for the sync point.
+
+`packages/pi-provider` carries its own NOTICE for the upstream projects it
+adapts (pi-kiro-provider, pi-kiro-api, pi-devin-provider, pi-grok-sdk).

@@ -1,3 +1,22 @@
+## Unreleased
+
+Moved into the [ns-bridge](https://github.com/ngosangns/ns-bridge) monorepo.
+
+### Breaking (kiro)
+- Kiro now runs on `ns-kiro-core`, the same protocol core as `ns-omp-provider-kiro` and
+  `ns-dsh-llm-kiro`, instead of this package's own fork. `/login kiro` no longer runs a
+  browser OAuth flow of its own: it picks up the `kiro-cli login` (or Kiro IDE) session —
+  which covers Builder ID, IAM Identity Center, Google, GitHub and enterprise OIDC — or
+  takes a `ksk_` API key. Run `kiro-cli login` once if you relied on the old flow.
+
+### Changed (devin)
+- Devin now runs on `ns-devin-core` (shared with `ns-dsh-llm-devin`). The catalog follows
+  the core's normalization: effort variants are collapsed into one model with reasoning
+  levels, and Fusion lead models are listed. A saved default pointing at an old raw id
+  (e.g. `MODEL_GPT_5_2_HIGH`) needs re-selecting.
+- Capacity retry moved into `ns-devin-core` (`streamDevinWithCapacityRetry`), unchanged in
+  behaviour.
+
 ## 0.2.2
 
 - fix(grok): show the Grok agent's own tool activity in the reply. Grok (ACP mode) edits files and runs commands **inside its own process** and reports them only as ACP `tool_call` / `tool_call_update` notifications, which the provider dropped (only an opt-in `[grok tool: …]` note hidden in the collapsed thinking block). In Pi and OMP a turn therefore looked like read-only reasoning/speculation even when Grok had edited files, and long turns showed nothing for minutes. Each tool is now rendered as a visible Markdown list line in the answer text — `` - Read `a.ts` ``, `` - Edit `a.ts` (+1 −1) ``, `` - Write `NOTES.md` (+1 −0) ``, `` - Run `npm test` ``, with `✗ … failed: <first line>` on failure; paths are relative to the session cwd. They are text, never `toolCall` blocks, so the host never tries to re-run them. On by default; `PI_GROK_SDK_SHOW_TOOLS=0` hides them.

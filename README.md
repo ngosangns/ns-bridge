@@ -1,128 +1,96 @@
-# ns-kiro-provider
+# ns-bridge
 
-Kiro (AWS CodeWhisperer/Q) as a model provider for two coding agents:
-[OMP](https://github.com/can1357/oh-my-pi) and the
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
+Third-party model vendors — **Kiro**, **Devin**, **Grok** — as providers for
+three coding-agent hosts: [Pi](https://pi.dev), [OMP](https://github.com/can1357/oh-my-pi)
+(oh-my-pi), and the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
-The two hosts share no plumbing — OMP registers a provider through its extension
-API, the Harness registers an `LlmAdapter` on a Cordis service — but they need
-the same thing underneath: Kiro's endpoints, its model catalog, its credentials,
-and its streaming wire protocol. That layer lives once, in `ns-kiro-core`, and each
-adapter is thin.
+Each vendor's wire protocol is written once, each host's plumbing is written
+once, and a host adapter is only the glue between the two:
 
 ```
-┌────────────────────────── ns-kiro-core ──────────────────────────┐
-│ credentials: kiro-cli store · Kiro IDE token · API key · refresh │
-│ catalog: endpoints · model list + cache · effort ladders · rates │
-├──────────────────────────────────────────────────────────────────┤
-│  one call, in stages:                                            │
-│    request-builder  neutral messages → request, history repair   │
-│    transport        deadlines, backoff, capacity logging         │
-│    response-stream  AWS event-stream framing, stall timeouts     │
-│    response-assembler  blocks, thinking, tool calls, usage       │
-│    stream           orchestration: auth rotation, retry policy   │
-└───────────────┬────────────────────────────┬─────────────────────┘
-                │                            │
-      ns-omp-provider-kiro            ns-dsh-llm-kiro
-    registerProvider("kiro")   registerAdapter(["kiro"], …)
-                │                            │
-             omp 18.x                dsh 0.1.x / 0.2.x
+ host adapters     Pi    @ngosangns/ns-pi-provider   kiro · devin · grok ─┐
+ (thin glue)       OMP   ns-omp-provider-kiro        kiro                 ├─ via ns-bridge-core/pi
+                   OMP   ns-omp-provider             devin · grok, bundles the Pi adapter
+                   DSH   ns-dsh-llm-kiro             kiro                 ┐
+                   DSH   ns-dsh-llm-devin            devin                ┴─ via ns-bridge-core/dsh
+                                │                          │
+ vendor cores           ns-kiro-core               ns-devin-core          grok: local grok CLI
+ (no host types)        AWS event-stream,          Connect/protobuf,      (ACP), inside the
+                        kiro-cli/IDE sessions,     devin auth sessions,   Pi adapter
+                        catalog, retry ladder      discovery, quota
+                                │                          │
+ shared                 ns-bridge-core   neutral vocabulary (messages, tools, stream
+                                         events, usage, effort, errors) + host bridges;
+                                         the cores fit it structurally, without importing it
 ```
 
-Each stage is exported, so a caller can drive one on its own — building a
-request without sending it, or assembling blocks from events sourced elsewhere.
+A protocol fix (a new Kiro stop reason, a Devin trailer, a retry rule) lands in
+one vendor core and reaches every host. A host change (a new Pi event, a new
+Harness chunk) lands in one bridge and reaches every vendor.
 
-## Requirements
+## Packages
 
-A Kiro session on the machine. This project establishes no browser flow of its
-own — every interactive method Kiro supports already lands a session in the
-kiro-cli store or the Kiro IDE token file, and both adapters read and refresh
-that session, writing refreshes back so kiro-cli stays on the same token.
+| Package | Layer | What it is | npm |
+| --- | --- | --- | --- |
+| [`ns-bridge-core`](packages/bridge-core) | shared | Neutral vocabulary + the Pi-family and Harness host bridges | [![npm](https://img.shields.io/npm/v/ns-bridge-core)](https://www.npmjs.com/package/ns-bridge-core) |
+| [`ns-kiro-core`](packages/kiro-core) | vendor core | The Kiro (AWS CodeWhisperer/Q) protocol | [![npm](https://img.shields.io/npm/v/ns-kiro-core)](https://www.npmjs.com/package/ns-kiro-core) |
+| [`ns-devin-core`](packages/devin-core) | vendor core | The Devin (Cognition Cascade) protocol | [![npm](https://img.shields.io/npm/v/ns-devin-core)](https://www.npmjs.com/package/ns-devin-core) |
+| [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi adapter | `kiro`, `devin`, `grok` for Pi | [![npm](https://img.shields.io/npm/v/@ngosangns/ns-pi-provider)](https://www.npmjs.com/package/@ngosangns/ns-pi-provider) |
+| [`ns-omp-provider`](packages/omp-provider) | OMP adapter | `devin`, `grok` (+ opt-in `kiro`) for OMP, wrapping the Pi adapter | [![npm](https://img.shields.io/npm/v/ns-omp-provider)](https://www.npmjs.com/package/ns-omp-provider) |
+| [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP adapter | `kiro` for OMP — the recommended Kiro path there | [![npm](https://img.shields.io/npm/v/ns-omp-provider-kiro)](https://www.npmjs.com/package/ns-omp-provider-kiro) |
+| [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro) | DSH adapter | `kiro` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-kiro)](https://www.npmjs.com/package/ns-dsh-llm-kiro) |
+| [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | DSH adapter | `devin` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-devin)](https://www.npmjs.com/package/ns-dsh-llm-devin) |
+
+Package names did not change in the merge; existing installs keep working. Each
+package keeps its own version.
+
+This repository was assembled from four, with their history:
+`ns-kiro-provider` (renamed to this one), `ns-pi-provider`, `ns-omp-provider`
+and `ns-devin-provider` (archived, each pointing here).
+
+## Sign in
+
+No package runs a browser flow of its own for Kiro or Devin — each reads the
+session the vendor's own CLI leaves on the machine, refreshes it, and writes the
+refresh back so the CLI stays on the same token.
 
 ```bash
-kiro-cli login
+kiro-cli login        # Builder ID, IAM Identity Center, Google, GitHub, enterprise OIDC
+devin auth login      # or: /login devin inside Pi / OMP
+grok login            # Grok runs through the local grok CLI (or XAI_API_KEY)
 ```
 
-Builder ID, IAM Identity Center, Google, GitHub, and enterprise OIDC all work,
-because kiro-cli does them. A Kiro API key (`ksk_…`) is accepted directly.
+A Kiro API key (`ksk_…`) and `KIRO_API_KEY` are accepted directly.
 
-## What Kiro reports, and what it does not
-
-Measured 2026-09-06 against `claude-sonnet-5` in `us-east-1`. Recorded here so
-the questions are not re-opened from first principles.
-
-**Token counts: none.** Kiro's `usage` frame is a billing record —
-`{unit: "credit", usage: 0.0659}` — not token counts. `usage.input` is therefore
-derived from the `contextUsagePercentage` frame, and `usage.output` from a
-tiktoken estimate over what the model emitted. `usage.credits` carries the
-figure Kiro actually bills.
-
-**Per-token prices: none.** Kiro bills in credits and publishes no per-token
-rates, so every model's `cost` stays zero. `kiro-cli chat --list-models` does
-publish a relative billing weight, which the catalog picks up as
-`rateMultiplier` — 2.2 for `claude-opus-5` against 0.05 for `qwen3-coder-next`.
-It is absent when kiro-cli is not installed.
-
-**Prompt caching: real, but not controllable.** Kiro caches prompts server-side
-on its own: a repeated prefix billed ~0.035 credits against ~0.066 for a fresh
-one, and a changed prefix went straight back to the full price. There is no way
-to ask for it — every model's `additionalModelRequestFieldsSchema` sets
-`"additionalProperties": false` and allows only `thinking`/`output_config`/
-`max_tokens` (Claude) or `reasoning` (GPT), so a `cachePoint` or `cache_control`
-field is rejected rather than honoured. Kiro also reports no cache token counts.
-
-Reasoning effort is part of the cache key: changing it misses even when the
-prompt is byte-identical, and each effort level then warms its own entry.
-
-**Stop reasons: reported when Kiro sends one, inferred otherwise.** Kiro now
-closes a turn with a `metadataEvent` `stopReason` (`END_TURN` on every ordinary
-turn checked, 2026-10-08). `MAX_TOKENS` is reported as `length`;
-`CONTENT_FILTERED`, `MODEL_CONTEXT_WINDOW_EXCEEDED` (phrased
-`context_length_exceeded`) and `PAUSE_TURN` end the call with an error and no
-retry. Without a stop reason, a turn with no tool call that never carried a
-`contextUsagePercentage` frame is reported as `length`. That frame arrived in
-every case checked — a short reply, a ~5000-character one, a tool-call turn, a
-model with no effort schema, and a non-Claude model — so its absence does mark
-an abnormal turn rather than a normal short answer.
-
-Set `KIRO_DEBUG=1` to log the frames verbatim (`~/.ns-kiro-provider/logs/`) if
-any of this needs re-checking against a newer Kiro.
-
-## Install
-
-All three packages are published on npm (`ns-kiro-core`, `ns-omp-provider-kiro`,
-`ns-dsh-llm-kiro`). Both adapters accept a plain npm package name for their
-install command — no clone or build required, see the per-package sections
-below. A clone is only needed to develop `ns-kiro-core` itself (not meant for
-direct install) or to run an adapter from a local build before it's released:
+## Pi
 
 ```bash
-git clone git@github.com:ngosangns/ns-kiro-provider.git
-cd ns-kiro-provider && pnpm install && pnpm -r build
+pi install npm:@ngosangns/ns-pi-provider
+pi --model kiro/claude-sonnet-4-6
 ```
+
+Registers `kiro`, `devin` and `grok`. See [the package README](packages/pi-provider).
 
 ## OMP
 
 ```bash
-omp plugin install ns-omp-provider-kiro
-omp --model kiro/claude-sonnet-4-6
+omp plugin install ns-omp-provider-kiro   # kiro
+omp plugin install ns-omp-provider        # devin + grok
 ```
 
-`/login kiro` picks up the kiro-cli session, or prompts for an API key when
-there is none. `/model` then lists whatever your account's region actually
-serves — the catalog is fetched from Kiro rather than hardcoded. See
-[the package README](packages/omp-provider-kiro) for version pinning and
-installing from a local build.
+Both register into OMP; only one may own the `kiro` provider id. Kiro belongs to
+`ns-omp-provider-kiro`, so `ns-omp-provider` leaves its `kiro` off unless you set
+`NS_OMP_PROVIDER_ENABLE=kiro` — don't, while `ns-omp-provider-kiro` is installed.
+Both paths now run the same `ns-kiro-core`, so nothing is lost by choosing the
+dedicated plugin.
 
 ## DeepSeek Harness
 
 ```bash
-dsh plugin --profile <profile> add ns-dsh-llm-kiro
+dsh plugin --profile <profile> add ns-dsh-llm-kiro ns-dsh-llm-devin
 ```
 
-See [the package README](packages/dsh-llm-kiro) for version pinning and
-installing from a local build. Then add the row to that profile's
-`cordis.patch.yml`:
+Then in that profile's `cordis.patch.yml`:
 
 ```yaml
 - insert:
@@ -130,6 +98,10 @@ installing from a local build. Then add the row to that profile's
       name: 'ns-dsh-llm-kiro'
       config:
         provider: kiro
+    - id: llm-devin
+      name: 'ns-dsh-llm-devin'
+      config:
+        provider: devin
 
 - id: agent-default-model
   config:
@@ -137,36 +109,29 @@ installing from a local build. Then add the row to that profile's
     model: claude-sonnet-4-6
 ```
 
-`config.region` pins the Kiro API region; leaving it out derives the region from
-the credential, which is what a single-account machine wants.
-
-## Packages
-
-| Package | What it is | npm |
-| --- | --- | --- |
-| [`ns-kiro-core`](packages/kiro-core) | The Kiro protocol, with no host types in it | [![npm](https://img.shields.io/npm/v/ns-kiro-core)](https://www.npmjs.com/package/ns-kiro-core) |
-| [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP extension | [![npm](https://img.shields.io/npm/v/ns-omp-provider-kiro)](https://www.npmjs.com/package/ns-omp-provider-kiro) |
-| [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro) | DeepSeek Harness Cordis plugin | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-kiro)](https://www.npmjs.com/package/ns-dsh-llm-kiro) |
-
-All three are published together from a tag, with
-[provenance](https://docs.npmjs.com/generating-provenance-statements) built and
-signed by GitHub Actions. Release notes are on the
-[releases page](https://github.com/ngosangns/ns-kiro-provider/releases).
+See [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro) and
+[`ns-dsh-llm-devin`](packages/dsh-llm-devin) for options.
 
 ## Development
 
-See [DEVELOPER.md](DEVELOPER.md) for building from source, running tests, and
-contributing.
+```bash
+git clone git@github.com:ngosangns/ns-bridge.git
+cd ns-bridge && pnpm install && pnpm -r build && pnpm test
+```
+
+See [DEVELOPER.md](DEVELOPER.md) for the layering rules, testing, and how a
+release is cut.
 
 ## What this is not
 
-Kiro's runtime API is reverse-engineered and has no public specification. AWS
-can change the wire format without notice, and using it from a client that is
-not Kiro's own sits outside the supported path — check your own agreement before
-relying on it.
+Kiro's and Devin's runtime APIs are reverse-engineered and have no public
+specification. The vendors can change them without notice, and using them from
+a client that is not their own sits outside the supported path — check your own
+agreement before relying on it.
 
 ## Credit
 
-The protocol layer is a port of
+See [NOTICE](NOTICE). The Kiro protocol is a port of
 [pi-provider-kiro](https://github.com/mikeyobrien/pi-provider-kiro) by Mike
-O'Brien (MIT). See [NOTICE](NOTICE) for what was taken and what changed.
+O'Brien (MIT); the Devin protocol is ported from
+[oh-my-pi](https://github.com/can1357/oh-my-pi)'s built-in Devin provider (MIT).

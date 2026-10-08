@@ -13,4 +13,7 @@ credential setup lives here.
 
 Streams text, reasoning, and tool calls through `ns-devin-core` and maps
 Devin's failures onto the Harness `LlmError` routing codes. Works with dsh
-0.2 (tool-role messages) and still reads the dsh 0.1 `tool-result` blocks.
+0.2 (tool-role messages) and still reads the dsh 0.1 `tool-result` blocks —
+that projection is `ns-bridge-core/dsh`, shared with `ns-dsh-llm-kiro`.
+
+Part of [ns-bridge](https://github.com/ngosangns/ns-bridge).
