@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1
+
+Bundles `@ngosangns/ns-pi-provider@0.2.2`.
+
+- fix(grok): Grok's own tool activity is now visible in OMP. The Grok agent edits
+  files and runs commands inside its own ACP process; those tools were dropped, so
+  turns looked like read-only reasoning even when files changed. Each tool now shows
+  as a line in the reply (`` - Edit `src/a.ts` (+3 −1) ``, `` - Run `npm test` ``,
+  `✗ … failed`). Text only — OMP never re-runs them. `PI_GROK_SDK_SHOW_TOOLS=0` hides.
+- fix(grok): cold-start prompts carry a short bridge note so Grok acts with its
+  built-in tools instead of describing OMP tool calls (`PI_GROK_SDK_BRIDGE_NOTE=0`
+  disables).
+
 ## 0.3.0
 
 - **Breaking: `kiro` is now opt-in.** By default only `devin` and `grok` (+ `grok-sdk`)

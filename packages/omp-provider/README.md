@@ -88,7 +88,7 @@ register the same `kiro` provider id.
   (since ns-pi-provider 0.2.0): with no Kiro credential and no saved catalog
   snapshot, `kiro` registers zero models, and `-1m` long-context variants are
   not offered.
-- **Upstream pin** — this release bundles `@ngosangns/ns-pi-provider@0.2.1`.
+- **Upstream pin** — this release bundles `@ngosangns/ns-pi-provider@0.2.2`.
   Bumping it is a deliberate change (rebuild + retest).
 
 ## Development
