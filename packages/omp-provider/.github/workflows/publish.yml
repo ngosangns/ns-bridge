@@ -17,9 +17,6 @@ name: Publish
 #   git tag v0.1.0 && git push origin v0.1.0
 
 on:
-#   git tag v0.1.0 && git push origin v0.1.0
-
-on:
   push:
     tags: ["v*"]
   workflow_dispatch:
@@ -87,6 +84,7 @@ jobs:
         run: |
           if [ -n "$NODE_AUTH_TOKEN" ]; then
             echo "auth: NPM_TOKEN secret present (OIDC still preferred if a trusted publisher is configured)"
+            echo "npm whoami: $(npm whoami)"
           else
             echo "auth: no NPM_TOKEN secret, relying on npm trusted publishing (OIDC)"
           fi
