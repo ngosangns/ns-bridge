@@ -46,6 +46,7 @@ beforeAll(async () => {
     "WINDSURF_API_KEY",
     "NS_OMP_PROVIDERS",
     "NS_OMP_PROVIDER_DISABLE",
+    "NS_OMP_PROVIDER_ENABLE",
   ]) {
     delete process.env[key];
   }
@@ -53,11 +54,11 @@ beforeAll(async () => {
 });
 
 describe("dist/index.js on a fake OMP API", () => {
-  it("registers kiro, devin, grok (+ grok-sdk alias) in OMP shape", async () => {
+  it("registers devin, grok (+ grok-sdk alias) in OMP shape; kiro is opt-in", async () => {
     const pi = new FakeOmpApi();
     await extension(pi);
 
-    expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "grok-sdk", "kiro"]);
+    expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "grok-sdk"]);
     for (const [name, config] of pi.providers) {
       expect(config, name).not.toHaveProperty("refreshModels");
       expect(typeof config.fetchDynamicModels, name).toBe("function");
@@ -66,8 +67,6 @@ describe("dist/index.js on a fake OMP API", () => {
     }
     expect((pi.providers.get("devin")!.models as unknown[]).length).toBeGreaterThan(0);
     expect((pi.providers.get("grok")!.models as unknown[]).length).toBeGreaterThan(0);
-    // `$KIRO_ACCESS_TOKEN` is unset → no bogus literal key; OMP falls back to /login.
-    expect(pi.providers.get("kiro")).not.toHaveProperty("apiKey");
     expect(pi.providers.get("grok")!.apiKey).toBe("grok-cli");
 
     expect(pi.events).not.toContain("session_info_changed");
@@ -75,14 +74,36 @@ describe("dist/index.js on a fake OMP API", () => {
     expect(pi.commands).toEqual(expect.arrayContaining(["ns-pi", "grok", "devin-status"]));
   });
 
+  it("registers kiro in OMP shape when opted in with NS_OMP_PROVIDER_ENABLE", async () => {
+    process.env.NS_OMP_PROVIDER_ENABLE = "kiro";
+    try {
+      const pi = new FakeOmpApi();
+      await extension(pi);
+      expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "grok-sdk", "kiro"]);
+      const kiro = pi.providers.get("kiro")!;
+      expect(kiro).not.toHaveProperty("refreshModels");
+      expect(typeof kiro.fetchDynamicModels).toBe("function");
+      expect(typeof kiro.streamSimple).toBe("function");
+      // No credential/saved catalog in the temp HOME → zero models (ns-pi-provider >= 0.2.0).
+      expect(Array.isArray(kiro.models)).toBe(true);
+      // `$KIRO_ACCESS_TOKEN` is unset → no bogus literal key; OMP falls back to /login.
+      expect(kiro).not.toHaveProperty("apiKey");
+    } finally {
+      delete process.env.NS_OMP_PROVIDER_ENABLE;
+    }
+  });
+
   it("honours NS_OMP_PROVIDER_DISABLE", async () => {
-    process.env.NS_OMP_PROVIDER_DISABLE = "kiro";
+    process.env.NS_OMP_PROVIDER_ENABLE = "kiro";
+    process.env.NS_OMP_PROVIDER_DISABLE = "kiro,grok";
     try {
       const pi = new FakeOmpApi();
       await extension(pi);
       expect(pi.providers.has("kiro")).toBe(false);
+      expect(pi.providers.has("grok")).toBe(false);
       expect(pi.providers.has("devin")).toBe(true);
     } finally {
+      delete process.env.NS_OMP_PROVIDER_ENABLE;
       delete process.env.NS_OMP_PROVIDER_DISABLE;
     }
   });

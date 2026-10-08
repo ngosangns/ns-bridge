@@ -10,7 +10,7 @@ compat layer.
 
 | Provider | Auth | Notes |
 |----------|------|-------|
-| `kiro` | OAuth (`/login kiro`) + `KIRO_API_KEY` / SSO cache | Overlaps with [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro) — see below |
+| `kiro` (**opt-in**) | OAuth (`/login kiro`) + `KIRO_API_KEY` / SSO cache | Off by default — use [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro); see below |
 | `devin` | OAuth (`/login devin`) + `credentials.toml` / env | Swe-2 catalog when authenticated |
 | `grok` (+ `grok-sdk` alias) | Local `grok` CLI / `~/.grok` / `XAI_API_KEY` | Commands: `/grok status \| models \| refresh` |
 
@@ -36,17 +36,24 @@ omp -e ./dist/index.js ...
 Then `/login kiro` or `/login devin` as needed. Grok uses the local `grok`
 CLI / `~/.grok` auth (or `XAI_API_KEY`).
 
-### Avoiding a duplicate `kiro` provider
+### Choosing providers (`kiro` is opt-in)
 
-If you already use [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro),
-disable this package's kiro registration:
+By default this package registers **`devin`** and **`grok`** (+ `grok-sdk`) only.
+For Kiro in OMP, the recommended path is the dedicated
+[`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro) plugin;
+this package's `kiro` stays off so it never shadows that plugin.
 
 ```bash
-# in the shell that launches omp, or via your shell profile / omp env
-export NS_OMP_PROVIDER_DISABLE=kiro
+# opt in to this package's kiro (in the environment that launches omp)
+export NS_OMP_PROVIDER_ENABLE=kiro
+# or allow-list exactly what you want
+export NS_OMP_PROVIDERS=devin,grok,kiro
+# deny-list, applied last (e.g. drop grok)
+export NS_OMP_PROVIDER_DISABLE=grok
 ```
 
-Or allow-list only what you want: `NS_OMP_PROVIDERS=devin,grok`.
+Don't opt in to `kiro` while `ns-omp-provider-kiro` is installed — both would
+register the same `kiro` provider id.
 
 ## How the wrapper works
 
@@ -72,16 +79,16 @@ Or allow-list only what you want: `NS_OMP_PROVIDERS=devin,grok`.
 
 - **`session_info_changed`** — OMP has no equivalent; the grok handler is a
   documented no-op (name changes do not re-key the agent pool).
-- **Duplicate `kiro`** — see `NS_OMP_PROVIDER_DISABLE` above.
+- **Duplicate `kiro`** — `kiro` is opt-in; don't enable it alongside `ns-omp-provider-kiro`.
 - **Unauthenticated catalogs** — without credentials, OMP may hide a provider's
   models from `omp models` even though the provider is registered. After
   `/login` (or with CLI creds present) the live catalog, including Devin
   `swe-2-*`, appears via `fetchDynamicModels`.
-- **Kiro catalog** — models come only from Kiro's `ListAvailableModels`
+- **Kiro catalog** (when opted in) — models come only from Kiro's `ListAvailableModels`
   (since ns-pi-provider 0.2.0): with no Kiro credential and no saved catalog
   snapshot, `kiro` registers zero models, and `-1m` long-context variants are
   not offered.
-- **Upstream pin** — this release bundles `@ngosangns/ns-pi-provider@0.2.0`.
+- **Upstream pin** — this release bundles `@ngosangns/ns-pi-provider@0.2.1`.
   Bumping it is a deliberate change (rebuild + retest).
 
 ## Development
@@ -99,14 +106,14 @@ your real `~/.omp`.
 
 ## Publish
 
-Push a tag matching `package.json` (e.g. `v0.2.0`) to run
+Push a tag matching `package.json` (e.g. `v0.3.0`) to run
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which
 publishes with **provenance** from a GitHub-hosted runner:
 
 ```bash
 # bump "version" in package.json first, then
 npm run check
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 Auth, in the order npm tries it:

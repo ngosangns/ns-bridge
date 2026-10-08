@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+- **Breaking: `kiro` is now opt-in.** By default only `devin` and `grok` (+ `grok-sdk`)
+  are registered, so this package no longer shadows the dedicated
+  [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro) plugin
+  (the recommended Kiro path in OMP). Opt in with `NS_OMP_PROVIDER_ENABLE=kiro` or by
+  listing it in `NS_OMP_PROVIDERS` (e.g. `NS_OMP_PROVIDERS=devin,grok,kiro`).
+  `NS_OMP_PROVIDER_DISABLE` still works and is applied last; the old
+  `NS_OMP_PROVIDER_DISABLE=kiro` workaround is no longer needed.
+- Bundles `@ngosangns/ns-pi-provider@0.2.1`: Kiro now honours `metadataEvent` stop
+  reasons — `MAX_TOKENS` → `length` (OMP skips truncated tool calls instead of running
+  them with partial arguments), `CONTENT_FILTERED` / `MODEL_CONTEXT_WINDOW_EXCEEDED` /
+  `PAUSE_TURN` and mid-stream exception frames end as errors, and reported token usage
+  is read. Only relevant when `kiro` is opted in.
+
 ## 0.2.0
 
 Bundles `@ngosangns/ns-pi-provider@0.2.0` (was 0.1.7).
