@@ -7,6 +7,10 @@ Kiro speaks its own streaming protocol — AWS event-stream framing over
 `generateAssistantResponse` — which no configurable route can describe, so this
 registers a real `LlmAdapter` rather than a profile on a generic one.
 
+Works with dsh 0.2 (tool results as `tool`-role messages, `developer`
+tool-change messages, offloaded images) and still reads the dsh 0.1
+`tool-result` blocks.
+
 ## Install
 
 Published on npm as `ns-dsh-llm-kiro`:

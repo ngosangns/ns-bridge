@@ -37,7 +37,12 @@ function adapter(): KiroAdapter {
   });
 }
 
-const user = { role: "user", content: [{ type: "text", text: "hello" }] } as Message;
+const user = {
+  id: "m1",
+  source: { kind: "user" },
+  role: "user",
+  content: [{ type: "text", text: "hello" }],
+} as unknown as Message;
 
 type CoreEvent = { type: "usage"; usage: KiroUsage } | { type: "done"; stopReason: "stop" };
 

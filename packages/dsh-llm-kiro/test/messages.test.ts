@@ -5,8 +5,13 @@ import type { Message, ToolCallId } from "@deepseek-ai/dsh-llm";
 import { describe, expect, it } from "vitest";
 import { toKiroMessages } from "../src/messages.js";
 
-const message = (input: Partial<Message> & Pick<Message, "role" | "content">): Message =>
-  ({ id: "m1", source: { kind: "user" }, ...input }) as Message;
+/**
+ * Loosely typed on purpose: the legacy cases below build dsh 0.1 messages
+ * (`tool-result` blocks in a user turn), which dsh 0.2's types no longer
+ * describe but a 0.1 host still sends.
+ */
+const message = (input: { role: string; content: readonly unknown[] } & Record<string, unknown>): Message =>
+  ({ id: "m1", source: { kind: "user" }, ...input }) as unknown as Message;
 
 describe("toKiroMessages", () => {
   it("lifts the system role out of the history into the system slot", async () => {
@@ -192,5 +197,84 @@ describe("toKiroMessages", () => {
     expect(out.messages[0]?.content).toEqual([
       { type: "image", data: Buffer.from([1, 2, 3]).toString("base64"), mimeType: "image/png" },
     ]);
+  });
+});
+
+describe("toKiroMessages on the dsh 0.2 message model", () => {
+  it("maps tool-role messages to tool results named after their call", async () => {
+    const out = await toKiroMessages([
+      message({
+        role: "assistant",
+        source: { kind: "model", provider: "kiro", model: "claude-sonnet-4-5" },
+        content: [{ type: "tool-call", id: "c1", name: "bash", arguments: '{"command":"ls"}' }],
+      } as never),
+      message({
+        role: "tool",
+        source: { kind: "tool", callId: "c1" },
+        toolCallId: "c1",
+        isError: true,
+        content: [{ type: "text", text: "boom" }],
+      } as never),
+    ]);
+    expect(out.messages).toHaveLength(2);
+    expect(out.messages[1]).toEqual({
+      role: "toolResult",
+      toolCallId: "c1",
+      toolName: "bash",
+      content: [{ type: "text", text: "boom" }],
+      isError: true,
+    });
+  });
+
+  it("names a dsh 0.1 tool-result block after its call too", async () => {
+    const out = await toKiroMessages([
+      message({
+        role: "assistant",
+        content: [{ type: "tool-call", id: "c1", name: "read", arguments: "{}" }],
+      } as never),
+      message({
+        role: "user",
+        content: [{ type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "ok" }] }],
+      } as never),
+    ]);
+    expect(out.messages[1]).toMatchObject({ role: "toolResult", toolCallId: "c1", toolName: "read" });
+  });
+
+  it("skips developer tool-change messages instead of sending them as user turns", async () => {
+    const out = await toKiroMessages([
+      message({ role: "user", content: [{ type: "text", text: "hi" }] }),
+      message({ role: "developer", content: [{ type: "tool-addition", toolName: "web_search" }] } as never),
+    ]);
+    expect(out.messages).toEqual([{ role: "user", content: [{ type: "text", text: "hi" }] }]);
+  });
+
+  it("sends an offloaded image as dsh's placeholder text instead of its bytes", async () => {
+    const readImage = async () => {
+      throw new Error("an offloaded image must not be read");
+    };
+    const out = await toKiroMessages(
+      [
+        message({
+          role: "user",
+          content: [
+            {
+              type: "image",
+              offloaded: true,
+              attachment: { attachmentId: "a1" as AttachmentId, mediaType: "image/png", bytes: 3, width: 1, height: 1 },
+            },
+          ],
+        } as never),
+      ],
+      { attachments: { readImage, imageHostPath: () => "/tmp/a1.png" } as never },
+    );
+    const content = out.messages[0]?.content as Array<{ type: string; text?: string }>;
+    expect(content).toHaveLength(1);
+    expect(content[0]?.type).toBe("text");
+    expect(content[0]?.text).toContain("/tmp/a1.png");
+  });
+
+  it("accepts identity-free request inputs", async () => {
+    const out = await toKiroMessages([{ role: "user", content: [{ type: "text", text: "one-shot" }] }]);
+    expect(out.messages).toEqual([{ role: "user", content: [{ type: "text", text: "one-shot" }] }]);
   });
 });

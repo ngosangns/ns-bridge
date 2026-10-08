@@ -26,7 +26,7 @@ adapter is thin.
       ns-omp-provider-kiro            ns-dsh-llm-kiro
     registerProvider("kiro")   registerAdapter(["kiro"], …)
                 │                            │
-             omp 18.x                     dsh 0.1.x
+             omp 18.x                dsh 0.1.x / 0.2.x
 ```
 
 Each stage is exported, so a caller can drive one on its own — building a
