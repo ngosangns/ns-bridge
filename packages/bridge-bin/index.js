@@ -2,6 +2,7 @@
 // ABOUTME: CommonJS on purpose: ns-bridge-core resolves it synchronously through createRequire.
 "use strict";
 
+const { createRequire } = require("node:module");
 const { existsSync } = require("node:fs");
 const { dirname, join } = require("node:path");
 
@@ -42,12 +43,21 @@ function binaryPath(options = {}) {
   const arch = options.arch || process.arch;
   const target = currentTarget(platform, arch);
   if (!SUPPORTED_TARGETS.includes(target)) {
-    throw new Error(`ns-bridge-bin: no ns-bridge binary is published for ${target} (supported: ${SUPPORTED_TARGETS.join(", ")})`);
+    throw new Error(
+      `ns-bridge-bin: no ns-bridge binary is published for ${target} (supported: ${SUPPORTED_TARGETS.join(", ")})`,
+    );
   }
   const name = platformPackageName(target);
+  // Node's require.resolve({ paths }) falls through to this package's own
+  // node_modules when the override misses — which would "find" a sibling
+  // platform package a test (or a custom lookup) meant to hide. Resolve from
+  // the override tree itself so the walk stays inside it.
+  const resolve = options.paths?.length
+    ? createRequire(join(options.paths[0], "__ns_bridge_bin_probe__.js")).resolve
+    : require.resolve.bind(require);
   let manifest;
   try {
-    manifest = require.resolve(`${name}/package.json`, options.paths ? { paths: options.paths } : undefined);
+    manifest = resolve(`${name}/package.json`);
   } catch {
     throw new Error(
       `ns-bridge-bin: ${name} is not installed. It is an optional dependency of ns-bridge-bin; ` +
