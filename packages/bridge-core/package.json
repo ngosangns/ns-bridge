@@ -17,6 +17,10 @@
     "./dsh": {
       "types": "./dist/dsh/index.d.ts",
       "default": "./dist/dsh/index.js"
+    },
+    "./sidecar": {
+      "types": "./dist/sidecar/index.d.ts",
+      "default": "./dist/sidecar/index.js"
     }
   },
   "license": "MIT",

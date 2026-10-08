@@ -41,3 +41,17 @@ A new vendor is a core that emits `BridgeStreamEvent`s; every host gets it
 through the existing bridges. A new host is one bridge here; every vendor gets it
 for free. Host adapters stay glue: credentials and the model catalog come from
 the vendor core, translation from here.
+
+## Sidecar client (`ns-bridge-core/sidecar`)
+
+Runs a vendor call in the `ns-bridge` Go binary and yields its events, ready
+for `streamToPi` or `streamToDsh`. Protocol:
+[docs/SIDECAR-PROTOCOL.md](../../docs/SIDECAR-PROTOCOL.md).
+
+| Export | Does |
+| --- | --- |
+| `sidecarStream(vendor, request, { signal, binary, env })` | Start `ns-bridge stream --vendor <vendor>`, yield `BridgeStreamEvent`s; abort closes stdin, then SIGTERM, then SIGKILL |
+| `SidecarError`, `isSidecarError` | The typed failure: `kind`, `status`, `retryAfterMs`, `reasonCode`, `exitCode`, `stderr` |
+| `resolveSidecarBinary` | `NS_BRIDGE_BIN`, then the explicit path, then `ns-bridge` on PATH |
+
+Needs `node:child_process` (Node or Bun); the root and `./pi` / `./dsh` entries do not load it.

@@ -30,6 +30,28 @@ pnpm workspace, eight packages under `packages/`, in three layers:
   bridge vocabulary *structurally* and do not import `ns-bridge-core`;
   `ns-bridge-core` imports no core at runtime (only its tests do).
 
+### The Go sidecar (in progress)
+
+The vendor cores are being rewritten in Go. Hosts load providers as in-process
+JavaScript, so only the vendor work moves: one Go binary, `ns-bridge`
+([`go/`](go)), that a host adapter starts per model call through
+`ns-bridge-core/sidecar`. It reads a request envelope on stdin and streams
+`BridgeStreamEvent` NDJSON on stdout — the same `AsyncIterable` the TypeScript
+cores hand `streamToPi` / `streamToDsh` today. Contract:
+[docs/SIDECAR-PROTOCOL.md](docs/SIDECAR-PROTOCOL.md).
+
+| Path | Owns |
+| --- | --- |
+| `go/internal/bridge` | The vocabulary in Go (mirrors `packages/bridge-core/src/types.ts`), the envelope, the NDJSON writer, terminal errors |
+| `go/internal/sidecar` | One call's lifecycle: envelope, vendor dispatch, cancellation on stdin EOF / SIGTERM, exit codes |
+| `go/internal/vendors/<id>` | A vendor core. Only `echo` (no network, for tests) so far |
+| `go/cmd/ns-bridge` | The CLI: `stream --vendor <id>`, `vendors`, `version` |
+| `packages/bridge-core/src/sidecar` | The TypeScript client: `sidecarStream(vendor, request, { signal })`, `SidecarError` |
+
+Status: M0 (protocol, client, echo vendor). Kiro and Devin still run on the
+TypeScript cores; nothing ships the binary yet. Change `types.ts` and
+`go/internal/bridge` together — the JSON must stay identical.
+
 ### The `kiro` provider id in OMP
 
 `ns-omp-provider-kiro` owns `kiro` in OMP. `ns-omp-provider` keeps its `kiro`
@@ -59,6 +81,8 @@ divergence entry in `.upstream-sync.json` for the region map.
 
 - Node >=22 (`engines.node` in `package.json`)
 - pnpm (`packageManager` in `package.json`)
+- Go (version in `go/go.mod`) for `go/` and for bridge-core's sidecar tests,
+  which build the binary; without Go those tests are skipped
 
 ## Setup, build, check, test
 
@@ -71,7 +95,17 @@ pnpm -r check
 pnpm test           # vitest projects: bridge, kiro, devin, pi, omp
 pnpm vitest run --project kiro   # one project
 pnpm lint           # biome check .  (lint:fix / format to write)
+(cd go && gofmt -l . && go vet ./... && go test ./...)   # the Go sidecar
 ```
+
+Run the sidecar by hand with the echo vendor:
+
+```bash
+cd go && echo '{"protocol":1,"request":{"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}}' \
+  | go run ./cmd/ns-bridge stream --vendor echo --ignore-stdin-eof
+```
+
+`NS_BRIDGE_BIN=/path/to/ns-bridge` points `sidecarStream` at a local build.
 
 Pi and OMP adapters keep their own formatting and are excluded from Biome.
 
@@ -93,6 +127,7 @@ A DSH profile can point at a local build with
 ## CI
 
 `.github/workflows/ci.yml` runs on push to `main` and on pull requests:
+`gofmt -l`, `go vet ./...` and `go test ./...` in `go/`, then
 `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm -r build`, `pnpm -r check`,
 `pnpm test`. Run the same sequence locally before pushing.
 

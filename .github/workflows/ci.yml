@@ -15,6 +15,19 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # The Go sidecar (go/): its own tests, and the binary bridge-core's
+      # sidecar tests build and drive.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache: false
+      - name: Go (gofmt, vet, test)
+        working-directory: go
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "::error::gofmt needed: $unformatted"; exit 1; fi
+          go vet ./...
+          go test ./...
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       # `check` typechecks against built declarations, so the build comes first.
