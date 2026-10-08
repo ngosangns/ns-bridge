@@ -1,4 +1,4 @@
-## Unreleased
+## 0.3.0
 
 Moved into the [ns-bridge](https://github.com/ngosangns/ns-bridge) monorepo.
 

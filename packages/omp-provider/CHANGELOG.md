@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+Bundles `@ngosangns/ns-pi-provider@0.3.0`.
 
 Moved into the [ns-bridge](https://github.com/ngosangns/ns-bridge) monorepo; bundles the
 workspace `@ngosangns/ns-pi-provider` (see its changelog: Kiro and Devin now run on the
