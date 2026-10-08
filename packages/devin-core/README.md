@@ -7,6 +7,21 @@ wire protocol, PKCE + API-key credentials, model discovery, and the
 host adapters (`@ngosangns/ns-pi-provider`, `ns-omp-provider`,
 `ns-dsh-llm-devin`) — not meant to be installed or configured directly.
 
+
+## Engine
+
+Since 0.3.0 the public entry points (`streamDevin`, `fetchDevinModels`, `fetchDevinUsage`) run in the
+[`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar
+when a binary is installed ([`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin),
+`NS_BRIDGE_BIN`, or `ns-bridge` on `PATH`), and in this package's TypeScript
+otherwise. `NS_BRIDGE_ENGINE=ts` (or `NS_BRIDGE_ENGINE_DEVIN=ts`) keeps
+everything in-process; `…InProcess` exports always do. The credential store and model cache stay in TypeScript.
+
+The TypeScript implementation is now the fallback. A later major release is
+expected to slim this package to the facade, types and credential stores, with
+the protocol living in the binary only; nothing changes for callers of the
+exports above.
+
 ## What it does
 
 - `streamDevin(request)` — one Cascade turn: `GetUserJwt` (session → user JWT +

@@ -16,8 +16,12 @@ export type BridgeEngine = "go" | "ts";
 /** What NS_BRIDGE_ENGINE may say: an engine, or `auto` (Go when a binary is installed). */
 export type BridgeEngineSetting = BridgeEngine | "auto";
 
-/** The setting used when NS_BRIDGE_ENGINE is unset or unrecognised. */
-export const DEFAULT_BRIDGE_ENGINE: BridgeEngineSetting = "ts";
+/**
+ * The setting used when NS_BRIDGE_ENGINE is unset or unrecognised: the Go
+ * sidecar when a binary is installed, the in-process TypeScript core
+ * otherwise (`NS_BRIDGE_ENGINE=ts` opts out of the binary entirely).
+ */
+export const DEFAULT_BRIDGE_ENGINE: BridgeEngineSetting = "auto";
 
 function parseSetting(value: string | undefined): BridgeEngineSetting | undefined {
   switch (value?.trim().toLowerCase()) {
@@ -107,9 +111,21 @@ export interface EngineStreamOptions<TEvent, TRequest> {
 let warnedFallback = false;
 
 /**
+ * Whether `auto` may retry a failed sidecar call in TypeScript: the binary is
+ * missing, or too old to know the vendor, operation or protocol (`unsupported`;
+ * `call` itself is a usage error, exit 2, before 0.2).
+ */
+function isAutoFallback(error: SidecarError): boolean {
+  return (
+    error.kind === "unavailable" || error.kind === "unsupported" || (error.kind === "crashed" && error.exitCode === 2)
+  );
+}
+
+/**
  * Run one vendor call on the selected engine. With the `auto` setting, a
- * binary that cannot be started before any event arrives falls back to the
- * in-process core (once-per-process warning); an explicit `go` never falls back.
+ * binary that cannot run the call before any event arrives (missing, or too
+ * old for the vendor) falls back to the in-process core (once-per-process
+ * warning); an explicit `go` never falls back.
  */
 export async function* engineStream<TEvent, TRequest>(
   options: EngineStreamOptions<TEvent, TRequest>,
@@ -134,7 +150,7 @@ export async function* engineStream<TEvent, TRequest>(
   } catch (error) {
     if (
       error instanceof SidecarError &&
-      error.kind === "unavailable" &&
+      isAutoFallback(error) &&
       !delivered &&
       options.engine === undefined &&
       bridgeEngineSetting(options.vendor, env) === "auto"
@@ -184,11 +200,7 @@ export async function engineCall<TResult, TRequest>(options: EngineCallOptions<T
   } catch (error) {
     if (
       error instanceof SidecarError &&
-      // Not installed, or a binary too old to know the op (`call` itself is
-      // a usage error, exit 2, before 0.2).
-      (error.kind === "unavailable" ||
-        error.kind === "unsupported" ||
-        (error.kind === "crashed" && error.exitCode === 2)) &&
+      isAutoFallback(error) &&
       options.engine === undefined &&
       bridgeEngineSetting(options.vendor, env) === "auto"
     ) {

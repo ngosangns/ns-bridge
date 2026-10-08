@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -14,6 +14,13 @@ import {
 const dir = mkdtempSync(join(tmpdir(), "ns-bridge-engine-"));
 const fakeBin = join(dir, "ns-bridge");
 writeFileSync(fakeBin, "");
+// A binary too old for the request: it answers with an `unsupported` error.
+const oldBin = join(dir, "ns-bridge-old");
+writeFileSync(
+  oldBin,
+  `#!/bin/sh\nread -r line\necho '{"type":"error","error":{"kind":"unsupported","message":"unknown vendor"}}'\nexit 1\n`,
+);
+chmodSync(oldBin, 0o755);
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 async function* inProcess() {
@@ -28,6 +35,31 @@ async function drain<T>(events: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe("engine selection", () => {
+  it("defaults to auto: Go when a binary is installed", () => {
+    expect(DEFAULT_BRIDGE_ENGINE).toBe("auto");
+    expect(selectBridgeEngine("kiro", { NS_BRIDGE_BIN: fakeBin, PATH: "" })).toBe("go");
+    expect(selectBridgeEngine("kiro", { NS_BRIDGE_BIN: fakeBin, PATH: "", NS_BRIDGE_ENGINE: "ts" })).toBe("ts");
+  });
+
+  it.skipIf(process.platform === "win32")("auto falls back when the binary is too old for the vendor", async () => {
+    const env = { PATH: process.env.PATH, NS_BRIDGE_BIN: oldBin };
+    const events = await drain(
+      engineStream({ vendor: "echo", request: () => ({}), inProcess, env, sidecar: { stderr: false } }),
+    );
+    expect(events.map((e) => e.type)).toEqual(["start", "done"]);
+    await expect(
+      drain(
+        engineStream({
+          vendor: "echo",
+          request: () => ({}),
+          inProcess,
+          env: { ...env, NS_BRIDGE_ENGINE: "go" },
+          sidecar: { stderr: false },
+        }),
+      ),
+    ).rejects.toSatisfy((error) => error instanceof SidecarError && error.kind === "unsupported");
+  });
+
   it("reads NS_BRIDGE_ENGINE, with a per-vendor override", () => {
     expect(bridgeEngineSetting("kiro", {})).toBe(DEFAULT_BRIDGE_ENGINE);
     expect(bridgeEngineSetting("kiro", { NS_BRIDGE_ENGINE: "go" })).toBe("go");

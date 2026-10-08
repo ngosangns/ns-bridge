@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "vitest";
 
+// Unit tests exercise the in-process TypeScript cores (many stub global fetch);
+// the differential tests pick the Go engine per vendor explicitly.
+process.env.NS_BRIDGE_ENGINE = "ts";
+
 const testHome = mkdtempSync(join(tmpdir(), "kiro-core-test-"));
 
 // Source modules resolve cache and credential paths from the home directory at

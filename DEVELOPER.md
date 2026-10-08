@@ -89,12 +89,15 @@ the catalog cache file that the synchronous `getCachedModels` reads),
 (`devin-core/src/engine-ops.ts`) and stay fail-soft. Each has an
 `…InProcess` twin that always runs TypeScript.
 
-Status: M4 — Devin streaming (GetUserJwt, AssignModel, GetChatMessage,
+Status: M5 — Devin streaming (GetUserJwt, AssignModel, GetChatMessage,
 capacity backoff) and Kiro streaming (profile resolution, 403 credential
 refresh via kiro-cli, capacity / request-rate / empty / echo retries, text
 tool-call recovery), Kiro's catalog refresh, usage and token refresh,
 and Devin's model discovery and usage report, run in Go behind
-`NS_BRIDGE_ENGINE=go`; the default is still `ts`. Still TypeScript-only:
+`NS_BRIDGE_ENGINE=go`. Since M5 the default is `auto`: Go whenever a
+binary is installed, TypeScript otherwise; `NS_BRIDGE_ENGINE=ts` opts out.
+Unit tests pin `NS_BRIDGE_ENGINE=ts` in their setup; the differential tests
+choose the engine per vendor. Still TypeScript-only:
 interactive login (Devin PKCE, Kiro API-key login, the hosts' `oauth.login`
 hooks), which needs host callbacks, and `refreshDevinToken`, which makes no
 request. Change `types.ts` and `go/internal/bridge` together — the JSON

@@ -30,6 +30,21 @@ adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
   retry ladder (transport timeouts, capacity pressure, request-rate windows, 403
   credential rotation, degenerate 200s).
 
+## Engine
+
+Since 0.4.0 the public entry points (`streamKiro`, `updateKiroModelsCache`, `fetchKiroUsage`, `refreshKiroToken`) run in the
+[`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar
+when a binary is installed ([`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin),
+`NS_BRIDGE_BIN`, or `ns-bridge` on `PATH`), and in this package's TypeScript
+otherwise. `NS_BRIDGE_ENGINE=ts` (or `NS_BRIDGE_ENGINE_KIRO=ts`) keeps
+everything in-process; `…InProcess` exports always do. Per-process state
+(profile-ARN and region caches, the cache-read estimate, catalog refresh scheduling) stays in TypeScript and is carried across each call.
+
+The TypeScript implementation is now the fallback. A later major release is
+expected to slim this package to the facade, types and credential stores, with
+the protocol living in the binary only; nothing changes for callers of the
+exports above.
+
 ## The neutral seam
 
 `streamKiro` takes a request built from this package's own vocabulary and yields

@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "vitest";
 
+// Unit tests exercise the in-process TypeScript cores (many stub global fetch);
+// the differential tests pick the Go engine per vendor explicitly.
+process.env.NS_BRIDGE_ENGINE = "ts";
+
 // The Go toolchain keeps its build cache under the real home; the differential
 // tests build the sidecar with it.
 process.env.NS_BRIDGE_TEST_REAL_HOME ??= process.env.HOME;

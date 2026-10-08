@@ -241,13 +241,17 @@ stream functions call. It reads, per vendor:
 | Variable | Values |
 | --- | --- |
 | `NS_BRIDGE_ENGINE_<VENDOR>` (e.g. `NS_BRIDGE_ENGINE_DEVIN`) | `go`, `ts`, `auto`; wins for that vendor |
-| `NS_BRIDGE_ENGINE` | `go`, `ts`, `auto` |
+| `NS_BRIDGE_ENGINE` | `go`, `ts`, `auto` (the default) |
 
 `go` always runs the binary (a missing binary is an `unavailable` error);
-`ts` always runs the in-process TypeScript core; `auto` runs the binary when
-one can be found (`NS_BRIDGE_BIN`, `ns-bridge-bin`, `PATH`) and falls back to
-TypeScript when it cannot start. The binary's stderr is forwarded to the
-host's stderr, as the in-process cores' console output was.
+`ts` always runs the in-process TypeScript core; `auto` — the default since
+M5 — runs the binary when one can be found (`NS_BRIDGE_BIN`, `ns-bridge-bin`,
+`PATH`) and falls back to TypeScript when it cannot start or is too old for
+the call (an `unsupported` vendor, op or protocol), before any event arrived.
+`NS_BRIDGE_ENGINE=ts` (or `NS_BRIDGE_ENGINE_KIRO=ts` / `_DEVIN=ts`) is the
+escape hatch back to the in-process cores. A caller-injected `fetch` (Devin)
+always runs TypeScript. The binary's stderr is forwarded to the host's
+stderr, as the in-process cores' console output was.
 
 ## The devin vendor
 
