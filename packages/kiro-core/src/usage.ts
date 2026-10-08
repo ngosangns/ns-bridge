@@ -155,6 +155,16 @@ async function fetchRawUsage(auth: KiroManagementAuth, profileArn?: string): Pro
 }
 
 export async function fetchKiroUsage(credentials: KiroCredentials): Promise<KiroProviderUsage> {
+  const { runKiroOp } = await import("./engine-ops.js");
+  return runKiroOp(
+    "usage",
+    () => ({ credentials }),
+    () => fetchKiroUsageInProcess(credentials),
+  );
+}
+
+/** {@link fetchKiroUsage} in TypeScript, regardless of NS_BRIDGE_ENGINE. */
+export async function fetchKiroUsageInProcess(credentials: KiroCredentials): Promise<KiroProviderUsage> {
   const auth = { accessToken: credentials.access, region: resolveApiRegion(credentials.region) };
   const raw = await fetchRawUsage(auth, credentials.profileArn);
   const usageBuckets = raw.usageBreakdownList?.length

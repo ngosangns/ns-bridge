@@ -16,7 +16,9 @@ export {
   type BridgeEngineSetting,
   bridgeEngineSetting,
   DEFAULT_BRIDGE_ENGINE,
+  type EngineCallOptions,
   type EngineStreamOptions,
+  engineCall,
   engineStream,
   NS_BRIDGE_ENGINE_ENV,
   selectBridgeEngine,
@@ -29,4 +31,4 @@ export {
   type SidecarErrorKind,
   type SidecarErrorPayload,
 } from "./errors.js";
-export { SIDECAR_PROTOCOL_VERSION, type SidecarStreamOptions, sidecarStream } from "./stream.js";
+export { SIDECAR_PROTOCOL_VERSION, type SidecarStreamOptions, sidecarCall, sidecarStream } from "./stream.js";

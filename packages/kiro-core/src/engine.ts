@@ -5,7 +5,7 @@ import { type BridgeEngine, engineStream, SidecarError, selectBridgeEngine } fro
 import { applyCacheEstimate } from "./cache-estimator.js";
 import { debugLog, formatSafeError } from "./debug.js";
 import { getKiroRegionFromProfileArn } from "./endpoints.js";
-import { KiroApiError, type KiroProviderAttempts } from "./errors.js";
+import { kiroErrorFromSidecar } from "./engine-ops.js";
 import { applyKiroProfileArnCacheChanges, KiroManagementHttpError, snapshotKiroProfileArnCache } from "./management.js";
 import { isCacheStale, resolveKiroModel, updateKiroModelsCache } from "./models.js";
 import { capacityRetryConfig, firstTokenTimeoutForModel, retryConfig } from "./retry.js";
@@ -43,30 +43,6 @@ export function toKiroSidecarRequest(request: KiroStreamRequest, conversationId:
     capacityRetry: { ...capacityRetryConfig },
     ...(testProfileArn ? { testProfileArn } : {}),
   };
-}
-
-/**
- * The Kiro error a sidecar failure stands for, rebuilt from the class the Go
- * vendor names. Anything else (a missing or crashed binary, a network failure)
- * stays a SidecarError.
- */
-export function kiroErrorFromSidecar(error: SidecarError): Error {
-  switch (error.vendorError) {
-    case "KiroApiError":
-      return new KiroApiError(
-        error.message,
-        error.status ?? 0,
-        error.reasonCode,
-        error.retryAfterMs,
-        error.providerAttempts as KiroProviderAttempts | undefined,
-      );
-    case "KiroManagementHttpError":
-      return new KiroManagementHttpError(error.message, error.status ?? 0);
-    case "Error":
-      return new Error(error.message);
-    default:
-      return error;
-  }
 }
 
 type SidecarUsageEvent = { type: "usage"; usage: KiroUsage; kiroWireCache?: boolean };
@@ -157,4 +133,4 @@ export function streamKiroOnEngine(
   });
 }
 
-export { SidecarError };
+export { kiroErrorFromSidecar, SidecarError };

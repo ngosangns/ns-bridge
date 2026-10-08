@@ -267,7 +267,30 @@ async function refreshKiroTokenInternal(credentials: KiroCredentials): Promise<K
   }
 }
 
+/**
+ * The network half of a refresh (desktop, external IdP or IAM Identity Center
+ * token endpoint). Runs in the Go sidecar when NS_BRIDGE_ENGINE(_KIRO) selects
+ * it; which store to trust and where to save stays here.
+ */
 async function refreshKiroTokenDirect(credentials: KiroCredentials): Promise<KiroCredentials> {
+  const { runKiroOp } = await import("./engine-ops.js");
+  return runKiroOp(
+    "refreshToken",
+    () => ({ credentials }),
+    () => refreshKiroTokenDirectInProcess(credentials),
+  );
+}
+
+/** Overrides the desktop refresh URL; `{region}` is substituted (tests, proxies). */
+export const KIRO_DESKTOP_REFRESH_ENDPOINT_ENV = "KIRO_DESKTOP_REFRESH_ENDPOINT";
+/** Overrides the SSO OIDC base URL; `{region}` is substituted (tests, proxies). */
+export const KIRO_OIDC_ENDPOINT_ENV = "KIRO_OIDC_ENDPOINT";
+
+function endpointFromEnv(name: string, fallback: string, region: string): string {
+  return (process.env[name]?.trim() || fallback).replaceAll("{region}", region);
+}
+
+async function refreshKiroTokenDirectInProcess(credentials: KiroCredentials): Promise<KiroCredentials> {
   const parts = credentials.refresh.split("|");
   const refreshToken = parts[0] ?? "";
   const authMethod = (parts[parts.length - 1] ?? "idc") as KiroAuthMethod;
@@ -277,7 +300,7 @@ async function refreshKiroTokenDirect(credentials: KiroCredentials): Promise<Kir
 
   if (authMethod === "desktop") {
     // Kiro desktop app tokens use a different refresh endpoint.
-    const url = KIRO_DESKTOP_REFRESH_URL.replace("{region}", region);
+    const url = endpointFromEnv(KIRO_DESKTOP_REFRESH_ENDPOINT_ENV, KIRO_DESKTOP_REFRESH_URL, region);
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "User-Agent": KIRO_DESKTOP_USER_AGENT },
@@ -348,7 +371,7 @@ async function refreshKiroTokenDirect(credentials: KiroCredentials): Promise<Kir
   // IDC auth method — SSO OIDC refresh.
   const clientId = parts[1] ?? "";
   const clientSecret = parts[2] ?? "";
-  const ssoEndpoint = `https://oidc.${region}.amazonaws.com`;
+  const ssoEndpoint = endpointFromEnv(KIRO_OIDC_ENDPOINT_ENV, "https://oidc.{region}.amazonaws.com", region);
   const response = await fetch(`${ssoEndpoint}/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...kiroUserAgent("ssooidc", "E") },

@@ -58,6 +58,51 @@ export async function* sidecarStream(
   request: unknown,
   options: SidecarStreamOptions = {},
 ): AsyncGenerator<BridgeStreamEvent, void, undefined> {
+  let sawDone = false;
+  for await (const message of sidecarLines(vendor, ["stream", "--vendor", vendor], request, options, "done")) {
+    if (!EVENT_TYPES.has(message.type)) continue; // newer binary, older client: skip what we cannot read
+    if (sawDone) continue;
+    if (message.type === "done") sawDone = true;
+    yield message as unknown as BridgeStreamEvent;
+  }
+}
+
+/**
+ * Run `ns-bridge call --vendor <vendor> --op <op>` — a one-shot operation
+ * (model catalog, usage, token refresh) — and resolve with its result.
+ * Fails like {@link sidecarStream}: a {@link SidecarError}, or the abort reason.
+ */
+export async function sidecarCall<TResult = unknown>(
+  vendor: string,
+  op: string,
+  request: unknown,
+  options: SidecarStreamOptions = {},
+): Promise<TResult> {
+  let result: unknown;
+  for await (const message of sidecarLines(
+    vendor,
+    ["call", "--vendor", vendor, "--op", op],
+    request,
+    options,
+    "result",
+  )) {
+    if (message.type === "result") result = (message as { result?: unknown }).result;
+  }
+  return result as TResult;
+}
+
+/**
+ * Spawn the binary with `args`, send the envelope, and yield every line it
+ * writes until it exits. An error line throws; a run that never wrote a
+ * `terminal`-typed line, or exited non-zero, throws too.
+ */
+async function* sidecarLines(
+  vendor: string,
+  args: string[],
+  request: unknown,
+  options: SidecarStreamOptions,
+  terminal: string,
+): AsyncGenerator<SidecarLine, void, undefined> {
   const { signal } = options;
   signal?.throwIfAborted();
 
@@ -67,7 +112,7 @@ export async function* sidecarStream(
 
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(binary, ["stream", "--vendor", vendor], { env, stdio: "pipe", windowsHide: true });
+    child = spawn(binary, args, { env, stdio: "pipe", windowsHide: true });
   } catch (cause) {
     throw unavailable(binary, vendor, cause);
   }
@@ -151,7 +196,7 @@ export async function* sidecarStream(
   child.stdin.write(`${JSON.stringify({ protocol: SIDECAR_PROTOCOL_VERSION, request })}\n`);
 
   const details = () => ({ vendor, exitCode, exitSignal, stderr: stderr.trim() || undefined });
-  let sawDone = false;
+  let sawTerminal = false;
   let finished = false;
   try {
     while (true) {
@@ -167,10 +212,8 @@ export async function* sidecarStream(
             details(),
           );
         }
-        if (!EVENT_TYPES.has(message.type)) continue; // newer binary, older client: skip what we cannot read
-        if (sawDone) continue;
-        if (message.type === "done") sawDone = true;
-        yield message as BridgeStreamEvent;
+        if (message.type === terminal) sawTerminal = true;
+        yield message;
         continue;
       }
 
@@ -184,8 +227,12 @@ export async function* sidecarStream(
       const how = exitSignal ? `was killed by ${exitSignal}` : `exited with code ${exitCode}`;
       throw new SidecarError("crashed", `ns-bridge (${vendor}) ${how} without reporting an error`, details());
     }
-    if (!sawDone) {
-      throw new SidecarError("protocol", `ns-bridge (${vendor}) exited without a done event`, details());
+    if (!sawTerminal) {
+      throw new SidecarError(
+        "protocol",
+        `ns-bridge (${vendor}) exited without a ${terminal} ${terminal === "done" ? "event" : "line"}`,
+        details(),
+      );
     }
     finished = true;
   } finally {

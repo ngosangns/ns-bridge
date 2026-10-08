@@ -33,6 +33,7 @@ export {
   streamKiroOnEngine,
   toKiroSidecarRequest,
 } from "./engine.js";
+export { runKiroOp } from "./engine-ops.js";
 export {
   extractKiroReasonCode,
   KiroApiError,
@@ -91,12 +92,14 @@ export {
 export { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro-ide.js";
 export {
   applyKiroProfileArnCacheChanges,
+  applyKiroProfileRegionChanges,
   fetchKiroModelCatalog,
   type KiroCatalogModel,
   type KiroManagementAuth,
   KiroManagementHttpError,
   resolveKiroProfileArn,
   snapshotKiroProfileArnCache,
+  snapshotKiroProfileRegionCache,
 } from "./management.js";
 export {
   applyEffortLadder,
@@ -110,10 +113,13 @@ export {
   mapKiroCatalogModels,
   resolveKiroModel,
   updateKiroModelsCache,
+  updateKiroModelsCacheInProcess,
 } from "./models.js";
 export {
   isApiKey,
   isExpired,
+  KIRO_DESKTOP_REFRESH_ENDPOINT_ENV,
+  KIRO_OIDC_ENDPOINT_ENV,
   type KiroAuthMethod,
   type KiroAuthSource,
   type KiroCredentials,
@@ -188,7 +194,12 @@ export {
 } from "./transport.js";
 export { TRUNCATION_NOTICE, wasPreviousResponseTruncated } from "./truncation.js";
 export * from "./types.js";
-export { fetchKiroUsage, type KiroProviderUsage, type KiroProviderUsageBucket } from "./usage.js";
+export {
+  fetchKiroUsage,
+  fetchKiroUsageInProcess,
+  type KiroProviderUsage,
+  type KiroProviderUsageBucket,
+} from "./usage.js";
 export {
   DEFAULT_ESTIMATED_CACHE_TIMEOUT_MS,
   DEFAULT_USD_PER_CREDIT,

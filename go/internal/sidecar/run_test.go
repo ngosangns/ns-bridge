@@ -145,3 +145,33 @@ func TestContextCancellationAborts(t *testing.T) {
 		t.Fatalf("exit %d, out %s", code, out.String())
 	}
 }
+
+type calc struct{ silent }
+
+func (calc) Call(_ context.Context, op string, req json.RawMessage) (any, error) {
+	if op != "double" {
+		return nil, ErrUnknownOp
+	}
+	var n float64
+	_ = json.Unmarshal(req, &n)
+	return map[string]float64{"n": n * 2}, nil
+}
+
+func TestRunCall(t *testing.T) {
+	reg := Registry{"calc": calc{}, "echo": echo.Vendor{}}
+	cases := []struct {
+		vendor, op, want string
+		code             int
+	}{
+		{"calc", "double", `{"type":"result","result":{"n":42}}`, ExitOK},
+		{"calc", "triple", `"kind":"unsupported"`, ExitError},
+		{"echo", "double", `"kind":"unsupported"`, ExitError},
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		code := RunCall(context.Background(), c.vendor, c.op, reg, strings.NewReader(`{"protocol":1,"request":21}`), &out)
+		if code != c.code || !strings.Contains(out.String(), c.want) {
+			t.Errorf("%s/%s: exit %d, out %q", c.vendor, c.op, code, out.String())
+		}
+	}
+}

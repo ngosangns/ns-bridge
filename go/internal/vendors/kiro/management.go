@@ -86,10 +86,12 @@ func isExternalIdpAccessToken(token string) bool {
 type profileCache struct {
 	entries map[string]string
 	changes map[string]*string
+	// Where a profile resolved this process actually lives (profileRegionCache).
+	regions map[string]string
 }
 
 func newProfileCache(seed map[string]string) *profileCache {
-	c := &profileCache{entries: map[string]string{}, changes: map[string]*string{}}
+	c := &profileCache{entries: map[string]string{}, changes: map[string]*string{}, regions: map[string]string{}}
 	for k, v := range seed {
 		c.entries[k] = v
 	}
@@ -111,6 +113,7 @@ func (c *profileCache) set(a managementAuth, arn string) {
 func (c *profileCache) invalidate(a managementAuth) {
 	k := profileCacheKey(a)
 	delete(c.entries, k)
+	delete(c.regions, k)
 	c.changes[k] = nil
 }
 
@@ -224,6 +227,7 @@ func (s *session) resolveProfileArn(ctx context.Context, a managementAuth) (stri
 			return "", err
 		}
 		s.profiles.set(a, arn)
+		s.profiles.regions[profileCacheKey(a)] = apiKeyRegion
 		debugLog("profile.resolve", map[string]any{"source": "api-key", "region": apiKeyRegion, "arn": arn})
 		return arn, nil
 	}
@@ -245,6 +249,7 @@ func (s *session) resolveProfileArn(ctx context.Context, a managementAuth) (stri
 		for _, p := range resp.Profiles {
 			if p.Arn != "" {
 				s.profiles.set(a, p.Arn)
+				s.profiles.regions[profileCacheKey(a)] = region
 				debugLog("profile.resolve", map[string]any{"source": "network", "region": region, "arn": p.Arn})
 				return p.Arn, nil
 			}

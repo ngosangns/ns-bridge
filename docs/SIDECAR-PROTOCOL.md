@@ -31,6 +31,7 @@ ns-bridge stream --vendor <id>
 | Command | Does |
 | --- | --- |
 | `ns-bridge stream --vendor <id>` | One model call (below) |
+| `ns-bridge call --vendor <id> --op <op>` | One operation (below): the same envelope, one result line |
 | `ns-bridge vendors` | Vendor ids this binary serves, one per line |
 | `ns-bridge version` | `ns-bridge <version> (protocol <n>)` |
 
@@ -179,6 +180,34 @@ with the signal's reason, an `AbortError` by default) and when the consumer
 stops iterating early. A host process that dies closes the pipe, so an orphaned
 binary also cancels itself.
 
+## Operations (`ns-bridge call`)
+
+Non-streaming work — model catalogs, usage, token refresh — runs as one
+operation per process: the same `{"protocol":1,"request":{…}}` envelope on
+stdin, and on stdout exactly one line, either
+
+```json
+{"type":"result","result":{…}}
+```
+
+or the terminal error line (exit codes as for `stream`). An op the vendor does
+not have is an `unsupported` error. `ns-bridge-core/sidecar` exports
+`sidecarCall(vendor, op, request)` and `engineCall({vendor, op, request,
+inProcess})`, which picks the engine like `engineStream` (with `auto`, a
+binary that is missing or predates `call` falls back to TypeScript).
+
+| Vendor | Op | Request | Result |
+| --- | --- | --- | --- |
+| `kiro` | `refreshModels` | `{accessToken, region, profileArn?, known, cachePath}` | `{region, models}`; also rewrites the catalog cache file at `cachePath` (`~/.ns-kiro-provider-models-cache.json`) exactly as `updateKiroModelsCache` does |
+| `kiro` | `usage` | `{credentials}` | `KiroProviderUsage` |
+| `kiro` | `refreshToken` | `{credentials}` | `KiroCredentials` from the desktop, external-IdP or IAM Identity Center token endpoint (store selection and saving stay in TypeScript) |
+
+Kiro requests also carry `profileArnCache` / `profileRegions` (the facade's
+in-memory caches) and results return `kiroProfileArns` / `kiroProfileRegions`,
+which `runKiroOp` folds back. `KIRO_DESKTOP_REFRESH_ENDPOINT` and
+`KIRO_OIDC_ENDPOINT` (`{region}` substituted) override the refresh hosts in
+both engines.
+
 ## Future: login and other host callbacks
 
 Interactive login (Devin PKCE, the Pi/OMP `oauth.login(callbacks)` hooks) needs
@@ -191,8 +220,8 @@ on the same pipes:
   having `jsonrpc` instead of `type`;
 - host → binary: the response on a stdin line after the envelope.
 
-Commands will be `ns-bridge login --vendor <id>`, `ns-bridge models --vendor
-<id>` and `ns-bridge usage --vendor <id>`. A v1 client never sees these lines;
+Interactive login would be `ns-bridge login --vendor <id>`; catalogs and
+usage became `ns-bridge call` operations (above). A v1 client never sees these lines;
 adding them bumps the protocol version only if a v1 client could receive one.
 
 ## Choosing the engine

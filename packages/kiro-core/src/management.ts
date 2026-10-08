@@ -207,6 +207,18 @@ export function snapshotKiroProfileArnCache(): Record<string, string> {
   return Object.fromEntries(profileArnCache);
 }
 
+/** The regions resolved profiles live in, keyed like the ARN cache. */
+export function snapshotKiroProfileRegionCache(): Record<string, string> {
+  return Object.fromEntries(profileRegionCache);
+}
+
+/** Fold back the profile regions a sidecar operation resolved. */
+export function applyKiroProfileRegionChanges(regions: Record<string, string> | undefined): void {
+  if (!regions) return;
+  for (const [key, region] of Object.entries(regions))
+    if (typeof region === "string" && region) profileRegionCache.set(key, region);
+}
+
 /**
  * Fold back what a sidecar turn learned: an ARN it resolved, or `null` for an
  * entry it invalidated after a 403.

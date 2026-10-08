@@ -31,3 +31,14 @@ func TestUTF16Len(t *testing.T) {
 		t.Fatalf("UTF16Len = %d", n)
 	}
 }
+
+func TestStringifyIndent(t *testing.T) {
+	v, err := Parse([]byte(`{"a":[1,{"b":[]},{}],"c":"x","d":{"e":null}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"a\": [\n    1,\n    {\n      \"b\": []\n    },\n    {}\n  ],\n  \"c\": \"x\",\n  \"d\": {\n    \"e\": null\n  }\n}"
+	if got := StringifyIndent(v, "  "); got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}

@@ -353,3 +353,77 @@ func UTF16Len(s string) int {
 	}
 	return n
 }
+
+// StringifyIndent encodes like JSON.stringify(v, null, indent).
+func StringifyIndent(v Value, indent string) string {
+	var b strings.Builder
+	writeIndent(&b, normalizeForIndent(v), indent, "")
+	return b.String()
+}
+
+// normalizeForIndent turns anything write() would marshal through
+// encoding/json into plain Values first.
+func normalizeForIndent(v Value) Value {
+	switch t := v.(type) {
+	case nil, bool, float64, string, *Object, []Value:
+		return t
+	case int:
+		return float64(t)
+	case json.RawMessage:
+		p, err := Parse(t)
+		if err != nil {
+			return nil
+		}
+		return p
+	default:
+		raw, err := json.Marshal(t)
+		if err != nil {
+			return nil
+		}
+		p, err := Parse(raw)
+		if err != nil {
+			return nil
+		}
+		return p
+	}
+}
+
+func writeIndent(b *strings.Builder, v Value, indent, prefix string) {
+	switch t := v.(type) {
+	case []Value:
+		if len(t) == 0 {
+			b.WriteString("[]")
+			return
+		}
+		inner := prefix + indent
+		b.WriteString("[\n")
+		for i, e := range t {
+			if i > 0 {
+				b.WriteString(",\n")
+			}
+			b.WriteString(inner)
+			writeIndent(b, normalizeForIndent(e), indent, inner)
+		}
+		b.WriteString("\n" + prefix + "]")
+	case *Object:
+		keys := t.Keys()
+		if len(keys) == 0 {
+			b.WriteString("{}")
+			return
+		}
+		inner := prefix + indent
+		b.WriteString("{\n")
+		for i, k := range keys {
+			if i > 0 {
+				b.WriteString(",\n")
+			}
+			b.WriteString(inner)
+			Quote(b, k)
+			b.WriteString(": ")
+			writeIndent(b, normalizeForIndent(t.vals[k]), indent, inner)
+		}
+		b.WriteString("\n" + prefix + "}")
+	default:
+		write(b, t)
+	}
+}

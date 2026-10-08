@@ -5,7 +5,7 @@ import { existsSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import { DEFAULT_SIDECAR_COMMAND, findPackagedSidecarBinary, NS_BRIDGE_BIN_ENV } from "./binary.js";
 import { SidecarError } from "./errors.js";
-import { type SidecarStreamOptions, sidecarStream } from "./stream.js";
+import { type SidecarStreamOptions, sidecarCall, sidecarStream } from "./stream.js";
 
 /** Environment variable selecting the engine for every vendor. */
 export const NS_BRIDGE_ENGINE_ENV = "NS_BRIDGE_ENGINE";
@@ -145,6 +145,58 @@ export async function* engineStream<TEvent, TRequest>(
       }
       yield* options.inProcess();
       return;
+    }
+    throw error instanceof SidecarError && options.mapError ? options.mapError(error) : error;
+  }
+}
+
+export interface EngineCallOptions<TResult, TRequest> {
+  vendor: string;
+  /** The operation (`ns-bridge call --op`). */
+  op: string;
+  /** The request as the Go vendor reads it (JSON-serialisable). */
+  request: () => TRequest;
+  /** The in-process TypeScript implementation. */
+  inProcess: () => Promise<TResult>;
+  /** Turn a sidecar failure back into the vendor core's own error type. */
+  mapError?: (error: SidecarError) => unknown;
+  signal?: AbortSignal;
+  env?: NodeJS.ProcessEnv;
+  sidecar?: Omit<SidecarStreamOptions, "signal" | "env">;
+  /** Force an engine (tests); defaults to {@link selectBridgeEngine}. */
+  engine?: BridgeEngine;
+}
+
+/**
+ * Run one vendor operation (catalog, usage, token refresh) on the selected
+ * engine, with the same `auto` fallback as {@link engineStream}.
+ */
+export async function engineCall<TResult, TRequest>(options: EngineCallOptions<TResult, TRequest>): Promise<TResult> {
+  const env = options.env ?? process.env;
+  const engine = options.engine ?? selectBridgeEngine(options.vendor, env);
+  if (engine === "ts") return options.inProcess();
+  try {
+    return await sidecarCall<TResult>(options.vendor, options.op, options.request(), {
+      ...options.sidecar,
+      ...(options.signal ? { signal: options.signal } : {}),
+      env,
+    });
+  } catch (error) {
+    if (
+      error instanceof SidecarError &&
+      // Not installed, or a binary too old to know the op (`call` itself is
+      // a usage error, exit 2, before 0.2).
+      (error.kind === "unavailable" ||
+        error.kind === "unsupported" ||
+        (error.kind === "crashed" && error.exitCode === 2)) &&
+      options.engine === undefined &&
+      bridgeEngineSetting(options.vendor, env) === "auto"
+    ) {
+      if (!warnedFallback) {
+        warnedFallback = true;
+        console.warn(`[ns-bridge] ${error.message} Falling back to the in-process TypeScript core.`);
+      }
+      return options.inProcess();
     }
     throw error instanceof SidecarError && options.mapError ? options.mapError(error) : error;
   }
