@@ -142,6 +142,8 @@ export {
 export { type KiroStreamRequest, resetProfileArnCache, streamKiro } from "./stream.js";
 export { ThinkingTagParser } from "./thinking-parser.js";
 export { countTokens } from "./tokenizer.js";
+export { normalizeKiroToolName } from "./tool-name-aliases.js";
+export { parseToolUseCalls, type ToolUseCall, type ToolUseParseResult } from "./tool-use-parser.js";
 export {
   buildHistory,
   EMPTY_CONTENT_PLACEHOLDER,

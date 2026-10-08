@@ -463,12 +463,46 @@ describe("streamKiro — streamed event sequence", () => {
     expect(end).toMatchObject({ index: 0, text: "Hello world" });
   });
 
-  it("drops a repeated content frame instead of doubling the text", async () => {
-    stubFetch(makeOkResponse('{"content":"Hi"}{"content":"Hi"}{"contextUsagePercentage":5}'));
+  it("keeps identical consecutive content frames, which repetitive output really produces", async () => {
+    // The frame shape Kiro sent live for "ha" x60 then "\n=" x30: identical
+    // frames back to back are size-chunked text, not a resend.
+    const ha = "ah".repeat(16);
+    const eq = "\n=".repeat(4);
+    const frames = [
+      "h",
+      "ahah",
+      "ahah",
+      "ahahahah",
+      "ahah",
+      ha,
+      ha,
+      ha,
+      "aha",
+      "\n=",
+      eq,
+      eq,
+      eq,
+      eq,
+      eq,
+      eq,
+      eq,
+      "\n=",
+    ];
+    stubFetch(
+      makeOkResponse(`${frames.map((content) => JSON.stringify({ content })).join("")}{"contextUsagePercentage":5}`),
+    );
     const events = await collect(streamKiro(makeRequest()));
 
-    expect(events.filter((e) => e.type === "text_delta")).toHaveLength(1);
-    expect(events.find((e) => e.type === "text_end")).toMatchObject({ text: "Hi" });
+    expect(events.filter((e) => e.type === "text_delta")).toHaveLength(frames.length);
+    expect(events.find((e) => e.type === "text_end")).toMatchObject({ text: `${"ha".repeat(60)}${"\n=".repeat(30)}` });
+  });
+
+  it("ignores an empty content frame", async () => {
+    stubFetch(makeOkResponse('{"content":"Hi"}{"content":""}{"content":"!"}{"contextUsagePercentage":5}'));
+    const events = await collect(streamKiro(makeRequest()));
+
+    expect(events.filter((e) => e.type === "text_delta")).toHaveLength(2);
+    expect(events.find((e) => e.type === "text_end")).toMatchObject({ text: "Hi!" });
   });
 
   it("emits a native thinking block ahead of the text and keeps its signature", async () => {
@@ -562,6 +596,39 @@ describe("streamKiro — tool calls", () => {
       name: "mcp:fs:read",
       arguments: { path: "/a" },
     });
+  });
+
+  it("maps a training-prior tool name onto the declared tool it stands for", async () => {
+    stubFetch(
+      makeOkResponse(
+        '{"name":"read_file","toolUseId":"t1","input":"{\\"path\\":\\"/a\\"}","stop":true}{"contextUsagePercentage":10}',
+      ),
+    );
+    const events = await collect(
+      streamKiro(
+        makeRequest({ tools: [{ name: "read", description: "read a file", parameters: { type: "object" } }] }),
+      ),
+    );
+
+    expect(events.find((e) => e.type === "tool_call_end")).toMatchObject({ name: "read", arguments: { path: "/a" } });
+  });
+
+  it("keeps a training-prior name when the host declared that exact tool", async () => {
+    stubFetch(
+      makeOkResponse('{"name":"read_file","toolUseId":"t1","input":"{}","stop":true}{"contextUsagePercentage":10}'),
+    );
+    const events = await collect(
+      streamKiro(
+        makeRequest({
+          tools: [
+            { name: "read", description: "read a file", parameters: { type: "object" } },
+            { name: "read_file", description: "an MCP tool", parameters: { type: "object" } },
+          ],
+        }),
+      ),
+    );
+
+    expect(events.find((e) => e.type === "tool_call_end")).toMatchObject({ name: "read_file" });
   });
 
   it("passes a wire name the host never declared straight through", async () => {
@@ -665,6 +732,36 @@ describe("streamKiro — text-dialect tool-call recovery", () => {
     expect(end.name).toBe("shell");
     expect(end.arguments.command).toBe(RECORD_279_COMMAND);
     expect(end.arguments.summary).toBe(RECORD_279_SUMMARY);
+  });
+
+  it("lifts a <tool_call> JSON-dialect call and maps its invented name", async () => {
+    const content =
+      'Writing it.\n<tool_call>{"name":"write_file","arguments":{"path":"/tmp/x","content":"hi"}}</tool_call>';
+    stubFetch(makeOkResponse(`${JSON.stringify({ content })}{"contextUsagePercentage":10}`));
+    const events = await collect(
+      streamKiro(
+        makeRequest({
+          model: makeModel({ id: "qwen3-coder" }),
+          tools: [{ name: "write", description: "write a file", parameters: { type: "object" } }],
+        }),
+      ),
+    );
+
+    expect(events.find((e) => e.type === "tool_call_end")).toMatchObject({
+      name: "write",
+      arguments: { path: "/tmp/x", content: "hi" },
+    });
+    expect((events.find((e) => e.type === "text_end") as { text: string }).text).not.toContain("<tool_call>");
+    expect(events.find((e) => e.type === "done")).toMatchObject({ stopReason: "toolUse" });
+  });
+
+  it("does not lift a <tool_use> block a native-tool-call model merely quoted", async () => {
+    const prose = 'Models sometimes write <tool_use>{"name":"read","input":{"path":"/a"}}</tool_use> as text.';
+    stubFetch(makeOkResponse(`${JSON.stringify({ content: prose })}{"contextUsagePercentage":10}`));
+    const events = await collect(streamKiro(makeRequest({ model: makeModel({ recoverTextToolCalls: false }) })));
+
+    expect(events.some((e) => e.type === "tool_call_end")).toBe(false);
+    expect(events.find((e) => e.type === "text_end")).toMatchObject({ text: prose });
   });
 
   it("leaves prose alone when native tool calls already arrived", async () => {
@@ -857,6 +954,89 @@ describe("streamKiro — stop reason and usage", () => {
 
     const usage = (events.find((e) => e.type === "usage") as { usage: { totalTokens: number } }).usage;
     expect(usage.totalTokens).toBe(50250);
+  });
+
+  describe("explicit metadataEvent stop reasons", () => {
+    it("treats END_TURN as a finished turn even without a contextUsage frame", async () => {
+      stubFetch(makeOkResponse('{"content":"Done"}{"stopReason":"END_TURN"}'));
+      const events = await collect(streamKiro(makeRequest()));
+
+      expect(events.find((e) => e.type === "done")).toMatchObject({ stopReason: "stop" });
+    });
+
+    it("reads the context percentage carried inside tokenUsage", async () => {
+      stubFetch(
+        makeOkResponse(
+          '{"content":"Done"}{"stopReason":"END_TURN","tokenUsage":{"contextUsagePercentage":42,"uncachedInputTokens":7,"outputTokens":1,"totalTokens":8}}',
+        ),
+      );
+      const events = await collect(streamKiro(makeRequest()));
+
+      const usage = (events.find((e) => e.type === "usage") as { usage: { input: number; contextPercent?: number } })
+        .usage;
+      expect(usage.input).toBe(7);
+      expect(usage.contextPercent).toBe(42);
+      expect(events.find((e) => e.type === "done")).toMatchObject({ stopReason: "stop" });
+    });
+
+    it("reports MAX_TOKENS as length even when a tool call parsed", async () => {
+      stubFetch(
+        makeOkResponse(
+          '{"name":"read","toolUseId":"t1","input":"{\\"path\\":\\"/a\\"}","stop":true}' +
+            '{"contextUsagePercentage":5}{"stopReason":"MAX_TOKENS"}',
+        ),
+      );
+      const events = await collect(streamKiro(makeRequest()));
+
+      expect(events.find((e) => e.type === "done")).toMatchObject({ stopReason: "length" });
+    });
+
+    it("reports a context-window stop so an overflow detector recognizes it, without retrying", async () => {
+      const fetchMock = stubFetch(
+        makeOkResponse('{"stopReason":"MODEL_CONTEXT_WINDOW_EXCEEDED"}{"contextUsagePercentage":100}'),
+      );
+      await expect(collect(streamKiro(makeRequest()))).rejects.toThrow(/context_length_exceeded/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("surfaces a refusal without retrying and without handing over its tool calls", async () => {
+      const fetchMock = stubFetch(
+        makeOkResponse(
+          '{"name":"read","toolUseId":"t1","input":"{}"}' +
+            '{"stopReason":"CONTENT_FILTERED","stopDetails":{"reason":"synthetic"}}{"contextUsagePercentage":5}',
+        ),
+      );
+      const events: KiroStreamEvent[] = [];
+      await expect(
+        (async () => {
+          for await (const event of streamKiro(makeRequest())) events.push(event);
+        })(),
+      ).rejects.toThrow(/Kiro content filtered: .*synthetic/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(events.some((e) => e.type === "tool_call_end")).toBe(false);
+    });
+
+    it("surfaces PAUSE_TURN without retrying", async () => {
+      const fetchMock = stubFetch(makeOkResponse('{"content":"partial"}{"stopReason":"PAUSE_TURN"}'));
+      await expect(collect(streamKiro(makeRequest()))).rejects.toThrow(/PAUSE_TURN/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("still retries an empty END_TURN, which live Kiro sends on every turn", async () => {
+      // Divergence from upstream #174, which treats any explicit stop as
+      // authoritative for empty turns too: Kiro reports END_TURN on ordinary
+      // turns, so that rule would retire the empty-response retry outright.
+      vi.useFakeTimers();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = stubFetch(
+        makeOkResponse('{"stopReason":"END_TURN"}{"contextUsagePercentage":10}'),
+        makeOkResponse('{"content":"Second time"}{"stopReason":"END_TURN"}{"contextUsagePercentage":10}'),
+      );
+      const events = await collectThroughBackoff(streamKiro(makeRequest()));
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(events.find((e) => e.type === "text_end")).toMatchObject({ text: "Second time" });
+    });
   });
 
   it("merges metadataEvent frames so a later stopReason frame cannot erase token counts", async () => {

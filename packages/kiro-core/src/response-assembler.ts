@@ -11,6 +11,8 @@ import type { KiroModel } from "./models.js";
 import type { KiroWireEventFrame } from "./response-stream.js";
 import { ThinkingTagParser } from "./thinking-parser.js";
 import { countTokens } from "./tokenizer.js";
+import { normalizeKiroToolName } from "./tool-name-aliases.js";
+import { parseToolUseCalls } from "./tool-use-parser.js";
 import type { KiroStreamEvent, KiroUsage } from "./types.js";
 
 /** Text that is an artifact of history padding rather than an answer. */
@@ -43,6 +45,14 @@ export interface KiroAttemptSummary {
    * a discarded attempt's drops.
    */
   droppedToolCalls: unknown[];
+  /**
+   * The stop reason the service reported in its `metadataEvent`, verbatim
+   * (`END_TURN`, `TOOL_USE`, `MAX_TOKENS`, `CONTENT_FILTERED`, ...). Absent when
+   * the service said nothing; the caller turns the terminal ones into errors.
+   */
+  wireStopReason?: string;
+  /** `metadataEvent.stopDetails`, verbatim, for a refusal's diagnostic. */
+  wireStopDetails?: Record<string, unknown>;
 }
 
 export interface KiroCompletedResponse {
@@ -73,7 +83,6 @@ export class KiroResponseAssembler {
   };
 
   private totalContent = "";
-  private lastContentData = "";
   private usageEvent: KiroWireUsage | null = null;
   private meteringEvent: { credits?: number; unit?: string; unitPlural?: string } | null = null;
   private receivedContextUsage = false;
@@ -97,16 +106,22 @@ export class KiroResponseAssembler {
      * registered, not the alias the wire required.
      */
     private readonly toolNameAliases?: ReadonlyMap<string, string>,
+    /**
+     * Host names of every tool the request declared. Lets a training-prior
+     * name the model invented (`read_file`) land on the declared tool it means
+     * (`read`), but only when that tool exists and the invented name does not.
+     */
+    private readonly declaredToolNames?: ReadonlySet<string>,
   ) {}
 
+  /** Wire name -> the name the host registered, then alias repair. */
   private originalToolName(name: string): string {
-    return this.toolNameAliases?.get(name) ?? name;
+    return normalizeKiroToolName(this.toolNameAliases?.get(name) ?? name, this.declaredToolNames);
   }
 
   /** Clear per-attempt state. Only block indexes are kept. */
   beginAttempt(): void {
     this.totalContent = "";
-    this.lastContentData = "";
     this.usageEvent = null;
     this.meteringEvent = null;
     this.receivedContextUsage = false;
@@ -169,11 +184,15 @@ export class KiroResponseAssembler {
         break;
       }
       case "content": {
+        // An empty frame carries nothing, and must not close a thinking block.
+        if (event.data === "") break;
         this.endNativeThinking();
-        // Kiro repeats the last content frame on some turns; a repeat carries no
-        // new text and must not be appended twice.
-        if (event.data === this.lastContentData) break;
-        this.lastContentData = event.data;
+        // Consecutive identical frames are NOT duplicates. Kiro chunks text by
+        // size, so repetitive output arrives as identical frames back to back.
+        // Observed live 2026-10-08 (claude-haiku-4.5): "ha" x60 streamed with
+        // three identical 32-char frames in a row, and "\n=" x30 as seven
+        // identical frames; the old repeat filter cut that answer down to
+        // "ha" x26 and six "=" lines. Upstream dropped the filter too (#174).
         this.totalContent += event.data;
         if (this.thinkingParser) {
           this.thinkingParser.processChunk(event.data);
@@ -209,6 +228,16 @@ export class KiroResponseAssembler {
         // tokenUsage and stopReason/stopDetails across frames. Merge so a
         // later partial frame cannot erase counts already received.
         this.usageEvent = { ...(this.usageEvent ?? {}), ...event.data };
+        // `TokenUsage.contextUsagePercentage` closes the turn just like a bare
+        // contextUsage frame does, so the `length` heuristic must count it.
+        const pct = event.data.contextUsagePercentage;
+        if (pct !== undefined) {
+          if (this.usageEvent.inputTokens === undefined) {
+            this.usage.input = Math.round((pct / 100) * this.model.contextWindow);
+          }
+          this.usage.contextPercent = pct;
+          this.receivedContextUsage = true;
+        }
         // The parsed event keeps only the fields this package understands.
         // Log the frame verbatim so a field Kiro adds — cache counters above
         // all — is visible without having to guess its name first.
@@ -259,15 +288,31 @@ export class KiroResponseAssembler {
     // an empty turn with a tool-use stop stalls an agent loop waiting for
     // results that will never arrive.
     //
-    // `length` is inferred, not reported: Kiro sends no stop reason, so a turn
-    // that produced no tool call and never carried a contextUsage frame is
-    // treated as cut short.
-    this.stopReason =
-      !this.receivedContextUsage && this.emittedToolCalls === 0
-        ? "length"
-        : this.emittedToolCalls > 0
-          ? "toolUse"
-          : "stop";
+    // An explicit `metadataEvent.stopReason` is authoritative (upstream #174):
+    // MAX_TOKENS is truncation even when a tool call parsed, and END_TURN is a
+    // finished turn even when no contextUsage frame arrived. The terminal
+    // reasons (CONTENT_FILTERED, MODEL_CONTEXT_WINDOW_EXCEEDED, PAUSE_TURN) are
+    // handed to the caller through `wireStopReason` to be thrown.
+    //
+    // Without one, `length` is inferred: a turn that produced no tool call and
+    // never carried a contextUsage frame is treated as cut short.
+    const wireStopReason = this.usageEvent?.rawStopReason;
+    switch (wireStopReason) {
+      case "MAX_TOKENS":
+        this.stopReason = "length";
+        break;
+      case "END_TURN":
+      case "TOOL_USE":
+        this.stopReason = this.emittedToolCalls > 0 ? "toolUse" : "stop";
+        break;
+      default:
+        this.stopReason =
+          !this.receivedContextUsage && this.emittedToolCalls === 0
+            ? "length"
+            : this.emittedToolCalls > 0
+              ? "toolUse"
+              : "stop";
+    }
     return {
       responseText,
       hasText,
@@ -277,6 +322,8 @@ export class KiroResponseAssembler {
       isEmpty: !hasText && !this.sawAnyToolCalls,
       stopReason: this.stopReason,
       droppedToolCalls: this.droppedToolCalls,
+      ...(wireStopReason !== undefined ? { wireStopReason } : {}),
+      ...(this.usageEvent?.stopDetails !== undefined ? { wireStopDetails: this.usageEvent.stopDetails } : {}),
     };
   }
 
@@ -402,10 +449,14 @@ export class KiroResponseAssembler {
 
   /**
    * Extract text-dialect tool calls from content when no native tool calls
-   * arrived. Two dialects are recovered at this seam:
+   * arrived. Three dialects are recovered at this seam:
    *   1. Kiro's own `[Called name with args: {...}]` bracket form.
    *   2. Anthropic's `<invoke name="..."><parameter .../></invoke>` XML form,
    *      which opus-class models emit as plain text at high context.
+   *   3. A JSON descriptor wrapped in `<tool_use>`, `<tool_call>`,
+   *      `<function_call>` or `<tool>` tags (upstream #163), spelled
+   *      `tool_name`/`tool_input`, `name`/`input` or `name`/`arguments`,
+   *      or wrapped in a `{"tool_calls": [...]}` array.
    * Without this, the turn ends `stop` with zero tool calls — the agent loop
    * sees a finished answer and an unattended session stalls with no error
    * recorded anywhere.
@@ -432,6 +483,11 @@ export class KiroResponseAssembler {
       text = invokeResult.cleanedText;
       recovered.push(...invokeResult.toolCalls);
     }
+    const toolUseResult = parseToolUseCalls(text);
+    if (toolUseResult.toolCalls.length > 0) {
+      text = toolUseResult.cleanedText;
+      recovered.push(...toolUseResult.toolCalls);
+    }
     if (recovered.length === 0) return;
 
     this.blocks.setText(this.textBlockIndex, text);
@@ -446,10 +502,10 @@ export class KiroResponseAssembler {
       ) {
         this.emittedToolCalls++;
       } else {
-        // Unreachable as written, and kept deliberately. Both dialects hand
-        // over an in-memory object — bracket-tool-parser's is itself a
-        // successful `JSON.parse` result, invoke-tool-parser's is a record of
-        // raw parameter strings — so `JSON.stringify` of either always
+        // Unreachable as written, and kept deliberately. Every dialect hands
+        // over an in-memory object — bracket-tool-parser's and
+        // tool-use-parser's are themselves successful `JSON.parse` results,
+        // invoke-tool-parser's is a record of raw parameter strings — so `JSON.stringify` of either always
         // round-trips and `emitToolCall`'s only `false` return, a
         // `JSON.parse` throw, cannot fire here. It stays so that a future
         // parser change passing raw text through cannot silently reintroduce

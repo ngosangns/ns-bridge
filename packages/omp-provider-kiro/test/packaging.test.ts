@@ -35,4 +35,14 @@ describe("packaging", () => {
     expect(dependencies.filter((name) => name.startsWith("@oh-my-pi/"))).toEqual([]);
     expect(Object.keys((manifest.peerDependencies as unknown as object) ?? {})).toContain("@oh-my-pi/pi-ai");
   });
+
+  it("keeps the bundler out of the runtime dependency set", () => {
+    // esbuild only produces dist/index.js; nothing in the bundle imports it. As
+    // a runtime dependency every install would pull a full esbuild plus its
+    // platform binary (upstream pi-provider-kiro #167). The workspace root
+    // carries it as a devDependency instead.
+    const dependencies = (manifest.dependencies as unknown as Record<string, string>) ?? {};
+    expect(dependencies).not.toHaveProperty("esbuild");
+    expect((manifest.scripts as unknown as Record<string, string>).build).toMatch(/^esbuild /);
+  });
 });

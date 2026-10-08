@@ -197,6 +197,27 @@ export function resetProfileArnCache(resolved = false): void {
 }
 
 /**
+ * Turn a terminal `metadataEvent.stopReason` into the error it stands for.
+ *
+ * `MODEL_CONTEXT_WINDOW_EXCEEDED` is phrased with `context_length_exceeded`
+ * so a host's overflow detector (OMP's compaction, dsh's CONTEXT_OVERFLOW)
+ * recognizes it, the same wording the 413 path uses. The refusal detail is
+ * wire-controlled, so it is redacted and clamped before it is quoted.
+ */
+function throwOnTerminalWireStop(wireStopReason: string | undefined, stopDetails?: Record<string, unknown>): void {
+  switch (wireStopReason) {
+    case "MODEL_CONTEXT_WINDOW_EXCEEDED":
+      throw new Error("Kiro API error: context_length_exceeded (MODEL_CONTEXT_WINDOW_EXCEEDED)");
+    case "CONTENT_FILTERED":
+      throw new Error(
+        `Kiro content filtered: ${clampForDiagnostic(redactSensitiveText(JSON.stringify(stopDetails ?? {})))}`,
+      );
+    case "PAUSE_TURN":
+      throw new Error("Kiro paused the turn (PAUSE_TURN); automatic continuation is not supported");
+  }
+}
+
+/**
  * Stream one Kiro response as neutral events.
  *
  * Retries live inside this generator: transport timeouts, capacity pressure,
@@ -305,7 +326,12 @@ export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<Ki
     systemPrompt = `<thinking_mode>enabled</thinking_mode><max_thinking_length>${budget}</max_thinking_length>${systemPrompt ? `\n${systemPrompt}` : ""}`;
   }
 
-  const assembler = new KiroResponseAssembler(model, thinkingEnabled, kiroToolNameAliases(request.tools));
+  const assembler = new KiroResponseAssembler(
+    model,
+    thinkingEnabled,
+    kiroToolNameAliases(request.tools),
+    new Set((request.tools ?? []).map((tool) => String(tool.name))),
+  );
   const usageTracking = request.usageTracking ?? KIRO_USAGE_TRACKING_DISABLED;
   let retryCount = 0;
   const maxRetries = 3;
@@ -585,6 +611,12 @@ export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<Ki
     }
 
     const summary = assembler.endTurn();
+    // A terminal stop reason the service reported outright ends the call
+    // without a retry: resending the same request cannot un-refuse it or make
+    // the context fit. Thrown before the attempt's trailing events are handed
+    // over, so a refused turn's tool calls never reach the host as a
+    // completed turn (upstream #174).
+    throwOnTerminalWireStop(summary.wireStopReason, summary.wireStopDetails);
     yield* assembler.takeEvents();
 
     // Detect degenerate responses: the API returned 200 but produced no usable

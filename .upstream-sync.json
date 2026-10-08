@@ -5,10 +5,10 @@
     "remote": "upstream",
     "branch": "main"
   },
-  "syncedCommit": "0899ed9c823e3bea592f642472f134f4439e4fee",
-  "syncedTag": "v0.12.1",
-  "syncedAt": "2026-09-27",
-  "_syncNote": "Đã review và port ngữ nghĩa toàn bộ commit trong range dfb44189a..0899ed9c8 (release 0.12.1): sa-east-1 -> us-east-1 trong API_REGION_MAP (#128). Phần IDC_PROBE_REGIONS của login.ts không port vì repo không có IDC probe flow. Phần pi-specific (footer, pi-auth-store, PKCE login, loadKiroUsageTracking đọc ~/.pi/agent) giữ trong notPorted.",
+  "syncedCommit": "bb89d39c71c3ee14c7afdd0a85f80c21152020be",
+  "syncedTag": "v0.12.1+5 (main, chưa tag)",
+  "syncedAt": "2026-10-08",
+  "_syncNote": "Đã review toàn bộ range 0899ed9c8..bb89d39c7 (5 commit sau v0.12.1). Port: #163 (parser <tool_use>/<tool_call>/<function_call>/<tool> -> packages/kiro-core/src/tool-use-parser.ts; alias tên tool -> tool-name-aliases.ts nhưng có guard theo tool đã khai báo), #174 (bỏ lọc content frame trùng liên tiếp — đã kiểm chứng live 2026-10-08 là bug làm mất text; contextUsagePercentage trong tokenUsage; stopReason tường minh MAX_TOKENS/END_TURN/TOOL_USE và throw cho CONTENT_FILTERED/MODEL_CONTEXT_WINDOW_EXCEEDED/PAUSE_TURN), #175 (đã có sẵn từ 2026-09-04 — upstream giờ trùng hành vi), #167 (esbuild đã là devDependency ở root; chỉ thêm test packaging). Không port: #168 credentialAccessor (xem notPorted).",
   "pathMapping": {
     "src/bracket-tool-parser.ts": "packages/kiro-core/src/bracket-tool-parser.ts",
     "src/cache-estimator.ts": "packages/kiro-core/src/cache-estimator.ts",
@@ -40,7 +40,9 @@
     "test/helpers/*": "packages/kiro-core/test/helpers/*",
     "test/setup.ts": "packages/kiro-core/test/setup.ts",
     "test/packaging.test.ts": "packages/omp-provider-kiro/test/packaging.test.ts",
-    "test/registration.test.ts": "packages/omp-provider-kiro/test/packaging.test.ts"
+    "test/registration.test.ts": "packages/omp-provider-kiro/test/packaging.test.ts",
+    "src/tool-use-parser.ts": "packages/kiro-core/src/tool-use-parser.ts",
+    "src/tool-name-aliases.ts": "packages/kiro-core/src/tool-name-aliases.ts"
   },
   "notPorted": [
     {
@@ -118,6 +120,14 @@
     {
       "path": "package-lock.json",
       "reason": "Repo này dùng pnpm workspace."
+    },
+    {
+      "path": "src/stream.ts (credentialAccessor, KiroCredentialAccessor/KiroCredentialLike/KiroStreamOptions, [auth-refresh] trace), test/credential-accessor.test.ts",
+      "reason": "Upstream #168 sửa việc pi seed mỗi call từ options.apiKey tĩnh nên token refresh giữa call bị vứt và mọi turn sau đó trả thêm một 403. Cả hai host ở đây không có vấn đề đó: omp-provider-kiro gọi resolveRequestCredentials() và dsh-llm-kiro gọi credentials() ở MỖI call, đọc lại store kiro-cli/IDE — chính store mà refreshViaKiroCli() ghi vào — nên call sau đã bắt đầu từ token mới. Dòng [auth-refresh] chỉ bật khi có accessor nên cũng không có giá trị khi không port accessor."
+    },
+    {
+      "path": "test/protocol-regressions.test.ts",
+      "reason": "Bám vào Context/AssistantMessageEvent của pi. Ý định được port thành nhóm 'explicit metadataEvent stop reasons' và test content frame trong packages/kiro-core/test/stream.test.ts."
     }
   ],
   "localOnly": [
@@ -134,7 +144,7 @@
       "since": "2026-09-04",
       "what": "Pass khôi phục tool call dạng text bị chặn khi model khai recoverTextToolCalls === false.",
       "why": "Cả upstream lẫn bản port đều set field này (false cho mọi model Claude) nhưng không đọc nó ở stream.ts. Hậu quả: prose chỉ *trích dẫn* cú pháp — model giải thích cách gọi tool — bị nâng thành tool call thật mà model chưa từng phát ra. Đúng thứ comment trong models.ts nói cần tránh.",
-      "risk": "Nếu upstream tự sửa bug này theo cách khác, đừng port đè — đối chiếu trước. Test giữ hành vi: packages/kiro-core/test/stream.test.ts, hai case 'does not lift ... a native-tool-call model'."
+      "risk": "ĐÃ HỘI TỤ: upstream #175 (bb89d39, 2026-10-02) sửa cùng bug theo cùng cách (gate trên recoverTextToolCalls !== false). Không còn là divergence về hành vi; giữ entry để ghi lịch sử. Test: packages/kiro-core/test/stream.test.ts, các case 'does not lift ... a native-tool-call model'."
     },
     {
       "path": "packages/kiro-core/src/event-parser.ts, packages/kiro-core/src/stream.ts",
@@ -247,6 +257,22 @@
       "what": "Tên tool được sanitize về [a-zA-Z0-9_-]{1,64} (hậu tố hash khi phải viết lại) ở spec catalog lẫn history toolUses; response map ngược wire->tên gốc qua kiroToolNameAliases truyền vào KiroResponseAssembler. Schema parameters thiếu `type` được điền `{type:\"object\"}`; parameters không phải object -> `{type:\"object\",properties:{}}`. Spec `description` rỗng/không phải string được omit/String() hoá; `name`/`toolUseId` không phải string được String() hoá trước khi test pattern.",
       "why": "Kiro reject 400 REQUEST_BODY_INVALID 'Invalid tool use format' trên mọi name ngoài pattern (đã probe live: `mcp:fs:read`, `a.b`, space, unicode, >64 ký tự đều fail; digit đầu/hyphen/underscore/64 ký tự OK) — host có tool kiểu MCP (`server:tool`, `server.tool`) fail ngay turn đầu (issue #15). Schema `{}` cũng 400 (Bedrock đòi root `type: object`). Probe tiếp 2026-09-27: `description:\"\"` bị reject đúng message đó trong khi key vắng/null/whitespace đều OK — MCP tool không description mà host fill \"\" fail ngay turn đầu; name/toolUseId non-string cũng rơi vào lỗi tương tự khi truyền nguyên. Upstream truyền nguyên name/parameters/description (kiểm 2026-09-27) nên dính cùng lỗi.",
       "risk": "Nếu upstream tự sanitize theo scheme khác, đối chiếu để không đổi wire name đã phát hành (history cũ tham chiếu alias cũ vẫn phải giải được) — hash-suffix scheme là deterministic nên port chỉ cần giữ cùng hàm. Giữ hành vi bằng packages/kiro-core/test/transform.test.ts (toKiroToolName/kiroToolNameAliases) và stream.test.ts ('wire-legal spec name')."
+    },
+    {
+      "path": "packages/kiro-core/src/tool-name-aliases.ts, response-assembler.ts",
+      "upstreamPath": "src/tool-name-aliases.ts, src/stream.ts (emitToolCall)",
+      "since": "2026-10-08",
+      "what": "normalizeKiroToolName(name, declared) chỉ đổi tên khi host có khai báo tool, tên model phát ra KHÔNG nằm trong số đó, và đích alias CÓ nằm trong số đó. Upstream normalizeToolName(name) đổi vô điều kiện sang tên built-in của pi.",
+      "why": "kiro-core phục vụ cả OMP lẫn DeepSeek Harness. Đổi vô điều kiện sẽ định tuyến sai tool thật tên read_file (MCP, dsh) sang `read`, và vô ích với host không có `read`. Bảng alias giữ nguyên của upstream.",
+      "risk": "Nếu upstream mở rộng bảng alias, chép thêm key; đừng bỏ guard. Test: packages/kiro-core/test/tool-name-aliases.test.ts và stream.test.ts ('maps a training-prior tool name', 'keeps a training-prior name when the host declared that exact tool')."
+    },
+    {
+      "path": "packages/kiro-core/src/response-assembler.ts, stream.ts (degenerate retry)",
+      "upstreamPath": "src/stream.ts",
+      "since": "2026-10-08",
+      "what": "stopReason tường minh của metadataEvent quyết định stopReason và các lỗi terminal, nhưng KHÔNG tắt retry empty/echo. Upstream #174 đặt degenerate = !explicitStop && …",
+      "why": "Đo live 2026-10-08: Kiro gửi stopReason END_TURN trên mọi turn bình thường. Theo luật của upstream, retry empty-response và xử lý echo 'Continue' sẽ chết hoàn toàn — đổi hành vi lớn mà PR upstream chỉ kiểm bằng fixture offline. Ba lỗi terminal (CONTENT_FILTERED, MODEL_CONTEXT_WINDOW_EXCEEDED, PAUSE_TURN) vẫn throw ngay, không retry, như upstream.",
+      "risk": "Nếu có bằng chứng retry empty END_TURN chỉ tốn credit mà không bao giờ cứu được turn, đổi theo upstream. Test: stream.test.ts 'still retries an empty END_TURN, which live Kiro sends on every turn'."
     }
   ]
 }
