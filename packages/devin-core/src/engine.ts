@@ -1,26 +1,20 @@
-// ABOUTME: Routes a Devin turn to the ns-bridge Go sidecar or the in-process TypeScript core,
-// ABOUTME: and turns sidecar failures back into Devin's own error classes so adapters route them unchanged.
+// ABOUTME: Devin ↔ sidecar glue: the request the Go vendor reads and the
+// ABOUTME: error-field → typed-error reconstruction that keeps API parity.
 
-import { type BridgeEngine, engineStream, SidecarError, selectBridgeEngine } from "ns-bridge-core/sidecar";
+import type { SidecarError } from "ns-bridge-core/sidecar";
 import type { DevinCapacityRetryPolicy } from "./capacity-retry.js";
 import { DevinApiError, DevinProtocolError, DevinStreamError } from "./errors.js";
 import type { DevinStreamRequest } from "./stream.js";
-import type { DevinStreamEvent } from "./types.js";
 
-/** The sidecar vendor id. */
+/** Vendor id the sidecar's `devin` implementation answers to. */
 export const DEVIN_SIDECAR_VENDOR = "devin";
-
-/** The engine a request runs on: injected `fetch` pins it to TypeScript. */
-export function selectDevinEngine(request: Pick<DevinStreamRequest, "fetch">): BridgeEngine {
-  return request.fetch ? "ts" : selectBridgeEngine(DEVIN_SIDECAR_VENDOR);
-}
 
 /** The JSON the Go vendor reads (go/internal/vendors/devin StreamRequest). */
 export function toDevinSidecarRequest(
   request: DevinStreamRequest,
   capacityRetry?: DevinCapacityRetryPolicy,
 ): Record<string, unknown> {
-  const { signal: _signal, fetch: _fetch, ...wire } = request;
+  const { signal: _signal, ...wire } = request;
   return capacityRetry ? { ...wire, capacityRetry } : wire;
 }
 
@@ -53,21 +47,3 @@ export function devinErrorFromSidecar(error: SidecarError): Error {
   }
   return error;
 }
-
-/** Run a turn on the selected engine; `inProcess` is the TypeScript fallback. */
-export function streamDevinOnEngine(
-  request: DevinStreamRequest,
-  capacityRetry: DevinCapacityRetryPolicy | undefined,
-  inProcess: (request: DevinStreamRequest) => AsyncIterable<DevinStreamEvent>,
-): AsyncIterable<DevinStreamEvent> {
-  if (request.fetch) return inProcess(request);
-  return engineStream<DevinStreamEvent, Record<string, unknown>>({
-    vendor: DEVIN_SIDECAR_VENDOR,
-    request: () => toDevinSidecarRequest(request, capacityRetry),
-    inProcess: () => inProcess(request),
-    mapError: devinErrorFromSidecar,
-    ...(request.signal ? { signal: request.signal } : {}),
-  });
-}
-
-export { SidecarError };

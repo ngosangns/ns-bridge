@@ -38,6 +38,22 @@ type Options struct {
 	Hang bool `json:"hang,omitempty"`
 	// ResponseID is reported on the done event.
 	ResponseID string `json:"responseId,omitempty"`
+	// Login steers `ns-bridge login --vendor echo` (below).
+	Login *LoginOptions `json:"login,omitempty"`
+}
+
+// LoginOptions steers the echo vendor's interactive login: which host
+// notifications to emit and what to answer.
+type LoginOptions struct {
+	// AuthURL emits a host/authUrl notification with this url/instructions.
+	AuthURL      string `json:"authUrl,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
+	// Progress emits one host/progress notification per entry, in order.
+	Progress []string `json:"progress,omitempty"`
+	// Result is the login's result (default {"echo":"ok"}).
+	Result json.RawMessage `json:"result,omitempty"`
+	// Error, when set, fails the login with this terminal error instead.
+	Error *bridge.Error `json:"error,omitempty"`
 }
 
 // ToolCall describes the tool call to emit.
@@ -162,6 +178,43 @@ func streamBlock(send func(bridge.Event) error, index int, text string, thinking
 		end = bridge.ThinkingEnd(index, text, signature)
 	}
 	return send(end)
+}
+
+// Login implements sidecar.Loginer: it replays the host notifications and
+// result the request asks for, exercising the login wire path end to end.
+func (Vendor) Login(ctx context.Context, raw json.RawMessage, host bridge.Host) (any, error) {
+	var req Request
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return nil, bridge.Errorf(bridge.KindInvalidRequest, "echo login request: %v", err)
+	}
+	opts := req.Echo.Login
+	if opts == nil {
+		opts = &LoginOptions{}
+	}
+	for _, message := range opts.Progress {
+		if err := host.Progress(message); err != nil {
+			return nil, err
+		}
+	}
+	if opts.AuthURL != "" {
+		if err := host.AuthURL(opts.AuthURL, opts.Instructions); err != nil {
+			return nil, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if opts.Error != nil {
+		return nil, opts.Error
+	}
+	if len(opts.Result) > 0 {
+		var out any
+		if err := json.Unmarshal(opts.Result, &out); err != nil {
+			return nil, bridge.Errorf(bridge.KindInvalidRequest, "echo login result: %v", err)
+		}
+		return out, nil
+	}
+	return map[string]any{"echo": "ok"}, nil
 }
 
 func lastUserText(messages []bridge.Message) string {

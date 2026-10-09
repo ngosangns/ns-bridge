@@ -20,8 +20,8 @@ export type PackagedSidecarBinary = { path: string } | { error: string };
 const localRequire = createRequire(import.meta.url);
 
 /**
- * The binary installed by ns-bridge-bin (an optional peer: the adapter that
- * runs vendors in the sidecar depends on it), or why there is none.
+ * The binary installed by ns-bridge-bin (a required dependency), or why there
+ * is none.
  */
 export function findPackagedSidecarBinary(): PackagedSidecarBinary {
   let bin: { binaryPath(): string };

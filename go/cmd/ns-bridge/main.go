@@ -3,6 +3,7 @@
 //
 //	ns-bridge stream --vendor <id>   one model call: request envelope on stdin, NDJSON events on stdout
 //	ns-bridge call --vendor <id> --op <op>  one operation (catalog, usage, token refresh): one result line
+//	ns-bridge login --vendor <id>    one interactive login: host notifications, one result line
 //	ns-bridge vendors                list vendor ids this binary serves
 //	ns-bridge version                print the binary and protocol versions
 package main
@@ -53,6 +54,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return stream(args[1:], stdin, stdout, stderr)
 	case "call":
 		return call(args[1:], stdin, stdout, stderr)
+	case "login":
+		return login(args[1:], stdin, stdout, stderr)
 	case "vendors":
 		fmt.Fprintln(stdout, strings.Join(registry().IDs(), "\n"))
 		return 0
@@ -105,12 +108,30 @@ func call(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return sidecar.RunCall(ctx, *vendor, *op, registry(), stdin, stdout)
 }
 
+func login(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("login", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	vendor := flags.String("vendor", "", "vendor id (see `ns-bridge vendors`)")
+	if err := flags.Parse(args); err != nil {
+		return exitUsage
+	}
+	if *vendor == "" {
+		fmt.Fprintln(stderr, "ns-bridge login: --vendor is required")
+		return exitUsage
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	return sidecar.RunLogin(ctx, *vendor, registry(), stdin, stdout)
+}
+
 func usage(w io.Writer) {
 	fmt.Fprint(w, `usage:
   ns-bridge stream --vendor <id> [--ignore-stdin-eof]
       Read {"protocol":1,"request":{...}} on stdin, write BridgeStreamEvent NDJSON on stdout.
   ns-bridge call --vendor <id> --op <op>
       Read {"protocol":1,"request":{...}} on stdin, write one {"type":"result","result":...} line.
+  ns-bridge login --vendor <id>
+      Interactive login: host notifications on stdout, then one result or error line.
   ns-bridge vendors
   ns-bridge version
 `)

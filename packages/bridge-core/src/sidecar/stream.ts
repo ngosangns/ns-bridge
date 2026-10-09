@@ -28,6 +28,13 @@ const EVENT_TYPES: ReadonlySet<string> = new Set<BridgeStreamEvent["type"]>([
   "done",
 ]);
 
+/** A `{"jsonrpc":"2.0",…}` line the binary wrote: `id` means the host must answer it on stdin. */
+export interface SidecarHostCall {
+  method: string;
+  params?: unknown;
+  id?: number;
+}
+
 export interface SidecarStreamOptions {
   /** Cancels the call: stdin is closed, then SIGTERM, then SIGKILL, each after `killGraceMs`. */
   signal?: AbortSignal;
@@ -43,6 +50,13 @@ export interface SidecarStreamOptions {
    * `false` keeps them private.
    */
   stderr?: NodeJS.WritableStream | false;
+  /**
+   * Dispatch a host call (`{"jsonrpc":"2.0",…}` lines — `host/authUrl`,
+   * `host/progress`, `host/prompt`). Notifications resolve to nothing; a call
+   * carrying `id` gets its return value written back on stdin. Lines with no
+   * handler are ignored.
+   */
+  hostCall?: (call: SidecarHostCall) => unknown | Promise<unknown>;
 }
 
 /**
@@ -84,6 +98,71 @@ export async function sidecarCall<TResult = unknown>(
     ["call", "--vendor", vendor, "--op", op],
     request,
     options,
+    "result",
+  )) {
+    if (message.type === "result") result = (message as { result?: unknown }).result;
+  }
+  return result as TResult;
+}
+
+/** The host callbacks an interactive login (`ns-bridge login`) drives. */
+export interface SidecarLoginCallbacks {
+  /** `host/authUrl`: open (or print) the URL the user must visit. */
+  onAuthUrl?: (url: string, instructions?: string) => void;
+  /** `host/progress`: a human-readable progress note. */
+  onProgress?: (message: string) => void;
+  /** `host/prompt`: answer a prompt the binary asks for. */
+  onPrompt?: (prompt: {
+    message: string;
+    placeholder?: string;
+    allowEmpty?: boolean;
+    secret?: boolean;
+  }) => Promise<string>;
+}
+
+/**
+ * Run `ns-bridge login --vendor <vendor>` — an interactive login (Devin's
+ * PKCE browser round trip, a Kiro API-key check) — and resolve with the
+ * credentials it returns. `{"jsonrpc":"2.0",…}` host calls it writes are
+ * routed to `callbacks`; an unhandled `host/prompt` is answered with an
+ * error, which the vendor usually turns into its own failure.
+ */
+export async function sidecarLogin<TResult = unknown>(
+  vendor: string,
+  request: unknown,
+  callbacks: SidecarLoginCallbacks,
+  options: SidecarStreamOptions = {},
+): Promise<TResult> {
+  const hostCall = async (call: SidecarHostCall): Promise<unknown> => {
+    const params = (call.params ?? {}) as Record<string, unknown>;
+    switch (call.method) {
+      case "host/authUrl":
+        callbacks.onAuthUrl?.(
+          typeof params.url === "string" ? params.url : "",
+          typeof params.instructions === "string" ? params.instructions : undefined,
+        );
+        return undefined;
+      case "host/progress":
+        callbacks.onProgress?.(typeof params.message === "string" ? params.message : "");
+        return undefined;
+      case "host/prompt":
+        if (!callbacks.onPrompt) {
+          throw new SidecarError("protocol", `ns-bridge (${vendor}) asked for a prompt this host cannot answer`, {
+            vendor,
+          });
+        }
+        return callbacks.onPrompt(params as { message: string });
+      default:
+        if (call.id !== undefined) throw new Error(`unknown host method ${call.method}`);
+        return undefined; // unknown notification: ignore, like an unknown event type
+    }
+  };
+  let result: unknown;
+  for await (const message of sidecarLines(
+    vendor,
+    ["login", "--vendor", vendor],
+    request,
+    { ...options, hostCall },
     "result",
   )) {
     if (message.type === "result") result = (message as { result?: unknown }).result;
@@ -206,6 +285,10 @@ async function* sidecarLines(
       const line = lines.shift();
       if (line !== undefined) {
         const message = parseLine(line, details);
+        if (message.jsonrpc !== undefined) {
+          await dispatchHostCall(message, options.hostCall, child);
+          continue;
+        }
         if (message.type === "error") {
           throw SidecarError.fromPayload(
             message.error ?? { kind: "protocol", message: "ns-bridge wrote an error line without a payload" },
@@ -248,6 +331,11 @@ async function* sidecarLines(
 interface SidecarLine {
   type: string;
   error?: SidecarErrorPayload;
+  /** Present on host calls: `{"jsonrpc":"2.0","method":…,"id"?:"…"}` instead of `type`. */
+  jsonrpc?: string;
+  id?: number;
+  method?: string;
+  params?: unknown;
 }
 
 function parseLine(line: string, details: () => object): SidecarLine {
@@ -260,10 +348,53 @@ function parseLine(line: string, details: () => object): SidecarLine {
       cause,
     });
   }
-  if (!value || typeof value !== "object" || typeof (value as { type?: unknown }).type !== "string") {
+  if (!value || typeof value !== "object") {
+    throw new SidecarError(
+      "protocol",
+      `ns-bridge wrote a line that is not an object: ${line.slice(0, 200)}`,
+      details(),
+    );
+  }
+  const record = value as SidecarLine;
+  if (typeof record.jsonrpc === "string") return record; // host call, no `type`
+  if (typeof record.type !== "string") {
     throw new SidecarError("protocol", `ns-bridge wrote a line without a type: ${line.slice(0, 200)}`, details());
   }
-  return value as SidecarLine;
+  return record;
+}
+
+/**
+ * Hand one `{"jsonrpc":"2.0",…}` line to the host-call handler. A line with an
+ * `id` is a request: the handler's return value goes back on stdin as the
+ * JSON-RPC result (an error object when it threw).
+ */
+async function dispatchHostCall(
+  message: SidecarLine,
+  hostCall: SidecarStreamOptions["hostCall"],
+  child: ChildProcessWithoutNullStreams,
+): Promise<void> {
+  const id = typeof message.id === "number" ? message.id : undefined;
+  const respond = (payload: Record<string, unknown>) => {
+    if (!child.stdin.destroyed) child.stdin.write(`${JSON.stringify(payload)}\n`);
+  };
+  if (id === undefined) {
+    await hostCall?.({ method: message.method ?? "", params: message.params });
+    return;
+  }
+  try {
+    const result = hostCall
+      ? await hostCall({ method: message.method ?? "", params: message.params, id })
+      : (() => {
+          throw new Error("this client answers no host calls");
+        })();
+    respond({ jsonrpc: "2.0", id, result: result ?? null });
+  } catch (error) {
+    respond({
+      jsonrpc: "2.0",
+      id,
+      error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+    });
+  }
 }
 
 function unavailable(binary: string, vendor: string, cause: unknown): SidecarError {

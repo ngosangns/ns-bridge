@@ -1,7 +1,6 @@
 // ABOUTME: Conservative in-memory cache-read estimation for Kiro usage records.
 // ABOUTME: Reclassifies repeated prompt input without changing total tokens or dollar cost.
 
-import type { KiroWireUsage } from "./event-parser.js";
 import type { KiroUsage } from "./types.js";
 import type { KiroUsageTracking } from "./usage-tracking.js";
 
@@ -22,7 +21,7 @@ let warnedWireCacheCounters = false;
 export function applyCacheEstimate(
   conversationId: string,
   usage: KiroUsage,
-  wireUsage: KiroWireUsage | null,
+  wireUsage: { cacheReadInputTokens?: number; cacheWriteInputTokens?: number } | null,
   config: KiroUsageTracking,
   now = Date.now(),
 ): number {

@@ -1,7 +1,8 @@
-// ABOUTME: Routes a Kiro turn to the ns-bridge Go sidecar or the in-process TypeScript core, carrying the
-// ABOUTME: per-process state (profile ARNs, cache estimates, catalog refresh) a one-turn sidecar cannot hold.
+// ABOUTME: Kiro ↔ sidecar glue: the request the Go vendor reads and the
+// ABOUTME: per-process state (profile ARNs, cache estimates, catalog refresh)
+// ABOUTME: a one-turn sidecar cannot hold, folded back over the event stream.
 
-import { type BridgeEngine, engineStream, SidecarError, selectBridgeEngine } from "ns-bridge-core/sidecar";
+import { engineStream, SidecarError } from "ns-bridge-core/sidecar";
 import { applyCacheEstimate } from "./cache-estimator.js";
 import { debugLog, formatSafeError } from "./debug.js";
 import { getKiroRegionFromProfileArn } from "./endpoints.js";
@@ -16,11 +17,6 @@ import { KIRO_USAGE_TRACKING_DISABLED } from "./usage-tracking.js";
 
 /** The sidecar vendor id. */
 export const KIRO_SIDECAR_VENDOR = "kiro";
-
-/** The engine a Kiro turn runs on right now (NS_BRIDGE_ENGINE_KIRO, then NS_BRIDGE_ENGINE). */
-export function selectKiroEngine(): BridgeEngine {
-  return selectBridgeEngine(KIRO_SIDECAR_VENDOR);
-}
 
 /**
  * The JSON the Go vendor reads (go/internal/vendors/kiro StreamRequest): the
@@ -53,9 +49,9 @@ type SidecarDoneEvent = Extract<KiroStreamEvent, { type: "done" }> & {
 };
 
 /**
- * Apply to sidecar events what the in-process core does with process state:
- * fold profile ARNs back into the cache, estimate cache reads across turns,
- * and refresh a stale model catalog in the background.
+ * Apply to sidecar events what needs per-process state: fold profile ARNs back
+ * into the cache, estimate cache reads across turns, and refresh a stale model
+ * catalog in the background.
  */
 async function* postProcess(
   events: AsyncIterable<KiroStreamEvent>,
@@ -109,24 +105,12 @@ async function* postProcess(
   }
 }
 
-/** Run a turn on the selected engine; `inProcess` is the TypeScript core. */
-export function streamKiroOnEngine(
-  request: KiroStreamRequest,
-  inProcess: (request: KiroStreamRequest) => AsyncIterable<KiroStreamEvent>,
-): AsyncIterable<KiroStreamEvent> {
-  if (selectKiroEngine() === "ts" || !request.accessToken) return inProcess(request);
+/** Run a turn in the Go sidecar. */
+export function streamKiroOnEngine(request: KiroStreamRequest): AsyncIterable<KiroStreamEvent> {
   const conversationId = request.sessionId ?? crypto.randomUUID();
-  let sidecarRequest: Record<string, unknown>;
-  try {
-    sidecarRequest = toKiroSidecarRequest(request, conversationId);
-  } catch {
-    // An unknown model id: let the TypeScript core raise its own error.
-    return inProcess(request);
-  }
   return engineStream<KiroStreamEvent, Record<string, unknown>>({
     vendor: KIRO_SIDECAR_VENDOR,
-    request: () => sidecarRequest,
-    inProcess: () => inProcess(request),
+    request: () => toKiroSidecarRequest(request, conversationId),
     mapError: kiroErrorFromSidecar,
     transform: (events) => postProcess(events, request, conversationId),
     ...(request.signal ? { signal: request.signal } : {}),

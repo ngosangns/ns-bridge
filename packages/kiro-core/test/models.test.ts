@@ -1,9 +1,8 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { deriveKiroEffort, fallbackKiroEffort } from "../src/effort.js";
-import type { KiroCatalogModel } from "../src/management.js";
 import {
   applyEffortLadder,
   getCachedModels,
@@ -12,17 +11,15 @@ import {
   KIRO_MANAGEMENT_CACHE_SOURCE,
   KIRO_MANAGEMENT_CACHE_VERSION,
   KIRO_MODEL_IDS,
+  type KiroModel,
   kiroModels,
-  mapKiroCatalogModels,
   resolveApiRegion,
   resolveKiroModel,
-  updateKiroModelsCache,
 } from "../src/models.js";
 import type { KiroEffort } from "../src/types.js";
 
 const LEGACY_CACHE_PATH = join(homedir(), ".kiro-models-cache.json");
 const TEST_REGION = "test-region-1";
-const PROFILE_ARN = "arn:aws:codewhisperer:test-region-1:123456789012:profile/test";
 
 function effortSchema(
   field: "reasoning" | "output_config",
@@ -45,36 +42,20 @@ function effortSchema(
   };
 }
 
-const catalogFixture: KiroCatalogModel[] = [
-  {
-    modelId: "openai-gpt-5.6",
-    displayName: "GPT 5.6",
-    tokenLimits: { maxInputTokens: 278_528, maxOutputTokens: 128_000 },
-    additionalModelRequestFieldsSchema: effortSchema("reasoning", ["none", "low", "medium", "high", "xhigh", "max"]),
-  },
-  {
-    modelId: "gpt-5.6-luna",
-    displayName: "GPT 5.6 Luna",
-    tokenLimits: { maxInputTokens: 300_000, maxOutputTokens: 128_000 },
-    additionalModelRequestFieldsSchema: effortSchema("reasoning", ["none", "low", "medium", "high", "xhigh", "max"]),
-  },
-  {
-    modelId: "claude-opus-4.8",
-    displayName: "Catalog Opus 4.8",
-    tokenLimits: { maxInputTokens: 900_000, maxOutputTokens: 100_000 },
-    additionalModelRequestFieldsSchema: effortSchema("output_config", ["low", "medium", "high", "xhigh", "max"], true),
-  },
-  {
-    modelId: "claude-sonnet-4.6",
-    additionalModelRequestFieldsSchema: effortSchema("output_config", ["low", "medium", "high", "max"]),
-  },
-  { modelId: "qwen3-coder-next" },
-  {
-    modelId: "claude-fable-5",
-    tokenLimits: { maxInputTokens: 1_000_000, maxOutputTokens: 128_000 },
-    additionalModelRequestFieldsSchema: effortSchema("output_config", ["low", "medium", "high", "xhigh", "max"]),
-  },
-];
+/** A cache-file-shaped model row, as the Go vendor's refreshModels writes. */
+function cachedModel(id: string, overrides: Partial<KiroModel> = {}): KiroModel {
+  return {
+    id: id.replace(/(\d)\.(\d)/g, "$1-$2"),
+    kiroModelId: id,
+    name: id,
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 8_192,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   rmSync(KIRO_MANAGEMENT_CACHE_PATH, { force: true });
@@ -82,7 +63,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   rmSync(KIRO_MANAGEMENT_CACHE_PATH, { force: true });
   rmSync(LEGACY_CACHE_PATH, { force: true });
 });
@@ -124,175 +104,29 @@ describe("Feature 2: Model Definitions", () => {
     });
   });
 
-  describe("management catalog mapping", () => {
-    const mapped = mapKiroCatalogModels(catalogFixture, TEST_REGION);
-
-    it.each([
-      {
-        id: "openai-gpt-5-6",
-        kiroModelId: "openai-gpt-5.6",
-        reasoning: true,
-        efforts: ["low", "medium", "high", "xhigh", "max"],
-        contextWindow: 278_528,
-        maxTokens: 128_000,
-      },
-      {
-        id: "claude-opus-4-8",
-        kiroModelId: "claude-opus-4.8",
-        reasoning: true,
-        efforts: ["low", "medium", "high", "xhigh", "max"],
-        contextWindow: 900_000,
-        maxTokens: 100_000,
-      },
-      {
-        id: "claude-sonnet-4-6",
-        kiroModelId: "claude-sonnet-4.6",
-        reasoning: true,
-        efforts: ["low", "medium", "high", "max"],
-        contextWindow: 200_000,
-        maxTokens: 8_192,
-      },
-      {
-        id: "qwen3-coder-next",
-        kiroModelId: "qwen3-coder-next",
-        reasoning: true,
-        contextWindow: 200_000,
-        maxTokens: 8_192,
-      },
-      {
-        id: "claude-fable-5",
-        kiroModelId: "claude-fable-5",
-        reasoning: true,
-        efforts: ["low", "medium", "high", "xhigh", "max"],
-        contextWindow: 1_000_000,
-        maxTokens: 128_000,
-      },
-    ])("maps $id from authenticated metadata", (expected) => {
-      expect(mapped.find((model) => model.id === expected.id)).toMatchObject(expected);
-    });
-
-    // Kiro publishes no per-token prices, so `cost` stays zero and the billing
-    // weight from kiro-cli is the only thing separating a cheap model from an
-    // expensive one.
-    it("attaches billing weights when kiro-cli supplied them", () => {
-      const withRates = mapKiroCatalogModels(
-        catalogFixture,
-        TEST_REGION,
-        new Map([
-          ["claude-opus-4.8", { multiplier: 2.2, unit: "Credit" }],
-          ["gpt-5.6-luna", { multiplier: 0.1 }],
-        ]),
-      );
-
-      expect(withRates.find((m) => m.id === "claude-opus-4-8")).toMatchObject({
-        rateMultiplier: 2.2,
-        rateUnit: "Credit",
-      });
-      const luna = withRates.find((m) => m.id === "gpt-5-6-luna");
-      expect(luna?.rateMultiplier).toBe(0.1);
-      expect(luna?.rateUnit).toBeUndefined();
-      // Rates are keyed by the exact service id; a model kiro-cli did not list
-      // stays rate-less rather than inheriting a neighbour's weight.
-      expect(withRates.find((m) => m.id === "qwen3-coder-next")?.rateMultiplier).toBeUndefined();
-    });
-
-    it("leaves every model rate-less when kiro-cli is unavailable", () => {
-      expect(mapped.every((model) => model.rateMultiplier === undefined)).toBe(true);
-    });
-
-    it("advertises verified Luna vision without broadening other non-Claude models", () => {
-      expect(mapped.find((model) => model.id === "gpt-5-6-luna")?.input).toEqual(["text", "image"]);
-      expect(mapped.find((model) => model.id === "openai-gpt-5-6")?.input).toEqual(["text"]);
-      expect(mapped.find((model) => model.id === "qwen3-coder-next")?.input).toEqual(["text"]);
-    });
-
-    it("retains fresh schema and token metadata for a model also present in the bootstrap list", () => {
-      const opus = mapped.find((model) => model.id === "claude-opus-4-8");
-      expect(opus?.name).toBe("Catalog Opus 4.8");
-      const catalogOpus = catalogFixture.find((model) => model.modelId === "claude-opus-4.8");
-      expect(opus?.additionalModelRequestFieldsSchema).toEqual(catalogOpus?.additionalModelRequestFieldsSchema);
-      expect(opus?.tokenLimits).toEqual(catalogOpus?.tokenLimits);
-      expect(opus?.contextWindow).not.toBe(kiroModels.find((model) => model.id === opus?.id)?.contextWindow);
-    });
-
-    it("disables text tool-call recovery only for Claude catalog models", () => {
-      const claudeModels = mapped.filter((model) => model.id.startsWith("claude-"));
-      const nonClaudeModels = mapped.filter((model) => !model.id.startsWith("claude-"));
-
-      expect(claudeModels.length).toBeGreaterThan(0);
-      expect(claudeModels.every((model) => model.recoverTextToolCalls === false)).toBe(true);
-      expect(nonClaudeModels.every((model) => model.recoverTextToolCalls === undefined)).toBe(true);
-    });
-
-    it("treats a null schema as absent for auto", () => {
-      const [auto] = mapKiroCatalogModels([{ modelId: "auto", additionalModelRequestFieldsSchema: null }], TEST_REGION);
-
-      expect(auto).toMatchObject({ id: "auto", reasoning: true });
-      expect(auto.additionalModelRequestFieldsSchema).toBeUndefined();
-    });
-
-    it("rejects malformed non-null schemas", () => {
-      expect(() =>
-        mapKiroCatalogModels(
-          [{ modelId: "auto", additionalModelRequestFieldsSchema: "invalid" as never }],
-          TEST_REGION,
-        ),
-      ).toThrow("invalid request-fields schema");
-    });
-
-    it("keeps the version dot in a humanized display name", () => {
-      // `toLocalModelId` rewrites `5.1` as `5-1`, so a display name derived
-      // from the local id would read "Claude Fable 5 1".
-      const [fable] = mapKiroCatalogModels([{ modelId: "claude-fable-5.1" }], TEST_REGION);
-      expect(fable.id).toBe("claude-fable-5-1");
-      expect(fable.name).toBe("Claude Fable 5.1");
-    });
-
-    it("preserves the exact service ID for request-time model resolution", () => {
-      const dynamicModel = mapped.find((model) => model.id === "openai-gpt-5-6");
-      expect(dynamicModel).toBeDefined();
-      expect(dynamicModel?.region).toBe(TEST_REGION);
-      expect(resolveKiroModel(dynamicModel?.id ?? "", dynamicModel?.kiroModelId)).toBe("openai-gpt-5.6");
-    });
-  });
-
   describe("management model cache", () => {
-    it("accepts the versioned cache and treats its regional catalog as authoritative", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ models: catalogFixture }),
-      });
-      vi.stubGlobal("fetch", fetchMock);
-
-      await updateKiroModelsCache("secret-access-token", TEST_REGION, PROFILE_ARN);
-
-      const serialized = readFileSync(KIRO_MANAGEMENT_CACHE_PATH, "utf-8");
-      const cache = JSON.parse(serialized);
-      expect(cache).toMatchObject({
-        version: KIRO_MANAGEMENT_CACHE_VERSION,
-        source: KIRO_MANAGEMENT_CACHE_SOURCE,
-        regions: {
-          [TEST_REGION]: {
-            region: TEST_REGION,
-            fetchedAt: expect.any(Number),
+    it("reads the versioned cache the Go vendor writes", () => {
+      const models = [cachedModel("claude-opus-4.8"), cachedModel("qwen3-coder-next")];
+      writeFileSync(
+        KIRO_MANAGEMENT_CACHE_PATH,
+        JSON.stringify({
+          version: KIRO_MANAGEMENT_CACHE_VERSION,
+          source: KIRO_MANAGEMENT_CACHE_SOURCE,
+          regions: {
+            [TEST_REGION]: { region: TEST_REGION, fetchedAt: Date.now(), models },
           },
-        },
-      });
-      expect(serialized).not.toContain("secret-access-token");
-      expect(serialized).not.toContain(PROFILE_ARN);
+        }),
+        "utf-8",
+      );
 
       const cachedModels = getCachedModels(TEST_REGION);
-      expect(cachedModels.map((model) => model.id)).toEqual(
-        catalogFixture.map((model) => model.modelId.replace(/(\d)\.(\d)/g, "$1-$2")),
-      );
-      expect(cachedModels.some((model) => model.id === "auto")).toBe(false);
-      expect(resolveKiroModel("openai-gpt-5-6")).toBe("openai-gpt-5.6");
+      expect(cachedModels.map((model) => model.id)).toEqual(["claude-opus-4-8", "qwen3-coder-next"]);
+      expect(resolveKiroModel("claude-opus-4-8")).toBe("claude-opus-4.8");
       expect(isCacheStale(TEST_REGION)).toBe(false);
+      expect(isCacheStale("other-region")).toBe(true);
     });
 
     it("repairs stale Luna image metadata in memory without rewriting the cache", () => {
-      const [cachedLuna] = mapKiroCatalogModels([{ modelId: "gpt-5.6-luna" }], TEST_REGION);
-      cachedLuna.input = ["text"];
       const serialized = JSON.stringify({
         version: KIRO_MANAGEMENT_CACHE_VERSION,
         source: KIRO_MANAGEMENT_CACHE_SOURCE,
@@ -300,7 +134,7 @@ describe("Feature 2: Model Definitions", () => {
           [TEST_REGION]: {
             region: TEST_REGION,
             fetchedAt: Date.now(),
-            models: [cachedLuna],
+            models: [cachedModel("gpt-5.6-luna", { input: ["text"] })],
           },
         },
       });
@@ -321,32 +155,6 @@ describe("Feature 2: Model Definitions", () => {
       writeFileSync(KIRO_MANAGEMENT_CACHE_PATH, legacyCache, "utf-8");
       expect(getCachedModels(TEST_REGION)).toBe(kiroModels);
       expect(isCacheStale(TEST_REGION)).toBe(true);
-    });
-
-    it("preserves the newest valid management cache when refresh fails", async () => {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ models: catalogFixture }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 503,
-          statusText: "Service Unavailable",
-        });
-      vi.stubGlobal("fetch", fetchMock);
-
-      await updateKiroModelsCache("first-token", TEST_REGION, PROFILE_ARN);
-      const validCache = readFileSync(KIRO_MANAGEMENT_CACHE_PATH, "utf-8");
-
-      await expect(updateKiroModelsCache("second-token", TEST_REGION, PROFILE_ARN)).rejects.toThrow(
-        "Kiro management ListAvailableModels failed",
-      );
-      expect(readFileSync(KIRO_MANAGEMENT_CACHE_PATH, "utf-8")).toBe(validCache);
-      expect(getCachedModels(TEST_REGION).map((model) => model.id)).toEqual(
-        catalogFixture.map((model) => model.modelId.replace(/(\d)\.(\d)/g, "$1-$2")),
-      );
     });
   });
 
@@ -449,14 +257,6 @@ describe("Feature 2: Model Definitions", () => {
   describe("effort ladder and cache validation", () => {
     const OPUS_SCHEMA = effortSchema("output_config", ["low", "medium", "high", "xhigh", "max"], true);
 
-    function validCache(models: unknown[], version: number = KIRO_MANAGEMENT_CACHE_VERSION): string {
-      return JSON.stringify({
-        version,
-        source: KIRO_MANAGEMENT_CACHE_SOURCE,
-        regions: { [TEST_REGION]: { region: TEST_REGION, fetchedAt: Date.now(), models } },
-      });
-    }
-
     it("returns the full ladder and display capability from a catalog schema", () => {
       expect(applyEffortLadder(deriveKiroEffort(OPUS_SCHEMA))).toEqual({
         efforts: ["low", "medium", "high", "xhigh", "max"],
@@ -487,60 +287,6 @@ describe("Feature 2: Model Definitions", () => {
           summarizedThinking: false,
         })?.efforts,
       ).toEqual(["low", "high", "max"]);
-    });
-
-    it("carries the schema ladder and its display capability onto a catalog model", () => {
-      const opus = mapKiroCatalogModels(catalogFixture, TEST_REGION).find((model) => model.id === "claude-opus-4-8");
-
-      expect(opus?.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
-      expect(opus?.supportsSummarizedThinking).toBe(true);
-    });
-
-    it("declares a ladder only for reasoning bootstrap models", () => {
-      const laddered = kiroModels.filter((model) => model.efforts !== undefined);
-
-      expect(laddered.length).toBeGreaterThan(0);
-      expect(laddered.every((model) => (model.efforts?.length ?? 0) > 0)).toBe(true);
-      expect(kiroModels.every((model) => model.reasoning || model.efforts === undefined)).toBe(true);
-    });
-
-    it("uses the request fallback only when catalog schema is absent", () => {
-      const [schemaLess] = mapKiroCatalogModels([{ modelId: "claude-opus-4.8" }], TEST_REGION);
-      const [schemaWithoutEffort] = mapKiroCatalogModels(
-        [{ modelId: "claude-opus-4.8", additionalModelRequestFieldsSchema: { type: "object", properties: {} } }],
-        TEST_REGION,
-      );
-
-      expect(schemaLess.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
-      expect(schemaWithoutEffort.efforts).toBeUndefined();
-    });
-
-    it("keeps a cached entry that carries an effort ladder", () => {
-      const models = mapKiroCatalogModels(catalogFixture, TEST_REGION);
-      expect(models.some((model) => model.efforts !== undefined)).toBe(true);
-      writeFileSync(KIRO_MANAGEMENT_CACHE_PATH, validCache(models), "utf-8");
-
-      expect(getCachedModels(TEST_REGION).map((model) => model.id)).toEqual(models.map((model) => model.id));
-    });
-
-    it.each([
-      ["an empty effort list", []],
-      ["an effort outside the enum", ["turbo"]],
-      ["a non-array effort list", "low"],
-      ["a null effort list", null],
-    ])("discards the whole cache when an entry has %s", (_label, efforts) => {
-      const [first, ...rest] = mapKiroCatalogModels(catalogFixture, TEST_REGION);
-      writeFileSync(KIRO_MANAGEMENT_CACHE_PATH, validCache([{ ...first, efforts }, ...rest]), "utf-8");
-
-      expect(getCachedModels(TEST_REGION)).toBe(kiroModels);
-    });
-
-    it("drops a cache written by a future version", () => {
-      const models = mapKiroCatalogModels(catalogFixture, TEST_REGION);
-      writeFileSync(KIRO_MANAGEMENT_CACHE_PATH, validCache(models, KIRO_MANAGEMENT_CACHE_VERSION + 1), "utf-8");
-
-      expect(getCachedModels(TEST_REGION)).toBe(kiroModels);
-      expect(isCacheStale(TEST_REGION)).toBe(true);
     });
   });
 });

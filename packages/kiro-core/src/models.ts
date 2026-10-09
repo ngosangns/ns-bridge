@@ -1,12 +1,9 @@
 // Model catalog: the bootstrap list, the authenticated catalog, and its cache.
 
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getKiroEffortConfig, type KiroEffortConfig } from "./effort.js";
-import { getKiroCliModelRates, type KiroModelRate } from "./kiro-cli.js";
-import { fetchKiroModelCatalog, type KiroCatalogModel } from "./management.js";
 import { KIRO_EFFORT_ORDER, type KiroEffort, type KiroModelSpec } from "./types.js";
 
 export { resolveApiRegion } from "./endpoints.js";
@@ -22,14 +19,15 @@ export const KIRO_MANAGEMENT_CACHE_SOURCE = "ns-kiro-provider-management";
 export const KIRO_MANAGEMENT_CACHE_PATH = join(homedir(), ".ns-kiro-provider-models-cache.json");
 
 const CACHE_MAX_AGE_MS = 3600_000;
-const DEFAULT_CONTEXT_WINDOW = 200_000;
-const DEFAULT_MAX_TOKENS = 8_192;
 const ZERO_COST = Object.freeze({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-const REASONING_FAMILY_MARKERS = ["opus", "sonnet", "fable", "coder", "deepseek", "gpt", "glm", "qwen"];
 /** Non-Claude models whose Kiro runtime vision support has been verified end to end. */
 const VERIFIED_IMAGE_MODEL_IDS = new Set(["gpt-5.6-luna"]);
 
-type KiroTokenLimits = NonNullable<KiroCatalogModel["tokenLimits"]>;
+type KiroTokenLimits = {
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  [key: string]: unknown;
+};
 
 export interface KiroModel extends KiroModelSpec {
   /** Exact model ID returned by the Kiro management catalog. */
@@ -394,27 +392,6 @@ function readManagementCache(): ManagementModelsCache | undefined {
   }
 }
 
-function writeManagementCache(cache: ManagementModelsCache): void {
-  const temporaryPath = `${KIRO_MANAGEMENT_CACHE_PATH}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporaryPath, JSON.stringify(cache, null, 2), "utf-8");
-    renameSync(temporaryPath, KIRO_MANAGEMENT_CACHE_PATH);
-  } finally {
-    rmSync(temporaryPath, { force: true });
-  }
-}
-
-function toLocalModelId(kiroModelId: string): string {
-  return kiroModelId.replace(/(\d)\.(\d)/g, "$1-$2");
-}
-
-function humanizeModelId(modelId: string): string {
-  return modelId
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
 /**
  * Project a Kiro effort enum onto the neutral ladder, lowest rung first. Values
  * are filtered through {@link KIRO_EFFORT_ORDER} because Kiro may report one
@@ -432,11 +409,6 @@ export function applyEffortLadder(config: KiroEffortConfig | undefined): {
   return { efforts, ...(config.summarizedThinking ? { supportsSummarizedThinking: true } : {}) };
 }
 
-function hasReasoningFamilyFallback(modelId: string): boolean {
-  const normalizedId = modelId.toLowerCase();
-  return normalizedId === "auto" || REASONING_FAMILY_MARKERS.some((marker) => normalizedId.includes(marker));
-}
-
 function hasVerifiedImageInput(kiroModelId: string): boolean {
   return kiroModelId.startsWith("claude-") || VERIFIED_IMAGE_MODEL_IDS.has(kiroModelId.toLowerCase());
 }
@@ -445,101 +417,6 @@ function hasVerifiedImageInput(kiroModelId: string): boolean {
 function applyVerifiedCapabilities(model: KiroModel): KiroModel {
   if (!hasVerifiedImageInput(model.kiroModelId) || model.input.includes("image")) return model;
   return { ...model, input: ["text", "image"] };
-}
-
-function validateCatalogMetadata(model: KiroCatalogModel): {
-  schema?: Record<string, unknown>;
-  tokenLimits?: KiroTokenLimits;
-} {
-  const rawSchema = model.additionalModelRequestFieldsSchema;
-  const schema = rawSchema ?? undefined;
-  if (schema !== undefined && !isRecord(schema)) {
-    throw new Error(`Kiro management catalog model ${model.modelId} has an invalid request-fields schema`);
-  }
-
-  const tokenLimits = model.tokenLimits;
-  if (tokenLimits !== undefined && !isRecord(tokenLimits)) {
-    throw new Error(`Kiro management catalog model ${model.modelId} has invalid token limits`);
-  }
-  if (
-    tokenLimits &&
-    ((tokenLimits.maxInputTokens !== undefined && !isPositiveNumber(tokenLimits.maxInputTokens)) ||
-      (tokenLimits.maxOutputTokens !== undefined && !isPositiveNumber(tokenLimits.maxOutputTokens)))
-  ) {
-    throw new Error(`Kiro management catalog model ${model.modelId} has invalid token limits`);
-  }
-
-  return { schema, tokenLimits };
-}
-
-/**
- * Map an authenticated management catalog into models without discarding fresh
- * metadata for bootstrap IDs.
- *
- * `rates` is passed in rather than read here so this stays a pure projection:
- * its only source shells out to kiro-cli, which a caller may not want on this
- * path at all.
- */
-export function mapKiroCatalogModels(
-  catalogModels: KiroCatalogModel[],
-  region: string,
-  rates?: Map<string, KiroModelRate>,
-): KiroModel[] {
-  if (catalogModels.length === 0) {
-    throw new Error(`Kiro management catalog returned no models in ${region}`);
-  }
-
-  const seenIds = new Set<string>();
-  return catalogModels.map((catalogModel) => {
-    const kiroModelId = catalogModel.modelId;
-    if (!kiroModelId || kiroModelId.trim() !== kiroModelId) {
-      throw new Error(`Kiro management catalog returned an invalid model ID in ${region}`);
-    }
-    const id = toLocalModelId(kiroModelId);
-    if (seenIds.has(id)) {
-      throw new Error(`Kiro management catalog contains conflicting model ID ${id} in ${region}`);
-    }
-    seenIds.add(id);
-
-    const existing = kiroModels.find((model) => model.id === id);
-    const rate = rates?.get(kiroModelId);
-    const { schema, tokenLimits } = validateCatalogMetadata(catalogModel);
-    // Two-tier resolution, same as the request path: an authoritative schema
-    // wins, and a known-model guess fills in only when the catalog carried no
-    // schema. So a model that arrives schema-less still advertises the rungs its
-    // requests send.
-    const effortConfig = getKiroEffortConfig(schema, kiroModelId);
-    const catalogName =
-      typeof catalogModel.displayName === "string" && catalogModel.displayName.length > 0
-        ? catalogModel.displayName
-        : undefined;
-
-    return {
-      id,
-      kiroModelId,
-      // Humanize the wire id, not the local one: `toLocalModelId` rewrites
-      // `5.1` as `5-1`, and a display name derived from it loses the dot —
-      // "Claude Fable 5 1" instead of "Claude Fable 5.1".
-      name: catalogName ?? existing?.name ?? humanizeModelId(kiroModelId),
-      region,
-      // Deliberately schema-only: when a schema exists the resolver returns
-      // `deriveKiroEffort(schema)`, and when it does not the family-marker guess
-      // decides. The fallback tier feeds the ladders, not this flag.
-      reasoning:
-        (schema !== undefined && effortConfig !== undefined) ||
-        (schema === undefined && hasReasoningFamilyFallback(id)),
-      ...applyEffortLadder(effortConfig),
-      input: existing ? [...existing.input] : hasVerifiedImageInput(kiroModelId) ? ["text", "image"] : ["text"],
-      ...(id.startsWith("claude-") ? { recoverTextToolCalls: false } : {}),
-      cost: ZERO_COST,
-      ...(rate ? { rateMultiplier: rate.multiplier, ...(rate.unit ? { rateUnit: rate.unit } : {}) } : {}),
-      contextWindow: tokenLimits?.maxInputTokens ?? DEFAULT_CONTEXT_WINDOW,
-      maxTokens: tokenLimits?.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
-      ...(existing?.firstTokenTimeout ? { firstTokenTimeout: existing.firstTokenTimeout } : {}),
-      ...(schema ? { additionalModelRequestFieldsSchema: schema } : {}),
-      ...(tokenLimits ? { tokenLimits } : {}),
-    };
-  });
 }
 
 function refreshKnownModelIds(cache: ManagementModelsCache | undefined): void {
@@ -576,54 +453,24 @@ export function isCacheStale(region: string): boolean {
 
 /**
  * Refresh one region's catalog into the disk cache that {@link getCachedModels}
- * reads synchronously. Runs in the Go sidecar when NS_BRIDGE_ENGINE(_KIRO)
- * selects it (the binary writes the same file), in process otherwise.
+ * reads synchronously. The Go sidecar writes the same file.
  */
 export async function updateKiroModelsCache(accessToken: string, region: string, profileArn?: string): Promise<void> {
   // Imported lazily: engine-ops → errors → retry → models is a cycle at load time.
   const { runKiroOp } = await import("./engine-ops.js");
-  await runKiroOp(
-    "refreshModels",
-    () => ({
-      accessToken,
-      region,
-      ...(profileArn ? { profileArn } : {}),
-      known: kiroModels.map((model) => ({
-        id: model.id,
-        name: model.name,
-        input: model.input,
-        ...(model.firstTokenTimeout ? { firstTokenTimeout: model.firstTokenTimeout } : {}),
-      })),
-      cachePath: KIRO_MANAGEMENT_CACHE_PATH,
-    }),
-    async () => {
-      await updateKiroModelsCacheInProcess(accessToken, region, profileArn);
-      return {};
-    },
-  );
+  await runKiroOp("refreshModels", () => ({
+    accessToken,
+    region,
+    ...(profileArn ? { profileArn } : {}),
+    known: kiroModels.map((model) => ({
+      id: model.id,
+      name: model.name,
+      input: model.input,
+      ...(model.firstTokenTimeout ? { firstTokenTimeout: model.firstTokenTimeout } : {}),
+    })),
+    cachePath: KIRO_MANAGEMENT_CACHE_PATH,
+  }));
   refreshKnownModelIds(readManagementCache());
-}
-
-/** {@link updateKiroModelsCache} in TypeScript, regardless of NS_BRIDGE_ENGINE. */
-export async function updateKiroModelsCacheInProcess(
-  accessToken: string,
-  region: string,
-  profileArn?: string,
-): Promise<void> {
-  const response = await fetchKiroModelCatalog({ accessToken, region }, profileArn);
-  // Billing weights come from kiro-cli, the only source that publishes them.
-  // Absent when it is not installed, which leaves the catalog rate-less rather
-  // than failing the refresh.
-  const models = mapKiroCatalogModels(response.models, region, getKiroCliModelRates());
-  const cache: ManagementModelsCache = readManagementCache() ?? {
-    version: KIRO_MANAGEMENT_CACHE_VERSION,
-    source: KIRO_MANAGEMENT_CACHE_SOURCE,
-    regions: {},
-  };
-
-  cache.regions[region] = { region, fetchedAt: Date.now(), models };
-  writeManagementCache(cache);
-  refreshKnownModelIds(cache);
 }
 
 export function resolveKiroModel(modelId: string, exactKiroModelId?: string): string {

@@ -2,26 +2,21 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  buildDevinChatRequest,
-  ConnectFrameReader,
   DevinApiError,
   DevinProtocolError,
   DevinStreamError,
-  devinCliMetadata,
-  devinDiscoveryMetadata,
-  encodeConnectFrame,
   fetchDevinModels,
   fetchDevinUsage,
   getCachedModels,
   loginDevinWithPkce,
   normalizeDevinSessionToken,
-  readConnectTrailerError,
   refreshDevinToken,
   resolveDevinCredentials,
   resolveDevinModel,
   resolveDevinSession,
   saveDevinCredentials,
   streamDevin,
+  streamDevinWithCapacityRetry,
   updateDevinModelsCache,
 } from "../src/index.js";
 
@@ -29,6 +24,7 @@ describe("devin-core exports", () => {
   it("publishes the stream, discovery, credentials, and error surface", () => {
     for (const value of [
       streamDevin,
+      streamDevinWithCapacityRetry,
       fetchDevinModels,
       fetchDevinUsage,
       resolveDevinCredentials,
@@ -39,16 +35,10 @@ describe("devin-core exports", () => {
       getCachedModels,
       updateDevinModelsCache,
       resolveDevinModel,
-      buildDevinChatRequest,
-      ConnectFrameReader,
-      encodeConnectFrame,
-      readConnectTrailerError,
       DevinApiError,
       DevinStreamError,
       DevinProtocolError,
       normalizeDevinSessionToken,
-      devinCliMetadata,
-      devinDiscoveryMetadata,
     ]) {
       expect(value).toBeDefined();
     }

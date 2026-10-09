@@ -50,6 +50,10 @@ importers:
   packages/bridge-bin-win32-x64: {}
 
   packages/bridge-core:
+    dependencies:
+      ns-bridge-bin:
+        specifier: workspace:^
+        version: link:../bridge-bin
     devDependencies:
       '@deepseek-ai/dsh-attachment':
         specifier: 0.2.0-rc.2
@@ -60,9 +64,6 @@ importers:
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4
-      ns-bridge-bin:
-        specifier: workspace:*
-        version: link:../bridge-bin
 
   packages/devin-core:
     dependencies:

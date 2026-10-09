@@ -28,22 +28,20 @@ adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
 - **Streaming** — AWS event-stream framing, thinking-tag parsing, native and
   text-dialect tool-call recovery, history validation and repair, and the whole
   retry ladder (transport timeouts, capacity pressure, request-rate windows, 403
-  credential rotation, degenerate 200s).
+  credential rotation, degenerate 200s) — in the Go vendor; this package keeps
+  the facade that carries process state across each sidecar call.
 
 ## Engine
 
-Since 0.4.0 the public entry points (`streamKiro`, `updateKiroModelsCache`, `fetchKiroUsage`, `refreshKiroToken`) run in the
-[`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar
-when a binary is installed ([`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin),
-`NS_BRIDGE_BIN`, or `ns-bridge` on `PATH`), and in this package's TypeScript
-otherwise. `NS_BRIDGE_ENGINE=ts` (or `NS_BRIDGE_ENGINE_KIRO=ts`) keeps
-everything in-process; `…InProcess` exports always do. Per-process state
-(profile-ARN and region caches, the cache-read estimate, catalog refresh scheduling) stays in TypeScript and is carried across each call.
-
-The TypeScript implementation is now the fallback. A later major release is
-expected to slim this package to the facade, types and credential stores, with
-the protocol living in the binary only; nothing changes for callers of the
-exports above.
+The public entry points (`streamKiro`, `updateKiroModelsCache`, `fetchKiroUsage`,
+`refreshKiroToken`, `loginKiroWithApiKey`) run in the
+[`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar —
+the TypeScript engine was removed, so the
+[`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin) binary is
+required (`NS_BRIDGE_BIN` or `ns-bridge` on `PATH` also work). Per-process
+state stays in this package: the local credential stores and their selection
+(`KIRO_AUTH_SOURCE`), the profile-ARN and region caches, the cache-read
+estimate, and catalog refresh scheduling, each carried across every call.
 
 ## The neutral seam
 
@@ -77,16 +75,17 @@ which kind of host it is talking to.
 
 ## The stages underneath
 
-`streamKiro` is orchestration over four pieces, each exported for use on its
-own — building a request without sending it, or assembling blocks from events
-sourced elsewhere:
+The wire stages (request building, event-stream framing, response assembly,
+retries) live in `go/internal/vendors/kiro`. What this package still owns is
+the seam and the per-process state:
 
 | Export | Does |
 | --- | --- |
-| `buildKiroRequest` | Neutral messages to a wire request: history shaping, tool specs, pre-send repair. Pure, no I/O |
-| `readKiroEventStream` | AWS event-stream framing and the stall timeouts; yields parsed wire events |
-| `KiroResponseAssembler` | Content blocks, thinking, tool calls, text-dialect recovery, usage, stop reason |
-| `abortableDelay`, `createResponseHeaderDeadline`, `logCapacityEvent` | Transport timing |
+| `streamKiro` / `streamKiroOnEngine` | The facade: pre-resolve the model id and profile, run `ns-bridge stream --vendor kiro`, fold `kiroProfileArns` / `kiroRuntimeRegion` back, apply the cache-read estimate |
+| `resolveKiroCredentials` / `refreshKiroToken` | Pick the local store (kiro-cli or Kiro IDE), hand the network half to the `refreshToken` op, write refreshes back |
+| `getKiroCliCredentials` / `getKiroIdeCredentials` | Read the kiro-cli SQLite store / the IDE token file |
+| `updateKiroModelsCache` / `getCachedModels` | Refresh the authenticated catalog (the Go `refreshModels` op writes the cache) and read it synchronously |
+| `applyCacheEstimate` | Cross-turn cache-read estimation on the facade side |
 
 ## What Kiro reports, and what it does not
 

@@ -38,22 +38,20 @@
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "prepublishOnly": "pnpm run check && pnpm run build"
   },
-  "peerDependencies": {
-    "@deepseek-ai/dsh-llm": ">=0.1.0-0",
+  "dependencies": {
     "ns-bridge-bin": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.1.0-0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-llm": {
-      "optional": true
-    },
-    "ns-bridge-bin": {
       "optional": true
     }
   },
   "devDependencies": {
     "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-    "@types/node": "^22.20.4",
-    "ns-bridge-bin": "workspace:*"
+    "@types/node": "^22.20.4"
   }
 }

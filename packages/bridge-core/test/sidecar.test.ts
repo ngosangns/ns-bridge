@@ -14,6 +14,7 @@ import {
   isSidecarError,
   resolveSidecarBinary,
   SidecarError,
+  sidecarLogin,
   sidecarStream,
 } from "../src/sidecar/index.js";
 import type { BridgeStreamEvent } from "../src/types.js";
@@ -251,6 +252,49 @@ describe.skipIf(!hasGo)("sidecarStream (Go echo vendor)", () => {
     const { NS_BRIDGE_BIN: _unset, ...rest } = env;
     const events = await drain(sidecarStream("echo", userSays("x"), { env: rest, binary: bin }));
     expect(events.at(-1)).toEqual({ type: "done", stopReason: "stop" });
+  });
+});
+
+describe.skipIf(!hasGo)("sidecarLogin (Go echo vendor)", () => {
+  it("routes host notifications to the callbacks and resolves with the result", async () => {
+    const progress: string[] = [];
+    const authUrls: Array<{ url: string; instructions?: string }> = [];
+    const result = await sidecarLogin(
+      "echo",
+      {
+        echo: {
+          login: {
+            progress: ["first", "second"],
+            authUrl: "https://example.com/authorize?state=xyz",
+            instructions: "open me",
+            result: { token: "t-123" },
+          },
+        },
+      },
+      {
+        onProgress: (message) => progress.push(message),
+        onAuthUrl: (url, instructions) => authUrls.push({ url, ...(instructions ? { instructions } : {}) }),
+      },
+      { env },
+    );
+    expect(progress).toEqual(["first", "second"]);
+    expect(authUrls).toEqual([{ url: "https://example.com/authorize?state=xyz", instructions: "open me" }]);
+    expect(result).toEqual({ token: "t-123" });
+  });
+
+  it("surfaces a login failure as a SidecarError", async () => {
+    const failure = await sidecarLogin(
+      "echo",
+      { echo: { login: { error: { kind: "auth", message: "denied" } } } },
+      {},
+      { env },
+    ).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ kind: "auth", message: "denied", vendor: "echo" });
+  });
+
+  it("rejects vendors with no login", async () => {
+    const failure = await sidecarLogin("no-such-vendor", {}, {}, { env }).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ kind: "unsupported", vendor: "no-such-vendor" });
   });
 });
 

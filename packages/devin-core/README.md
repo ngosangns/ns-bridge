@@ -10,37 +10,33 @@ host adapters (`@ngosangns/ns-pi-provider`, `ns-omp-provider`,
 
 ## Engine
 
-Since 0.3.0 the public entry points (`streamDevin`, `fetchDevinModels`, `fetchDevinUsage`) run in the
-[`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar
-when a binary is installed ([`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin),
-`NS_BRIDGE_BIN`, or `ns-bridge` on `PATH`), and in this package's TypeScript
-otherwise. `NS_BRIDGE_ENGINE=ts` (or `NS_BRIDGE_ENGINE_DEVIN=ts`) keeps
-everything in-process; `…InProcess` exports always do. The credential store and model cache stay in TypeScript.
-
-The TypeScript implementation is now the fallback. A later major release is
-expected to slim this package to the facade, types and credential stores, with
-the protocol living in the binary only; nothing changes for callers of the
-exports above.
+The public entry points (`streamDevin`, `fetchDevinModels`, `fetchDevinUsage`,
+`loginDevinWithPkce`) run in the
+[`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar —
+the TypeScript engine was removed, so the
+[`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin) binary is
+required (`NS_BRIDGE_BIN` or `ns-bridge` on `PATH` also work). This package
+keeps the credential store, the model cache, the error vocabulary, and the
+facades that pack a request for the binary and map `SidecarError` back to
+Devin errors.
 
 ## What it does
 
-- `streamDevin(request)` — one Cascade turn: `GetUserJwt` (session → user JWT +
-  optional edge URL), `AssignModel` for router models, then `GetChatMessage`
-  over Connect server-streaming framed protobuf (`application/connect+proto`,
-  gzip envelopes, end-of-stream JSON trailers).
+- `streamDevin(request)` — one Cascade turn, in the binary: `GetUserJwt`
+  (session → user JWT + optional edge URL), `AssignModel` for router models,
+  then `GetChatMessage` over Connect server-streaming framed protobuf.
 - `fetchDevinModels()` — `GetCliModelConfigs` under the pinned CLI identity,
   normalized onto `DevinModelSpec` with effort-lane collapse (`effortMap`).
 - `resolveDevinCredentials()` / `saveDevinCredentials()` — the CLI credential
   store at `~/.local/share/devin/credentials.toml`, shared with `devin auth`.
-- `loginDevinWithPkce()` — the CLI's browser PKCE flow against app.devin.ai.
+- `loginDevinWithPkce()` — the CLI's browser PKCE flow against app.devin.ai,
+  driven by `ns-bridge login --vendor devin` through host callbacks.
 - `fetchDevinUsage()` — plan tier, credit buckets, and daily/weekly quota
   windows from `SeatManagementService/GetUserStatus`.
 - `streamDevinWithCapacityRetry(request, options)` — `streamDevin` plus a
   bounded retry on capacity/overload errors raised before any output was
   delivered. For hosts with no retry loop of their own (Pi, OMP); the Harness
   has one and calls `streamDevin` directly.
-- A hand-rolled protobuf runtime (`proto/protobuf.ts`) plus the vendored
-  Cascade message surface (`proto/devin-messages.ts`).
 
 ## Upstream
 

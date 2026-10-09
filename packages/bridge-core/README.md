@@ -54,7 +54,8 @@ for `streamToPi` or `streamToDsh`. Protocol:
 | `sidecarStream(vendor, request, { signal, binary, env })` | Start `ns-bridge stream --vendor <vendor>`, yield `BridgeStreamEvent`s; abort closes stdin, then SIGTERM, then SIGKILL |
 | `SidecarError`, `isSidecarError` | The typed failure: `kind`, `status`, `retryAfterMs`, `reasonCode`, `exitCode`, `stderr` |
 | `sidecarCall(vendor, op, request, options)` | One `ns-bridge call` operation (catalog, usage, token refresh); resolves to its result |
-| `engineStream`, `engineCall`, `selectBridgeEngine` | Run a call on the engine `NS_BRIDGE_ENGINE(_<VENDOR>)` selects: `auto` (default) uses the binary when one is installed and falls back to the in-process core when it is missing or too old; `go` / `ts` force one |
-| `resolveSidecarBinary`, `findPackagedSidecarBinary` | `NS_BRIDGE_BIN`, then the explicit path, then the binary [`ns-bridge-bin`](../bridge-bin) installed (an optional peer), then `ns-bridge` on PATH |
+| `sidecarLogin(vendor, request, callbacks)` | One `ns-bridge login` run: JSON-RPC notifications drive `onOpen` / `onPrompt` / `onProgress`; resolves to the credentials |
+| `engineStream`, `engineCall` | Run a call in the binary — every vendor call is sidecar-only (there is no TypeScript engine to select) |
+| `resolveSidecarBinary`, `findPackagedSidecarBinary` | `NS_BRIDGE_BIN`, then the explicit path, then the binary [`ns-bridge-bin`](../bridge-bin) installed (a required dependency), then `ns-bridge` on PATH |
 
 Needs `node:child_process` (Node or Bun); the root and `./pi` / `./dsh` entries do not load it.

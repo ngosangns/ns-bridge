@@ -3,7 +3,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyCacheEstimate, resetCacheEstimatorForTests } from "../src/cache-estimator.js";
-import type { KiroWireUsage } from "../src/event-parser.js";
+
+type KiroWireUsage = { cacheReadInputTokens?: number; cacheWriteInputTokens?: number };
+
 import type { KiroUsage } from "../src/types.js";
 import { KIRO_USAGE_TRACKING_DISABLED } from "../src/usage-tracking.js";
 

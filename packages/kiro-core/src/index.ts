@@ -1,9 +1,9 @@
 // Public surface of the host-neutral Kiro core.
+// Vendor wire protocol (requests, streaming, retries, catalog and usage RPCs)
+// runs in the Go sidecar; what remains here is the host-facing vocabulary,
+// credential-store orchestration, model catalog caches, and sidecar facades.
 
-export { KiroBlockBuffer } from "./blocks.js";
-export { parseBracketToolCalls } from "./bracket-tool-parser.js";
 export { applyCacheEstimate, resetCacheEstimatorForTests } from "./cache-estimator.js";
-export { calculateKiroCost } from "./cost.js";
 export { debugEnabled, debugLog, formatSafeError, redactSensitiveText } from "./debug.js";
 export {
   buildKiroAdditionalModelRequestFields,
@@ -25,50 +25,14 @@ export {
   type KiroEndpoints,
   resolveApiRegion,
 } from "./endpoints.js";
-export {
-  KIRO_SIDECAR_VENDOR,
-  kiroErrorFromSidecar,
-  SidecarError,
-  selectKiroEngine,
-  streamKiroOnEngine,
-  toKiroSidecarRequest,
-} from "./engine.js";
-export { runKiroOp } from "./engine-ops.js";
+export { KIRO_SIDECAR_VENDOR, SidecarError, streamKiroOnEngine, toKiroSidecarRequest } from "./engine.js";
+export { kiroErrorFromSidecar, runKiroOp } from "./engine-ops.js";
 export {
   extractKiroReasonCode,
   KiroApiError,
   type KiroProviderAttempts,
   parseRetryAfterMs,
 } from "./errors.js";
-export {
-  isKiroEventKey,
-  KIRO_ERROR_MEMBERS,
-  KIRO_EVENT_KEYS,
-  type KiroErrorData,
-  type KiroErrorKind,
-  type KiroEventKey,
-  type KiroWireEvent,
-  type KiroWireUsage,
-  lookupKiroErrorMember,
-  parseKiroEvent,
-  parseKiroEventByShape,
-  parseKiroExceptionFrame,
-} from "./event-parser.js";
-export {
-  isKiroToolStructureRule,
-  KIRO_TOOL_STRUCTURE_RULES,
-  KIRO_VALIDATION_MESSAGES,
-  type KiroRepairResult,
-  type KiroToolStructureRule,
-  type KiroValidationError,
-  type KiroValidationResult,
-  KiroValidationRule,
-  kiroConversationEntries,
-  repairKiroConversation,
-  SYNTHETIC_FAILED_TOOL_RESULT_TEXT,
-  validateKiroConversation,
-  validateKiroToolStructure,
-} from "./history-validator.js";
 export {
   KIRO_NO_SESSION_MESSAGE,
   type KiroHostLoginCallbacks,
@@ -77,11 +41,11 @@ export {
   resolveKiroRequestCredentials,
 } from "./host-auth.js";
 export { type KiroHostModel, toKiroModelForHost } from "./host-model.js";
-export { parseInvokeToolCalls } from "./invoke-tool-parser.js";
 export {
   getKiroCliCredentials,
   getKiroCliCredentialsAllowExpired,
   getKiroCliDbPath,
+  getKiroCliExternalIdpCredentials,
   getKiroCliModelRates,
   getKiroCliSocialToken,
   getKiroCliSocialTokenAllowExpired,
@@ -93,11 +57,10 @@ export { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro
 export {
   applyKiroProfileArnCacheChanges,
   applyKiroProfileRegionChanges,
-  fetchKiroModelCatalog,
-  type KiroCatalogModel,
-  type KiroManagementAuth,
+  invalidateKiroProfileArn,
+  type KiroGetUsageLimitsRequest,
   KiroManagementHttpError,
-  resolveKiroProfileArn,
+  resetKiroProfileArnCache,
   snapshotKiroProfileArnCache,
   snapshotKiroProfileRegionCache,
 } from "./management.js";
@@ -110,98 +73,45 @@ export {
   type KiroModel,
   kiroModels,
   loadCachedModelIds,
-  mapKiroCatalogModels,
   resolveKiroModel,
   updateKiroModelsCache,
-  updateKiroModelsCacheInProcess,
 } from "./models.js";
 export {
+  BUILDER_ID_PROFILE_ARN,
+  BUILDER_ID_START_URL,
   isApiKey,
   isExpired,
-  KIRO_DESKTOP_REFRESH_ENDPOINT_ENV,
-  KIRO_OIDC_ENDPOINT_ENV,
   type KiroAuthMethod,
   type KiroAuthSource,
   type KiroCredentials,
-  kiroAuthHeaders,
   loginKiroWithApiKey,
   refreshKiroToken,
   resolveKiroAuthSource,
   resolveKiroCredentials,
+  SSO_OIDC_ENDPOINT,
+  SSO_SCOPES,
 } from "./oauth.js";
-// The stages `streamKiro` runs in order. Exported so a caller can drive one on
-// its own — building a request without sending it, or assembling blocks from
-// events it sourced elsewhere — which is what splitting them apart was for.
-export {
-  type BuildKiroRequestParams,
-  type BuiltKiroRequest,
-  buildKiroRequest,
-  type KiroRequest,
-} from "./request-builder.js";
-export {
-  type KiroAttemptSummary,
-  type KiroCompletedResponse,
-  KiroResponseAssembler,
-} from "./response-assembler.js";
-export {
-  IDLE_TIMEOUT,
-  type KiroEventStreamOptions,
-  type KiroEventStreamOutcome,
-  type KiroEventStreamReader,
-  type KiroWireEventFrame,
-  readKiroEventStream,
-} from "./response-stream.js";
-// Kiro's own error vocabulary and the predicates this core classifies it with.
-// Published so consumers can interpret a reason code without an error instance
-// in hand (a persisted log line, say) instead of hardcoding copies of the
-// literals, which drift when the service adds a code.
 export {
   CAPACITY_PATTERN,
+  capacityRetryConfig,
+  firstTokenTimeoutForModel,
   isCapacityError,
   isNonRetryableBodyError,
   isTooBigError,
   KIRO_REASON_CODES,
   type KiroReasonCode,
   NON_RETRYABLE_BODY_PATTERNS,
-  TOO_BIG_PATTERNS,
+  retryConfig,
 } from "./retry.js";
-export { type KiroStreamRequest, resetProfileArnCache, streamKiro, streamKiroInProcess } from "./stream.js";
-export { ThinkingTagParser } from "./thinking-parser.js";
-export { countTokens } from "./tokenizer.js";
-export { normalizeKiroToolName } from "./tool-name-aliases.js";
-export { parseToolUseCalls, type ToolUseCall, type ToolUseParseResult } from "./tool-use-parser.js";
-export {
-  buildHistory,
-  EMPTY_CONTENT_PLACEHOLDER,
-  type KiroHistoryEntry,
-  type KiroImage,
-  type KiroToolResult,
-  type KiroToolSpec,
-  type KiroToolUse,
-  type KiroUserInputMessage,
-  kiroToolNameAliases,
-  normalizeMessages,
-  relocateDisplacedToolResults,
-  sanitizeSurrogates,
-  toKiroToolName,
-  toKiroToolUseId,
-} from "./transform.js";
-export {
-  abortableDelay,
-  createResponseHeaderDeadline,
-  logCapacityEvent,
-  type ResponseHeaderDeadline,
-} from "./transport.js";
-export { TRUNCATION_NOTICE, wasPreviousResponseTruncated } from "./truncation.js";
+export { type KiroStreamRequest, resetProfileArnCache, streamKiro, testProfileArnOverride } from "./stream.js";
 export * from "./types.js";
 export {
   fetchKiroUsage,
-  fetchKiroUsageInProcess,
+  type KiroGetUsageLimitsResponse,
   type KiroProviderUsage,
   type KiroProviderUsageBucket,
 } from "./usage.js";
 export {
-  DEFAULT_ESTIMATED_CACHE_TIMEOUT_MS,
   DEFAULT_USD_PER_CREDIT,
   estimateKiroCreditCost,
   KIRO_USAGE_TRACKING_DISABLED,

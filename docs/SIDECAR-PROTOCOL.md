@@ -1,10 +1,11 @@
 # ns-bridge sidecar protocol (v1)
 
-The vendor cores are moving from TypeScript to Go. Pi, OMP and the DeepSeek
-Harness load providers as in-process JavaScript modules, so the host adapters
-and the host bridges stay TypeScript; only the vendor work (wire protocol,
-streaming, retries, credentials, catalog) moves into one Go binary,
-`ns-bridge`, which an adapter starts once per model call.
+The vendor cores run in Go. Pi, OMP and the DeepSeek Harness load providers as
+in-process JavaScript modules, so the host adapters and the host bridges stay
+TypeScript; all vendor work (wire protocol, streaming, retries, credentials,
+catalog, usage, token refresh, login) runs in one Go binary, `ns-bridge`,
+which an adapter starts once per model call. The TypeScript engines were
+removed — the `ns-bridge-bin` package is a required dependency.
 
 ```
 host adapter (TS) ──► ns-bridge-core/sidecar ──spawn──► ns-bridge stream --vendor kiro (Go)
@@ -32,6 +33,7 @@ ns-bridge stream --vendor <id>
 | --- | --- |
 | `ns-bridge stream --vendor <id>` | One model call (below) |
 | `ns-bridge call --vendor <id> --op <op>` | One operation (below): the same envelope, one result line |
+| `ns-bridge login --vendor <id>` | Interactive login (below): the same envelope, host-callback notifications on stdout |
 | `ns-bridge vendors` | Vendor ids this binary serves, one per line |
 | `ns-bridge version` | `ns-bridge <version> (protocol <n>)` |
 
@@ -39,8 +41,9 @@ Vendors: `devin` (see [devin](#the-devin-vendor)), `kiro` (see [kiro](#the-kiro-
 with no network (see [echo](#the-echo-vendor)).
 
 The client finds the binary via `NS_BRIDGE_BIN`, then an explicit path from the
-adapter, then the one `ns-bridge-bin` installed for this machine (from its
-`ns-bridge-bin-<os>-<cpu>` optional dependency), then `ns-bridge` on `PATH`.
+adapter, then the one `ns-bridge-bin` installed for this machine (a required
+dependency of `ns-bridge-core`, selecting its `ns-bridge-bin-<os>-<cpu>`
+platform package at install time), then `ns-bridge` on `PATH`.
 Targets: darwin-arm64, darwin-x64, linux-arm64, linux-x64, win32-x64 (pure Go,
 CGO off). `ns-bridge version` reports the npm version it shipped in.
 
@@ -60,9 +63,9 @@ The host writes **one JSON value followed by a newline**:
   own fields (model, effort, credentials, session id, …).
 
 **stdin then stays open for the whole call.** Closing it is the host's cancel
-signal (see [Cancellation](#cancellation)). Bytes after the envelope are
-reserved for host→sidecar messages (see [Login](#future-login-and-other-host-callbacks));
-v1 binaries read and discard them.
+signal (see [Cancellation](#cancellation)). Bytes after the envelope carry
+host→sidecar messages — today, only the answers to `login` host prompts
+(see [Login](#login)); v1 binaries read and discard anything else.
 
 For a request piped in by hand, pass `--ignore-stdin-eof`, otherwise the end
 of the pipe cancels the call immediately:
@@ -192,9 +195,8 @@ stdin, and on stdout exactly one line, either
 
 or the terminal error line (exit codes as for `stream`). An op the vendor does
 not have is an `unsupported` error. `ns-bridge-core/sidecar` exports
-`sidecarCall(vendor, op, request)` and `engineCall({vendor, op, request,
-inProcess})`, which picks the engine like `engineStream` (with `auto`, a
-binary that is missing or predates `call` falls back to TypeScript).
+`sidecarCall(vendor, op, request)` and `engineCall({vendor, op, request})`,
+which maps a `SidecarError` back into the vendor's own error classes.
 
 | Vendor | Op | Request | Result |
 | --- | --- | --- | --- |
@@ -207,58 +209,50 @@ binary that is missing or predates `call` falls back to TypeScript).
 Kiro requests also carry `profileArnCache` / `profileRegions` (the facade's
 in-memory caches) and results return `kiroProfileArns` / `kiroProfileRegions`,
 which `runKiroOp` folds back. `KIRO_DESKTOP_REFRESH_ENDPOINT` and
-`KIRO_OIDC_ENDPOINT` (`{region}` substituted) override the refresh hosts in
-both engines.
+`KIRO_OIDC_ENDPOINT` (`{region}` substituted) override the refresh hosts.
 
-Devin's operations are fail-soft in both engines: `runDevinOp`
-(`devin-core/src/engine-ops.ts`) turns a sidecar failure into the same `null`
-the TypeScript path returns for a failed request. A caller-injected `fetch`
-pins them to TypeScript. `refreshDevinToken` makes no request (Devin issues no
-refresh token), so it has no operation.
+Devin's operations are fail-soft: `runDevinOp` (`devin-core/src/engine-ops.ts`)
+turns a sidecar failure into the same `null` callers always got for a failed
+request. `refreshDevinToken` makes no request (Devin issues no refresh token),
+so it has no operation.
 
-## Future: login and other host callbacks
+## Login (`ns-bridge login`)
 
-Interactive login (Devin PKCE, the Pi/OMP `oauth.login(callbacks)` hooks) needs
-the binary to ask the host for things mid-call: open a URL, prompt for a code,
-report progress. It stays in TypeScript for now (it is interactive, not a hot
-path); if it moves, the design is JSON-RPC 2.0 framed one message per line
-on the same pipes:
+Interactive login (Devin PKCE, Kiro API-key) needs the binary to ask the host
+for things mid-call: open a URL, prompt for a secret, report progress. It is
+JSON-RPC 2.0 framed one notification per line on the same pipes:
 
 - binary → host: a stdout line with `"jsonrpc":"2.0"` and a `method`
   (`host/openUrl`, `host/prompt`, `host/progress`) — told apart from events by
-  having `jsonrpc` instead of `type`;
-- host → binary: the response on a stdin line after the envelope.
+  having `jsonrpc` instead of `type`. A `prompt` carries a request `id`.
+- host → binary: the answer to a `prompt`, on a stdin line after the envelope:
+  `{"jsonrpc":"2.0","id":<n>,"result":"<value>"}` (or `"error"` to refuse).
+  Notifications (`openUrl`, `progress`) get no answer.
 
-Interactive login would be `ns-bridge login --vendor <id>`; catalogs and
-usage became `ns-bridge call` operations (above). A v1 client never sees these lines;
-adding them bumps the protocol version only if a v1 client could receive one.
+The request envelope is `{"protocol":1,"request":{…}}` as always, carrying the
+vendor's login input (for Kiro, `apiKey`). stdout ends with the same
+`{"type":"result","result":{…credentials…}}` or terminal error line as `call`.
+`ns-bridge-core/sidecar` exports `sidecarLogin(vendor, request, callbacks)`,
+which dispatches the notification methods to the host's `onOpen` / `onPrompt` /
+`onProgress` hooks and resolves with the result.
 
-## Choosing the engine
+## Engine: sidecar only
 
-`ns-bridge-core/sidecar` exports `engineStream`, which the vendor cores' public
-stream functions call. It reads, per vendor:
-
-| Variable | Values |
-| --- | --- |
-| `NS_BRIDGE_ENGINE_<VENDOR>` (e.g. `NS_BRIDGE_ENGINE_DEVIN`) | `go`, `ts`, `auto`; wins for that vendor |
-| `NS_BRIDGE_ENGINE` | `go`, `ts`, `auto` (the default) |
-
-`go` always runs the binary (a missing binary is an `unavailable` error);
-`ts` always runs the in-process TypeScript core; `auto` — the default since
-M5 — runs the binary when one can be found (`NS_BRIDGE_BIN`, `ns-bridge-bin`,
-`PATH`) and falls back to TypeScript when it cannot start or is too old for
-the call (an `unsupported` vendor, op or protocol), before any event arrived.
-`NS_BRIDGE_ENGINE=ts` (or `NS_BRIDGE_ENGINE_KIRO=ts` / `_DEVIN=ts`) is the
-escape hatch back to the in-process cores. A caller-injected `fetch` (Devin)
-always runs TypeScript. The binary's stderr is forwarded to the host's
-stderr, as the in-process cores' console output was.
+`ns-bridge-core/sidecar` exports `engineStream` and `engineCall`, which the
+vendor cores' public functions call. Every vendor call runs the binary — the
+TypeScript engines were removed, so there is no engine selection and no
+fallback. A binary that cannot be found or started is an `unavailable`
+`SidecarError`. `NS_BRIDGE_ENGINE` (and `NS_BRIDGE_ENGINE_<VENDOR>`) still
+parse, and a leftover `ts` value warns once that it is ignored.
+The binary's stderr is forwarded to the host's stderr, as the in-process
+cores' console output was.
 
 ## The devin vendor
 
 `request` is `DevinStreamRequest` (`packages/devin-core/src/stream.ts`) minus
 `signal`/`fetch`: `model` (a `DevinModelSpec`, `baseUrl` included), `messages`,
 `systemPrompt` (string or string[]), `tools`, `effort`, `apiKey` (the session
-token — login stays in TypeScript), `conversationId`/`sessionId`, `maxTokens`,
+token — PKCE login is `ns-bridge login --vendor devin`), `conversationId`/`sessionId`, `maxTokens`,
 `temperature`, `topP`, `stopSequences`, `chatModelUid`, plus `capacityRetry:
 {maxRetries, baseDelayMs, maxDelayMs}` to run `streamDevinWithCapacityRetry`'s
 backoff in the binary.

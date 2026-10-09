@@ -16,7 +16,6 @@ import { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro
 export const SSO_OIDC_ENDPOINT = "https://oidc.us-east-1.amazonaws.com";
 export const BUILDER_ID_START_URL = "https://view.awsapps.com/start";
 export const BUILDER_ID_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX";
-export const KIRO_DESKTOP_REFRESH_URL = "https://prod.{region}.auth.desktop.kiro.dev/refreshToken";
 export const SSO_SCOPES = [
   "codewhisperer:completions",
   "codewhisperer:analysis",
@@ -45,8 +44,6 @@ export interface KiroCredentials {
   startUrl?: string;
   isEnterprise?: boolean;
 }
-
-export const KIRO_DESKTOP_USER_AGENT = "Kiro-Desktop/0.2.13 (darwin; arm64)";
 
 /**
  * Which of this machine's two Kiro sessions the provider signs in with.
@@ -77,20 +74,6 @@ export function resolveKiroAuthSource(): KiroAuthSource {
   return "cli";
 }
 
-export function kiroUserAgent(service: string, sdkVersion: string): Record<string, string> {
-  return {
-    "User-Agent": `aws-sdk-js/3.714.0 os/macos/24.3.0 lang/js md/nodejs/22.14.0 api/${service}/3.714.0 exec-env/kiro-cli/2.7.0 m/E`,
-    "amz-sdk-invocation-id": "00000000-0000-0000-0000-000000000000",
-    "amz-sdk-request": `attempt=1; max=${sdkVersion}`,
-  };
-}
-
-export function kiroAuthHeaders(token: string): Record<string, string> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-  if (isApiKey(token)) headers.tokentype = "API_KEY";
-  return headers;
-}
-
 export function isApiKey(token: string): boolean {
   return token.startsWith("ksk_");
 }
@@ -110,50 +93,15 @@ export async function loginKiroWithApiKey(
   if (!apiKey.startsWith("ksk_")) {
     throw new Error("Invalid API key format. Kiro API keys start with 'ksk_'.");
   }
-
-  onProgress?.("Validating API key...");
-
-  // API keys are issued for the us-east-1 control plane.
-  const region = "us-east-1";
-  const managementUrl = `https://management.${resolveApiRegion(region)}.kiro.dev/`;
-
-  const response = await fetch(managementUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-amz-json-1.0",
-      "X-Amz-Target": "AmazonCodeWhispererService.GetProfile",
-      ...kiroAuthHeaders(apiKey),
-      ...kiroUserAgent("codewhispererruntime", "F,C"),
-    },
-    body: "{}",
-  });
-
-  if (!response.ok) {
-    let detail = "";
-    try {
-      detail = await response.text();
-    } catch {
-      detail = "";
-    }
-    if (response.status === 401 || response.status === 403 || /Invalid token/i.test(detail)) {
-      throw new Error("API key was rejected by Kiro. Check that the key is valid and not expired.");
-    }
-    throw new Error(`Kiro GetProfile failed: ${response.status} ${response.statusText} ${detail}`.trim());
-  }
-
-  const data = (await response.json()) as { profile?: { arn?: string } };
-  const profileArn = data.profile?.arn;
-
-  return {
-    access: apiKey,
-    refresh: `${apiKey}|apikey`,
-    expires: Date.now() + 365 * 24 * 60 * 60 * 1000,
-    clientId: "",
-    clientSecret: "",
-    region,
-    authMethod: "apikey",
-    ...(profileArn ? { profileArn } : {}),
-  };
+  // The GetProfile validation runs in the ns-bridge binary, which also
+  // resolves the profile ARN the key bills against.
+  const { sidecarLogin } = await import("ns-bridge-core/sidecar");
+  const credentials = await sidecarLogin<KiroCredentials>(
+    "kiro",
+    { apiKey },
+    { ...(onProgress ? { onProgress } : {}) },
+  );
+  return credentials;
 }
 
 export function isExpired(credentials: KiroCredentials): boolean {
@@ -269,128 +217,12 @@ async function refreshKiroTokenInternal(credentials: KiroCredentials): Promise<K
 
 /**
  * The network half of a refresh (desktop, external IdP or IAM Identity Center
- * token endpoint). Runs in the Go sidecar when NS_BRIDGE_ENGINE(_KIRO) selects
- * it; which store to trust and where to save stays here.
+ * token endpoint), run in the Go sidecar; which store to trust and where to
+ * save stays here.
  */
 async function refreshKiroTokenDirect(credentials: KiroCredentials): Promise<KiroCredentials> {
   const { runKiroOp } = await import("./engine-ops.js");
-  return runKiroOp(
-    "refreshToken",
-    () => ({ credentials }),
-    () => refreshKiroTokenDirectInProcess(credentials),
-  );
-}
-
-/** Overrides the desktop refresh URL; `{region}` is substituted (tests, proxies). */
-export const KIRO_DESKTOP_REFRESH_ENDPOINT_ENV = "KIRO_DESKTOP_REFRESH_ENDPOINT";
-/** Overrides the SSO OIDC base URL; `{region}` is substituted (tests, proxies). */
-export const KIRO_OIDC_ENDPOINT_ENV = "KIRO_OIDC_ENDPOINT";
-
-function endpointFromEnv(name: string, fallback: string, region: string): string {
-  return (process.env[name]?.trim() || fallback).replaceAll("{region}", region);
-}
-
-async function refreshKiroTokenDirectInProcess(credentials: KiroCredentials): Promise<KiroCredentials> {
-  const parts = credentials.refresh.split("|");
-  const refreshToken = parts[0] ?? "";
-  const authMethod = (parts[parts.length - 1] ?? "idc") as KiroAuthMethod;
-  const region = credentials.region || "us-east-1";
-
-  if (authMethod === "apikey") return credentials;
-
-  if (authMethod === "desktop") {
-    // Kiro desktop app tokens use a different refresh endpoint.
-    const url = endpointFromEnv(KIRO_DESKTOP_REFRESH_ENDPOINT_ENV, KIRO_DESKTOP_REFRESH_URL, region);
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": KIRO_DESKTOP_USER_AGENT },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!response.ok) throw new Error(`Desktop token refresh failed: ${response.status}`);
-    const data = (await response.json()) as {
-      accessToken: string;
-      refreshToken?: string;
-      expiresIn: number;
-      profileArn?: string;
-    };
-    if (!data.accessToken) throw new Error("Desktop token refresh: missing accessToken");
-    return {
-      refresh: `${data.refreshToken || refreshToken}|desktop`,
-      access: data.accessToken,
-      expires: Date.now() + data.expiresIn * 1000 - EXPIRES_BUFFER_MS,
-      clientId: "",
-      clientSecret: "",
-      region,
-      authMethod: "desktop",
-      profileArn: data.profileArn || credentials.profileArn,
-      startUrl: credentials.startUrl,
-    };
-  }
-
-  // External IdP (enterprise OIDC, e.g. Okta) — standard public-client refresh
-  // against the customer's own token endpoint. kiro-cli does the same:
-  // form-encoded grant_type/client_id/refresh_token, snake_case response, and
-  // no client secret because the OIDC app is a public PKCE client.
-  if (authMethod === "external-idp") {
-    const idpClientId = parts[1] ?? "";
-    const tokenEndpoint = parts[2] ?? "";
-    if (!tokenEndpoint) throw new Error("External IdP token refresh: missing token endpoint");
-    const response = await fetch(tokenEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-        "User-Agent": "kiro-core",
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: idpClientId,
-        refresh_token: refreshToken,
-      }).toString(),
-    });
-    if (!response.ok) throw new Error(`External IdP token refresh failed: ${response.status}`);
-    const data = (await response.json()) as {
-      access_token?: string;
-      refresh_token?: string;
-      expires_in?: number;
-    };
-    if (!data.access_token) throw new Error("External IdP token refresh: missing access_token");
-    const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 3600;
-    return {
-      refresh: `${data.refresh_token || refreshToken}|${idpClientId}|${tokenEndpoint}|external-idp`,
-      access: data.access_token,
-      expires: Date.now() + expiresIn * 1000 - EXPIRES_BUFFER_MS,
-      clientId: idpClientId,
-      clientSecret: "",
-      region,
-      authMethod: "external-idp",
-      profileArn: credentials.profileArn,
-    };
-  }
-
-  // IDC auth method — SSO OIDC refresh.
-  const clientId = parts[1] ?? "";
-  const clientSecret = parts[2] ?? "";
-  const ssoEndpoint = endpointFromEnv(KIRO_OIDC_ENDPOINT_ENV, "https://oidc.{region}.amazonaws.com", region);
-  const response = await fetch(`${ssoEndpoint}/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...kiroUserAgent("ssooidc", "E") },
-    body: JSON.stringify({ clientId, clientSecret, refreshToken, grantType: "refresh_token" }),
-  });
-  if (!response.ok) throw new Error(`Token refresh failed: ${response.status}`);
-  const data = (await response.json()) as { accessToken: string; refreshToken: string; expiresIn: number };
-  return {
-    refresh: `${data.refreshToken}|${clientId}|${clientSecret}|idc`,
-    access: data.accessToken,
-    expires: Date.now() + data.expiresIn * 1000 - EXPIRES_BUFFER_MS,
-    clientId,
-    clientSecret,
-    region,
-    authMethod: "idc",
-    profileArn: credentials.profileArn,
-    startUrl: credentials.startUrl,
-    isEnterprise: credentials.isEnterprise,
-  };
+  return runKiroOp("refreshToken", () => ({ credentials }));
 }
 
 /**

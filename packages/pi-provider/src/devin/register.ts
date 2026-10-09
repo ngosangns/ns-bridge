@@ -142,7 +142,7 @@ export function resolveDevinApiKeyConfig(
  * or empty discovery keeps what is cached.
  */
 export async function refreshDevinModels(
-  options: { force?: boolean; signal?: AbortSignal; token?: string; fetchImpl?: typeof fetch } = {},
+  options: { force?: boolean; signal?: AbortSignal; token?: string } = {},
 ): Promise<{ models: PiDevinModel[]; fromCache: boolean }> {
   const token = "token" in options ? options.token : resolveDevinToken();
   let fromCache = true;
@@ -151,7 +151,6 @@ export async function refreshDevinModels(
       const fetched = await fetchDevinModels({
         apiKey: token,
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.fetchImpl ? { fetch: options.fetchImpl } : {}),
       });
       if (fetched?.length) {
         updateDevinModelsCache(fetched);

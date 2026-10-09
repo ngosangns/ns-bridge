@@ -12,16 +12,13 @@ export {
   SIDECAR_BIN_PACKAGE,
 } from "./binary.js";
 export {
-  type BridgeEngine,
   type BridgeEngineSetting,
   bridgeEngineSetting,
-  DEFAULT_BRIDGE_ENGINE,
   type EngineCallOptions,
   type EngineStreamOptions,
   engineCall,
   engineStream,
   NS_BRIDGE_ENGINE_ENV,
-  selectBridgeEngine,
   sidecarBinaryAvailable,
 } from "./engine.js";
 export {
@@ -31,4 +28,12 @@ export {
   type SidecarErrorKind,
   type SidecarErrorPayload,
 } from "./errors.js";
-export { SIDECAR_PROTOCOL_VERSION, type SidecarStreamOptions, sidecarCall, sidecarStream } from "./stream.js";
+export {
+  SIDECAR_PROTOCOL_VERSION,
+  type SidecarHostCall,
+  type SidecarLoginCallbacks,
+  type SidecarStreamOptions,
+  sidecarCall,
+  sidecarLogin,
+  sidecarStream,
+} from "./stream.js";
