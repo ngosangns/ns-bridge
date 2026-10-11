@@ -1,6 +1,7 @@
 package sidecar
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,20 +18,10 @@ type Loginer interface {
 	Login(ctx context.Context, request json.RawMessage, host bridge.Host) (any, error)
 }
 
-// hostNotify implements Host over a bridge.Writer.
-type hostNotify struct{ out *bridge.Writer }
-
-func (h hostNotify) AuthURL(url, instructions string) error {
-	return h.out.Notify(bridge.HostAuthURL, map[string]any{"url": url, "instructions": instructions})
-}
-
-func (h hostNotify) Progress(message string) error {
-	return h.out.Notify(bridge.HostProgress, map[string]any{"message": message})
-}
-
 // RunLogin executes one interactive login: the same envelope as RunCall on
 // stdin, host notifications and then a single {"type":"result"} or terminal
-// error line on stdout. stdin stays the cancel signal throughout.
+// error line on stdout. stdin stays the cancel signal throughout; lines after
+// the envelope answer host requests (a prompt's JSON-RPC reply).
 func RunLogin(ctx context.Context, vendor string, registry Registry, stdin io.Reader, stdout io.Writer) int {
 	out := bridge.NewWriter(stdout)
 	fail := func(err *bridge.Error) int {
@@ -65,13 +56,18 @@ func RunLogin(ctx context.Context, vendor string, registry Registry, stdin io.Re
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	host := newHostCalls(out)
 	rest := io.MultiReader(dec.Buffered(), stdin)
 	go func() {
-		_, _ = io.Copy(io.Discard, rest)
+		scanner := bufio.NewScanner(rest)
+		scanner.Buffer(make([]byte, 0, 64<<10), 4<<20)
+		for scanner.Scan() {
+			host.route(scanner.Bytes())
+		}
 		cancel(errStdinClosed)
 	}()
 
-	result, err := loginer.Login(ctx, envelope.Request, hostNotify{out})
+	result, err := loginer.Login(ctx, envelope.Request, host)
 	switch {
 	case err == nil:
 		line := `{"type":"result","result":` + jsjson.Stringify(result) + "}\n"

@@ -35,7 +35,6 @@ export interface KiroGetUsageLimitsRequest {
 }
 
 const profileArnCache = new Map<string, string>();
-const pendingProfileRequests = new Map<string, Promise<string>>();
 /**
  * Region where the token actually has a profile, keyed like profileArnCache.
  * Populated when a sidecar call finds the ARN on a non-primary region so
@@ -57,7 +56,6 @@ export class KiroManagementHttpError extends Error {
 export function resetKiroProfileArnCache(): void {
   profileArnCache.clear();
   profileRegionCache.clear();
-  pendingProfileRequests.clear();
 }
 
 /**
@@ -92,7 +90,6 @@ export function applyKiroProfileArnCacheChanges(changes: Record<string, string |
     } else {
       profileArnCache.delete(key);
       profileRegionCache.delete(key);
-      pendingProfileRequests.delete(key);
     }
   }
 }
@@ -107,5 +104,4 @@ export function invalidateKiroProfileArn(auth: KiroManagementAuth): void {
   const key = profileCacheKey(auth);
   profileArnCache.delete(key);
   profileRegionCache.delete(key);
-  pendingProfileRequests.delete(key);
 }

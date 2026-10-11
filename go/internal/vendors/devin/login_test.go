@@ -44,6 +44,10 @@ func (h *fakeHost) Progress(message string) error {
 	return nil
 }
 
+func (h *fakeHost) Prompt(context.Context, bridge.PromptParams) (string, error) {
+	return "", fmt.Errorf("unexpected prompt")
+}
+
 // freeAddr hands back 127.0.0.1:<port> on a port the kernel just released —
 // good enough for tests on a quiet machine.
 func freeAddr(t *testing.T) string {

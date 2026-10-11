@@ -13,6 +13,10 @@ import { formatSafeError } from "./debug.js";
 import { resolveApiRegion } from "./endpoints.js";
 import { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro-ide.js";
 
+// The Go vendor refreshes against its own copy of this host
+// (defaultOIDCEndpoint, a {region} template, in go/internal/vendors/kiro/ops.go).
+// Keep in lockstep — test/go-parity.test.ts pins it. The rest of this block is
+// public API constants the login orchestration does not itself dereference.
 export const SSO_OIDC_ENDPOINT = "https://oidc.us-east-1.amazonaws.com";
 export const BUILDER_ID_START_URL = "https://view.awsapps.com/start";
 export const BUILDER_ID_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX";

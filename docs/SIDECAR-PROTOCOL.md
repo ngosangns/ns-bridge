@@ -9,7 +9,7 @@ removed — the `ns-bridge-bin` package is a required dependency.
 
 ```
 host adapter (TS) ──► ns-bridge-core/sidecar ──spawn──► ns-bridge stream --vendor kiro (Go)
-        ▲                    │  stdin:  request envelope (+ host messages, later)
+        ▲                    │  stdin:  request envelope (+ login prompt replies)
         │                    │  stdout: BridgeStreamEvent NDJSON … done | error
         └── streamToPi / streamToDsh (unchanged) ◄──┘
 ```
@@ -223,17 +223,17 @@ for things mid-call: open a URL, prompt for a secret, report progress. It is
 JSON-RPC 2.0 framed one notification per line on the same pipes:
 
 - binary → host: a stdout line with `"jsonrpc":"2.0"` and a `method`
-  (`host/openUrl`, `host/prompt`, `host/progress`) — told apart from events by
+  (`host/authUrl`, `host/prompt`, `host/progress`) — told apart from events by
   having `jsonrpc` instead of `type`. A `prompt` carries a request `id`.
 - host → binary: the answer to a `prompt`, on a stdin line after the envelope:
   `{"jsonrpc":"2.0","id":<n>,"result":"<value>"}` (or `"error"` to refuse).
-  Notifications (`openUrl`, `progress`) get no answer.
+  Notifications (`authUrl`, `progress`) get no answer.
 
 The request envelope is `{"protocol":1,"request":{…}}` as always, carrying the
 vendor's login input (for Kiro, `apiKey`). stdout ends with the same
 `{"type":"result","result":{…credentials…}}` or terminal error line as `call`.
 `ns-bridge-core/sidecar` exports `sidecarLogin(vendor, request, callbacks)`,
-which dispatches the notification methods to the host's `onOpen` / `onPrompt` /
+which dispatches the methods to the host's `onAuthUrl` / `onPrompt` /
 `onProgress` hooks and resolves with the result.
 
 ## Engine: sidecar only
@@ -304,6 +304,7 @@ word by word, then usage and `done`. Knobs under `request.echo`, for tests:
 | `error: {kind, message, status?, retryAfterMs?, reasonCode?}` | End with this terminal error after the text |
 | `hang` | Emit `start`, then wait for cancellation |
 | `responseId` | Reported on `done` |
+| `login: {progress[]?, authUrl?, instructions?, prompt?, result?, error?}` | `ns-bridge login --vendor echo` replays these host calls; `prompt` is a request whose answer lands in the result as `"prompt"` |
 
 `packages/bridge-core/test/sidecar.test.ts` drives it through `sidecarStream`,
 `streamToPi` and `streamToDsh`.

@@ -214,6 +214,17 @@ async function* sidecarLines(
     resolve?.();
   };
 
+  // A host-call handler that never resolves parks the loop; `hangup` lets the
+  // dispatch race give up once the call is gone (aborted, dead, or never born).
+  let hangupResolve: (() => void) | undefined;
+  const hangup = new Promise<void>((resolve) => {
+    hangupResolve = resolve;
+  });
+  const signalHangup = () => {
+    hangupResolve?.();
+    hangupResolve = undefined;
+  };
+
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
     const parts = (partial + chunk).split("\n");
@@ -232,6 +243,7 @@ async function* sidecarLines(
   child.stdin.on("error", () => {});
   child.on("error", (error) => {
     spawnError = error;
+    signalHangup();
     notify();
   });
   child.on("exit", (code, sig) => {
@@ -246,6 +258,7 @@ async function* sidecarLines(
     exitSignal ??= sig;
     if (partial.trim()) lines.push(partial);
     partial = "";
+    signalHangup();
     notify();
   });
 
@@ -267,6 +280,7 @@ async function* sidecarLines(
   const onAbort = () => {
     aborted = true;
     cancel();
+    signalHangup();
     notify();
   };
   signal?.addEventListener("abort", onAbort, { once: true });
@@ -286,7 +300,7 @@ async function* sidecarLines(
       if (line !== undefined) {
         const message = parseLine(line, details);
         if (message.jsonrpc !== undefined) {
-          await dispatchHostCall(message, options.hostCall, child);
+          await Promise.race([dispatchHostCall(message, options.hostCall, child), hangup]);
           continue;
         }
         if (message.type === "error") {

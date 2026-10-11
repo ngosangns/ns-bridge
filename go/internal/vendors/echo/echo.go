@@ -50,6 +50,9 @@ type LoginOptions struct {
 	Instructions string `json:"instructions,omitempty"`
 	// Progress emits one host/progress notification per entry, in order.
 	Progress []string `json:"progress,omitempty"`
+	// Prompt sends one host/prompt request with this message and waits for
+	// the host's reply; the answer lands in the result as "prompt".
+	Prompt string `json:"prompt,omitempty"`
 	// Result is the login's result (default {"echo":"ok"}).
 	Result json.RawMessage `json:"result,omitempty"`
 	// Error, when set, fails the login with this terminal error instead.
@@ -201,6 +204,14 @@ func (Vendor) Login(ctx context.Context, raw json.RawMessage, host bridge.Host) 
 			return nil, err
 		}
 	}
+	var prompt string
+	if opts.Prompt != "" {
+		answer, err := host.Prompt(ctx, bridge.PromptParams{Message: opts.Prompt})
+		if err != nil {
+			return nil, err
+		}
+		prompt = answer
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -212,9 +223,18 @@ func (Vendor) Login(ctx context.Context, raw json.RawMessage, host bridge.Host) 
 		if err := json.Unmarshal(opts.Result, &out); err != nil {
 			return nil, bridge.Errorf(bridge.KindInvalidRequest, "echo login result: %v", err)
 		}
+		if prompt != "" {
+			if m, ok := out.(map[string]any); ok {
+				m["prompt"] = prompt
+			}
+		}
 		return out, nil
 	}
-	return map[string]any{"echo": "ok"}, nil
+	out := map[string]any{"echo": "ok"}
+	if prompt != "" {
+		out["prompt"] = prompt
+	}
+	return out, nil
 }
 
 func lastUserText(messages []bridge.Message) string {

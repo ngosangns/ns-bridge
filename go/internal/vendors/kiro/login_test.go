@@ -3,6 +3,7 @@ package kiro
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +19,9 @@ func (h *loginHost) AuthURL(string, string) error { return nil }
 func (h *loginHost) Progress(m string) error {
 	h.progress = append(h.progress, m)
 	return nil
+}
+func (h *loginHost) Prompt(context.Context, bridge.PromptParams) (string, error) {
+	return "", fmt.Errorf("unexpected prompt")
 }
 
 func withManagementBase(t *testing.T, base string) {

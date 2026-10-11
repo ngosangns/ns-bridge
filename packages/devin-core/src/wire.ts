@@ -2,6 +2,10 @@
 // ABOUTME: URLs and session-token framing. Wire requests themselves are built
 // ABOUTME: in the Go vendor (go/internal/vendors/devin).
 
+// The Go vendor carries its own copies of these (DefaultBaseURL and
+// SessionTokenPrefix in wire.go, loginWebappURL/loginManagementURL in
+// login.go). Keep them in lockstep — test/go-parity.test.ts pins the values.
+
 /** Base host for Devin's Cascade chat API (Connect protocol over HTTP/1.1). */
 export const DEVIN_DEFAULT_BASE_URL = "https://server.codeium.com";
 

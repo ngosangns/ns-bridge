@@ -174,17 +174,24 @@ func (s *session) requestManagement(ctx context.Context, a managementAuth, op, p
 	return parseManagementResponse(resp, op, a.region, out)
 }
 
-func (s *session) apiKeyProfileArn(ctx context.Context, token string) (string, error) {
-	const op = "GetProfile"
+// apiKeyGetProfile builds the GetProfile request every API-key flow shares —
+// apiKeyProfileArn and interactive Login differ only in how they classify the
+// response.
+func apiKeyGetProfile(ctx context.Context, client *http.Client, token string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, managementBase(apiKeyRegion), strings.NewReader("{}"))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	req.Header.Set("X-Amz-Target", getProfileTarget)
 	authHeaders(req.Header, token, false)
 	userAgentHeaders(req.Header, "codewhispererruntime", "F,C")
-	resp, err := s.client.Do(req)
+	return client.Do(req)
+}
+
+func (s *session) apiKeyProfileArn(ctx context.Context, token string) (string, error) {
+	const op = "GetProfile"
+	resp, err := apiKeyGetProfile(ctx, s.client, token)
 	if err != nil {
 		return "", fmt.Errorf("Kiro management %s request failed in %s", op, apiKeyRegion)
 	}

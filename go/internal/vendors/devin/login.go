@@ -24,6 +24,9 @@ import (
 )
 
 // Endpoints the flow talks to; package vars so tests can redirect them.
+// devin-core re-exports these as DEVIN_WEBAPP_URL / DEVIN_MANAGEMENT_BASE_URL
+// (packages/devin-core/src/wire.ts) — the two sides must not drift;
+// devin-core/test/go-parity.test.ts pins them.
 var (
 	loginWebappURL     = "https://app.devin.ai"
 	loginManagementURL = "https://api.devin.ai"
@@ -56,7 +59,11 @@ func (Vendor) Login(ctx context.Context, raw json.RawMessage, host bridge.Host) 
 		timeoutMs = *req.TimeoutMs
 	}
 
-	verifier := base64URL(randBytes(32))
+	raw, err := randBytes(32)
+	if err != nil {
+		return nil, bridge.Errorf(bridge.KindInternal, "devin login: crypto/rand: %v", err)
+	}
+	verifier := base64URL(raw)
 	challengeSum := sha256.Sum256([]byte(verifier))
 	challenge := base64URL(challengeSum[:])
 	state := newUUID()
@@ -80,12 +87,10 @@ func (Vendor) Login(ctx context.Context, raw json.RawMessage, host bridge.Host) 
 	return out, nil
 }
 
-func randBytes(n int) []byte {
+func randBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	return b
+	_, err := rand.Read(b)
+	return b, err
 }
 
 func base64URL(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }

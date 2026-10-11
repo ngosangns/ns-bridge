@@ -43,15 +43,7 @@ func (Vendor) Login(ctx context.Context, raw json.RawMessage, host bridge.Host) 
 	_ = host.Progress("Validating API key...")
 
 	const op = "GetProfile"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, managementBase(apiKeyRegion), strings.NewReader("{}"))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/x-amz-json-1.0")
-	httpReq.Header.Set("X-Amz-Target", getProfileTarget)
-	authHeaders(httpReq.Header, req.APIKey, false)
-	userAgentHeaders(httpReq.Header, "codewhispererruntime", "F,C")
-	resp, err := httpClient().Do(httpReq)
+	resp, err := apiKeyGetProfile(ctx, httpClient(), req.APIKey)
 	if err != nil {
 		return nil, &bridge.Error{Kind: bridge.KindNetwork,
 			Message: "Kiro management " + op + " request failed in " + apiKeyRegion}

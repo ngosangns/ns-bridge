@@ -292,6 +292,47 @@ describe.skipIf(!hasGo)("sidecarLogin (Go echo vendor)", () => {
     expect(failure).toMatchObject({ kind: "auth", message: "denied", vendor: "echo" });
   });
 
+  it("round-trips a host prompt: the reply rides stdin back to the binary", async () => {
+    const prompts: string[] = [];
+    const result = await sidecarLogin(
+      "echo",
+      { echo: { login: { prompt: "API key?" } } },
+      {
+        onPrompt: async ({ message }) => {
+          prompts.push(message);
+          return "ksk_test";
+        },
+      },
+      { env },
+    );
+    expect(prompts).toEqual(["API key?"]);
+    expect(result).toMatchObject({ echo: "ok", prompt: "ksk_test" });
+  });
+
+  it("fails the login when the host cannot answer a prompt", async () => {
+    const failure = await sidecarLogin("echo", { echo: { login: { prompt: "API key?" } } }, {}, { env }).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toMatchObject({ kind: "internal", vendor: "echo" });
+    expect((failure as Error).message).toContain("cannot answer");
+  });
+
+  it("rejects when aborted while a prompt is unanswered", async () => {
+    const ac = new AbortController();
+    const pending = sidecarLogin(
+      "echo",
+      { echo: { login: { prompt: "API key?" } } },
+      {
+        onPrompt: () => {
+          ac.abort();
+          return new Promise<string>(() => {});
+        },
+      },
+      { env, signal: ac.signal },
+    );
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("rejects vendors with no login", async () => {
     const failure = await sidecarLogin("no-such-vendor", {}, {}, { env }).catch((error: unknown) => error);
     expect(failure).toMatchObject({ kind: "unsupported", vendor: "no-such-vendor" });
