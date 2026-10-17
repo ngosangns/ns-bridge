@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveDevinCredentials, saveDevinCredentials } from "../src/credentials.js";
@@ -41,6 +41,59 @@ describe("credentials.toml", () => {
     expect(stored?.apiServerUrl).toBe("https://edge.example.com");
     expect(resolveDevinCredentials()).toBeTruthy();
     expect(readFileSync(path, "utf8")).toContain('custom_key = "keep"');
+  });
+
+  it("prefers windsurf_api_key and falls through when that value is blank", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, 'windsurf_api_key = "wind"\napi_key = "other"\n');
+    process.env.DEVIN_CREDENTIALS_PATH = path;
+    expect(resolveDevinCredentials()?.apiKey).toBe("wind");
+
+    writeFileSync(path, 'windsurf_api_key = "   "\napi_key = "from-api"\n');
+    expect(resolveDevinCredentials()?.apiKey).toBe("from-api");
+
+    writeFileSync(path, 'windsurf_api_key = ""\napi_key = ""\n');
+    expect(resolveDevinCredentials()).toBeUndefined();
+  });
+
+  it("ignores unquoted values, comments, and table headers", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path,
+      ['# windsurf_api_key = "nope"', "[profile]", "windsurf_api_key = bare", 'api_key = "quoted"', ""].join("\n"),
+    );
+    process.env.DEVIN_CREDENTIALS_PATH = path;
+    expect(resolveDevinCredentials()?.apiKey).toBe("quoted");
+  });
+
+  it("decodes escaped quotes and backslashes, including a CRLF line", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, 'windsurf_api_key = "say \\"hi\\" \\\\now"\r\napi_server_url = ""\r\n');
+    process.env.DEVIN_CREDENTIALS_PATH = path;
+    const stored = resolveDevinCredentials();
+    expect(stored?.apiKey).toBe('say "hi" \\now');
+    expect(stored?.apiServerUrl).toBeUndefined();
+  });
+
+  it("creates a missing file and round-trips quotes inside the token", () => {
+    const nested = join(dir, "nested", "missing", "credentials.toml");
+    process.env.DEVIN_CREDENTIALS_PATH = nested;
+    saveDevinCredentials('tok"with\\slash', {
+      apiServerUrl: "https://edge.example.com///",
+      devinApiUrl: "   ",
+      devinWebappHost: "https://app.example.com/",
+    });
+    expect(statSync(nested).mode & 0o777).toBe(0o600);
+    const stored = resolveDevinCredentials();
+    expect(stored?.apiKey).toBe('tok"with\\slash');
+    expect(stored?.apiServerUrl).toBe("https://edge.example.com");
+    expect(stored?.devinApiUrl).toBeUndefined();
+    expect(stored?.devinWebappHost).toBe("https://app.example.com");
+    expect(readFileSync(nested, "utf8").match(/windsurf_api_key/g)).toHaveLength(1);
+
+    saveDevinCredentials("second");
+    expect(readFileSync(nested, "utf8").match(/windsurf_api_key/g)).toHaveLength(1);
+    expect(resolveDevinCredentials()?.apiKey).toBe("second");
   });
 });
 

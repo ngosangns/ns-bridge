@@ -1,7 +1,7 @@
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { CONNECT_END_STREAM_FLAG } from "../src/connect.js";
-import { DevinApiError, DevinStreamError } from "../src/errors.js";
+import { CONNECT_COMPRESSED_FLAG, CONNECT_END_STREAM_FLAG } from "../src/connect.js";
+import { DevinApiError, DevinProtocolError, DevinStreamError } from "../src/errors.js";
 import {
   ChatToolCallSchema,
   GetChatMessageRequestSchema,
@@ -256,5 +256,146 @@ describe("streamDevin", () => {
   it("throws DevinApiError on a non-OK chat response", async () => {
     const { impl } = fakeFetch([], 429);
     await expect(collect({}, impl)).rejects.toThrow(DevinApiError);
+  });
+});
+
+describe("streamDevin — edge cases", () => {
+  it("stops before the network when the caller already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("gone"));
+    let calls = 0;
+    const impl = (async () => {
+      calls++;
+      return new Response("no", { status: 500 });
+    }) as typeof fetch;
+    await expect(collect({ signal: controller.signal }, impl)).rejects.toThrow("gone");
+    expect(calls).toBe(0);
+  });
+
+  it("propagates a network failure from GetUserJwt and does not open the chat call", async () => {
+    let calls = 0;
+    const impl = (async () => {
+      calls++;
+      throw new Error("ECONNRESET");
+    }) as typeof fetch;
+    await expect(collect({}, impl)).rejects.toThrow("ECONNRESET");
+    expect(calls).toBe(1);
+  });
+
+  it("does not retry GetUserJwt on a 500 or when no api key was supplied", async () => {
+    let authCalls = 0;
+    const serverError = (async (input: string | URL) => {
+      if (String(input).endsWith("GetUserJwt")) authCalls++;
+      return new Response("unavailable", { status: 500 });
+    }) as typeof fetch;
+    await expect(collect({}, serverError)).rejects.toThrow(DevinApiError);
+    expect(authCalls).toBe(1);
+
+    authCalls = 0;
+    const missingKey = (async (input: string | URL) => {
+      if (String(input).endsWith("GetUserJwt")) authCalls++;
+      return new Response("unauthenticated", { status: 401 });
+    }) as typeof fetch;
+    await expect(collect({ apiKey: undefined }, missingKey)).rejects.toThrow(DevinApiError);
+    expect(authCalls).toBe(1);
+  });
+
+  it("rejects an empty user JWT", async () => {
+    const jwt = toBinary(GetUserJwtResponseSchema, create(GetUserJwtResponseSchema, { userJwt: "" }));
+    const impl = (async () => new Response(jwt, { status: 200 })) as typeof fetch;
+    await expect(collect({}, impl)).rejects.toThrow(DevinProtocolError);
+  });
+
+  it("sends no prompts for an empty conversation and keeps whitespace-only user text", async () => {
+    const seen: string[] = [];
+    const jwt = toBinary(GetUserJwtResponseSchema, create(GetUserJwtResponseSchema, { userJwt: "jwt-1" }));
+    const impl = (async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("GetUserJwt")) return new Response(jwt, { status: 200 });
+      const body = init?.body as Uint8Array;
+      const prompts = fromBinary(GetChatMessageRequestSchema, gunzipSync(body.subarray(5))).chatMessagePrompts;
+      seen.push(prompts.map((prompt) => prompt.prompt).join("|"));
+      return new Response(streamBody(frame(responseMessage({ deltaText: "ok" }))), { status: 200 });
+    }) as typeof fetch;
+
+    await collect({ messages: [] }, impl);
+    await collect({ messages: [{ role: "user", content: [{ type: "text", text: "  \n" }] }] }, impl);
+    expect(seen).toEqual(["", "  \n"]);
+  });
+
+  it("finishes a turn whose only chat frame is a stop, and ignores a truncated tail", async () => {
+    const header = new Uint8Array(5);
+    new DataView(header.buffer).setUint32(1, 40);
+    const stopOnly = fakeFetch([frame(responseMessage({ stopReason: StopReason.STOP_PATTERN }))]);
+    const stopped = await collect({}, stopOnly.impl);
+    expect(stopped.map((event) => event.type)).toEqual(["start", "done"]);
+
+    const truncated = fakeFetch([frame(responseMessage({ deltaText: "kept" })), new Uint8Array(5), header]);
+    const events = await collect({}, truncated.impl);
+    expect(events.find((event) => event.type === "text_end")).toMatchObject({ text: "kept" });
+    expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop" });
+  });
+
+  it("throws when a compressed frame is not gzip and when the chat body is missing", async () => {
+    const bad = new Uint8Array(9);
+    bad[0] = CONNECT_COMPRESSED_FLAG;
+    new DataView(bad.buffer).setUint32(1, 4);
+    const { impl } = fakeFetch([bad]);
+    await expect(collect({}, impl)).rejects.toThrow();
+
+    const emptyBody = (async (input: string | URL) => {
+      if (String(input).endsWith("GetUserJwt")) {
+        const jwt = toBinary(GetUserJwtResponseSchema, create(GetUserJwtResponseSchema, { userJwt: "jwt-1" }));
+        return new Response(jwt, { status: 200 });
+      }
+      return { ok: true, status: 200, body: null } as Response;
+    }) as typeof fetch;
+    await expect(collect({}, emptyBody)).rejects.toThrow(/response body is empty/);
+  });
+
+  it("throws the caller reason when the chat body is still open", async () => {
+    const controller = new AbortController();
+    const jwt = toBinary(GetUserJwtResponseSchema, create(GetUserJwtResponseSchema, { userJwt: "jwt-1" }));
+    let release: (() => void) | undefined;
+    const chatBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(frame(responseMessage({ deltaText: "partial" })));
+      },
+      pull() {
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      },
+      cancel() {
+        release?.();
+      },
+    });
+    const impl = (async (input: string | URL) => {
+      if (String(input).endsWith("GetUserJwt")) return new Response(jwt, { status: 200 });
+      return new Response(chatBody, { status: 200 });
+    }) as typeof fetch;
+    const iterator = streamDevin({
+      model,
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      apiKey: "tok",
+      fetch: impl,
+      signal: controller.signal,
+    })[Symbol.asyncIterator]();
+    const seen: string[] = [];
+    for (;;) {
+      const pending = iterator.next();
+      const winner = await Promise.race([
+        pending.then((result) => ({ settled: true as const, result })),
+        new Promise<{ settled: false }>((resolve) => setTimeout(() => resolve({ settled: false }), 40)),
+      ]);
+      if (!winner.settled) {
+        controller.abort(new Error("user stop"));
+        await expect(pending).rejects.toThrow("user stop");
+        break;
+      }
+      if (winner.result.done) throw new Error("stream ended before abort");
+      seen.push(winner.result.value.type);
+    }
+    expect(seen).toContain("text_delta");
   });
 });

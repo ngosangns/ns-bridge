@@ -1396,3 +1396,99 @@ describe("streamKiro — endpoint selection", () => {
     expect(events.find((e) => e.type === "done")).toMatchObject({ stopReason: "stop" });
   });
 });
+
+describe("streamKiro — empty input, network failure, and abort", () => {
+  it("sends the placeholder when the conversation is empty", async () => {
+    const fetchMock = stubFetch(makeOkResponse(TEXT_ONLY));
+    await collect(streamKiro(makeRequest({ messages: [], systemPrompt: "" })));
+    expect(userInputMessage(fetchMock).content).toBe(EMPTY_CONTENT_PLACEHOLDER);
+  });
+
+  it("treats whitespace-only user text as an empty turn", async () => {
+    const fetchMock = stubFetch(makeOkResponse(TEXT_ONLY));
+    const messages: KiroMessage[] = [{ role: "user", content: [{ type: "text", text: "  \n" }] }];
+    await collect(streamKiro(makeRequest({ messages, systemPrompt: "" })));
+    expect(userInputMessage(fetchMock).content).toBe(EMPTY_CONTENT_PLACEHOLDER);
+  });
+
+  it("does not retry a network failure", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(collect(streamKiro(makeRequest()))).rejects.toThrow(/fetch failed/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts during the empty-response backoff instead of sending another request", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const controller = new AbortController();
+    const fetchMock = stubFetch(
+      makeOkResponse('{"contextUsagePercentage":10}'),
+      makeOkResponse('{"content":"should not send"}'),
+    );
+    const iterator = streamKiro(makeRequest({ signal: controller.signal }))[Symbol.asyncIterator]();
+    for (;;) {
+      const step = iterator.next();
+      let settled = false;
+      step.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      for (let tick = 0; tick < 20 && !settled; tick++) {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      if (!settled) {
+        controller.abort(new Error("stop now"));
+        await expect(step).rejects.toThrow("stop now");
+        break;
+      }
+      const result = await step;
+      if (result.done) throw new Error("stream finished before the backoff");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws the caller reason while a later frame is still in flight", async () => {
+    const controller = new AbortController();
+    const frames = encodeBody(TEXT_ONLY);
+    let release: (() => void) | undefined;
+    const stream = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(frames);
+      },
+      pull() {
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      },
+      cancel() {
+        release?.();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, body: stream, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    const iterator = streamKiro(makeRequest({ signal: controller.signal }))[Symbol.asyncIterator]();
+    const events: KiroStreamEvent[] = [];
+    for (;;) {
+      const pending = iterator.next();
+      const winner = await Promise.race([
+        pending.then((result) => ({ settled: true as const, result })),
+        new Promise<{ settled: false }>((resolve) => setTimeout(() => resolve({ settled: false }), 50)),
+      ]);
+      if (!winner.settled) {
+        controller.abort(new Error("user stop"));
+        await expect(pending).rejects.toThrow("user stop");
+        break;
+      }
+      if (winner.result.done) throw new Error("stream ended before the caller aborted");
+      events.push(winner.result.value);
+    }
+    expect(events.map((event) => event.type)).toContain("start");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

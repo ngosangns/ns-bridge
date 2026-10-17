@@ -127,6 +127,143 @@ describe("streamToPi", () => {
     expect(error.reason).toBe("error");
     expect(error.error.errorMessage).not.toContain("abcdefghijklmnop");
   });
+
+  it("ends without events when the core produces nothing", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () => from([]),
+    });
+    await stream.done;
+    expect(stream.events).toEqual([]);
+    expect(stream.ended).toBe(true);
+  });
+
+  it("drops a delta or tool end that has no matching start", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () =>
+        from([
+          { type: "text_delta", index: 4, delta: "nope" },
+          { type: "tool_call_end", index: 5, id: "c", name: "read", arguments: { p: 1 } },
+          { type: "done", stopReason: "stop" },
+        ]),
+    });
+    await stream.done;
+    expect(stream.events.map((event) => event.type)).toEqual(["start", "done"]);
+    const done = stream.events.at(-1) as { message: { content: unknown[] } };
+    expect(done.message.content).toEqual([]);
+  });
+
+  it("keeps thinking text accumulated from deltas when the block never ends", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () =>
+        from([
+          { type: "thinking_start", index: 0 },
+          { type: "thinking_delta", index: 0, delta: "hmm" },
+          {
+            type: "usage",
+            usage: {
+              input: 3,
+              output: 1,
+              totalTokens: 4,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+          },
+          { type: "done", stopReason: "length" },
+        ]),
+    });
+    await stream.done;
+    const done = stream.events.at(-1) as { reason: string; message: { content: unknown[]; usage: { input: number } } };
+    expect(done.reason).toBe("length");
+    expect(done.message.content).toEqual([{ type: "thinking", thinking: "hmm" }]);
+    expect(done.message.usage.input).toBe(3);
+  });
+
+  it("ends the host stream when usage arrives without a done event", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () =>
+        from([
+          {
+            type: "usage",
+            usage: {
+              input: 1,
+              output: 1,
+              totalTokens: 2,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+          },
+        ]),
+    });
+    await stream.done;
+    expect(stream.events).toEqual([]);
+    expect(stream.ended).toBe(true);
+  });
+
+  it("ignores an unknown event and still finishes", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () => from([{ type: "nope" } as unknown as BridgeStreamEvent, { type: "done", stopReason: "stop" }]),
+    });
+    await stream.done;
+    expect(stream.events.map((event) => event.type)).toEqual(["start", "done"]);
+  });
+
+  it("reports aborted when the signal is already aborted, and redacts a non-Error throw", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const aborted = streamToPi({
+      model,
+      signal: controller.signal,
+      createStream: () => new FakeStream(),
+      events: async () => {
+        throw new Error("Bearer abcdefghijklmnopqrstuvwxyz");
+      },
+    });
+    await aborted.done;
+    const abortedEvent = aborted.events.at(-1) as { reason: string; error: { errorMessage: string } };
+    expect(abortedEvent.reason).toBe("aborted");
+    expect(abortedEvent.error.errorMessage).not.toContain("abcdefghijklmnop");
+
+    const plain = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () => {
+        throw "devin-session-token$abcdefghijklmnopqrstuvwxyz";
+      },
+    });
+    await plain.done;
+    const plainEvent = plain.events.at(-1) as { reason: string; error: { errorMessage: string; content: unknown[] } };
+    expect(plainEvent.reason).toBe("error");
+    expect(plainEvent.error.errorMessage).toBe("devin-session-token$[redacted]");
+    expect(plainEvent.error.content).toEqual([]);
+  });
+
+  it("keeps blocks already opened when the core throws mid-turn", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: async function* () {
+        yield { type: "text_start", index: 0 };
+        yield { type: "text_delta", index: 0, delta: "hel" };
+        throw new Error("ksk_abcdefghijklmnopqrstuvwxyz");
+      },
+    });
+    await stream.done;
+    const error = stream.events.at(-1) as {
+      type: string;
+      error: { errorMessage: string; content: Array<{ text?: string }> };
+    };
+    expect(error.type).toBe("error");
+    expect(error.error.errorMessage).not.toContain("abcdefghijklmnopqrstuvwxyz");
+    expect(error.error.content).toEqual([{ type: "text", text: "hel" }]);
+  });
 });
 
 describe("toPiThinkingLevelMap", () => {

@@ -207,6 +207,11 @@ export function readKiroEventStream(
             iterResult = await iterator.next();
           }
         } catch (e) {
+          // A cancel from the caller abort rejects the in-flight read. That
+          // rejection is the interrupt, not a retryable stream error — sending
+          // it through `outcome` would spend another attempt on a turn the
+          // caller already abandoned.
+          if (callerSignal?.aborted) throw callerSignal.reason ?? e;
           // Smithy throws on `:message-type` error/exception headers. A modeled
           // exception frame arrives here as the Error built in the
           // deserializer above, with its parsed detail attached.
@@ -219,6 +224,11 @@ export function readKiroEventStream(
           return;
         }
 
+        // `cancel()` resolves a pending read as done. The loop-top check never
+        // sees that abort, because it already passed before the read started.
+        if (callerSignal?.aborted) {
+          throw callerSignal.reason ?? new Error("Request aborted");
+        }
         const { done, value } = iterResult;
         if (done) return;
         resetIdle();

@@ -88,6 +88,7 @@ export function streamDevin(request: DevinStreamRequest): AsyncIterable<DevinStr
  * trailer rejection, `DevinProtocolError` on malformed wire data.
  */
 export async function* streamDevinInProcess(request: DevinStreamRequest): AsyncIterable<DevinStreamEvent> {
+  if (request.signal?.aborted) throw request.signal.reason ?? new Error("Request aborted");
   const model = request.model;
   const fetchImpl = request.fetch ?? fetch;
   const baseUrl = (model.baseUrl || DEVIN_DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -188,162 +189,182 @@ export async function* streamDevinInProcess(request: DevinStreamRequest): AsyncI
 
   const reader = new ConnectFrameReader();
   const body = response.body.getReader();
-  for (;;) {
-    const { done, value } = await body.read();
-    if (value && value.length > 0) reader.push(value);
-
+  const signal = request.signal;
+  const onAbort = () => {
+    void body.cancel(signal?.reason).catch(() => {});
+  };
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
+  const abortReason = () => signal?.reason ?? new Error("Request aborted");
+  try {
     for (;;) {
-      const envelope = reader.next();
-      if (envelope === null) break;
+      if (signal?.aborted) throw abortReason();
+      let read: Awaited<ReturnType<typeof body.read>>;
+      try {
+        read = await body.read();
+      } catch (error) {
+        if (signal?.aborted) throw abortReason();
+        throw error;
+      }
+      if (signal?.aborted) throw abortReason();
+      const { done, value } = read;
+      if (value && value.length > 0) reader.push(value);
 
-      if (envelope.endStream) {
-        const trailerError = readConnectTrailerError(new TextDecoder().decode(envelope.payload).trim());
-        if (trailerError === null) continue;
-        logger.warn("stream rejected via Connect trailer", {
-          model: model.id,
-          code: trailerError.code,
-          message: trailerError.message,
-          ...(trailerError.detail ? { detail: trailerError.detail } : {}),
-          rawTrailer: trailerError.raw,
-          requestBytes: requestBytes.byteLength,
-          messages: request.messages.length,
-          hadOutput: sawAnyToken,
-        });
-        let contextOverflow = false;
-        if (
-          !sawAnyToken &&
-          trailerError.code.toLowerCase() === "invalid_argument" &&
-          /\binternal error\b/i.test(trailerError.message)
-        ) {
-          // The full protobuf also carries the system prompt and tool schemas,
-          // which history maintenance cannot shrink. Re-encode only the
-          // repeated history field before choosing this recovery signal.
-          const historyBytes = toBinary(
-            GetChatMessageRequestSchema,
-            create(GetChatMessageRequestSchema, {
-              chatMessagePrompts: buildChatMessagePrompts(request.messages, turn.cascadeId),
-            }),
-          ).byteLength;
-          contextOverflow = historyBytes >= LARGE_HISTORY_RECOVERY_BYTES;
-          if (contextOverflow) {
-            logger.warn("treating large-history invalid_argument as context overflow", {
-              model: model.id,
-              historyBytes,
-            });
+      for (;;) {
+        const envelope = reader.next();
+        if (envelope === null) break;
+
+        if (envelope.endStream) {
+          const trailerError = readConnectTrailerError(new TextDecoder().decode(envelope.payload).trim());
+          if (trailerError === null) continue;
+          logger.warn("stream rejected via Connect trailer", {
+            model: model.id,
+            code: trailerError.code,
+            message: trailerError.message,
+            ...(trailerError.detail ? { detail: trailerError.detail } : {}),
+            rawTrailer: trailerError.raw,
+            requestBytes: requestBytes.byteLength,
+            messages: request.messages.length,
+            hadOutput: sawAnyToken,
+          });
+          let contextOverflow = false;
+          if (
+            !sawAnyToken &&
+            trailerError.code.toLowerCase() === "invalid_argument" &&
+            /\binternal error\b/i.test(trailerError.message)
+          ) {
+            // The full protobuf also carries the system prompt and tool schemas,
+            // which history maintenance cannot shrink. Re-encode only the
+            // repeated history field before choosing this recovery signal.
+            const historyBytes = toBinary(
+              GetChatMessageRequestSchema,
+              create(GetChatMessageRequestSchema, {
+                chatMessagePrompts: buildChatMessagePrompts(request.messages, turn.cascadeId),
+              }),
+            ).byteLength;
+            contextOverflow = historyBytes >= LARGE_HISTORY_RECOVERY_BYTES;
+            if (contextOverflow) {
+              logger.warn("treating large-history invalid_argument as context overflow", {
+                model: model.id,
+                historyBytes,
+              });
+            }
+          }
+          throw new DevinStreamError(trailerError.formatted, trailerError.code, contextOverflow);
+        }
+
+        const msg = fromBinary(GetChatMessageResponseSchema, envelope.payload);
+        if (msg.messageId && !responseId) responseId = msg.messageId;
+        // The router reports the concrete model it landed on; it can differ
+        // from the uid AssignModel handed back (fallbacks, capacity routing).
+        if (msg.actualModelUid) upstreamModel = msg.actualModelUid;
+
+        if (msg.deltaThinking) {
+          markToken();
+          if (openThinking === undefined) {
+            openThinking = { index: nextIndex++, text: "" };
+            yield { type: "thinking_start", index: openThinking.index };
+          }
+          openThinking.text += msg.deltaThinking;
+          yield { type: "thinking_delta", index: openThinking.index, delta: msg.deltaThinking };
+        }
+
+        // The signature can land on a frame that carries no thinking delta.
+        if (msg.deltaSignature && openThinking !== undefined) openThinking.signature = msg.deltaSignature;
+
+        if (msg.deltaText) {
+          markToken();
+          if (openThinking !== undefined) {
+            yield {
+              type: "thinking_end",
+              index: openThinking.index,
+              thinking: openThinking.text,
+              ...(openThinking.signature ? { signature: openThinking.signature } : {}),
+            };
+            openThinking = undefined;
+          }
+          if (openText === undefined) {
+            openText = { index: nextIndex++, text: "" };
+            yield { type: "text_start", index: openText.index };
+          }
+          openText.text += msg.deltaText;
+          yield { type: "text_delta", index: openText.index, delta: msg.deltaText };
+        }
+
+        if (msg.deltaToolCalls.length > 0) {
+          markToken();
+          if (openText !== undefined) {
+            yield { type: "text_end", index: openText.index, text: openText.text };
+            openText = undefined;
+          }
+          if (openThinking !== undefined) {
+            yield {
+              type: "thinking_end",
+              index: openThinking.index,
+              thinking: openThinking.text,
+              ...(openThinking.signature ? { signature: openThinking.signature } : {}),
+            };
+            openThinking = undefined;
+          }
+          for (const call of msg.deltaToolCalls) {
+            const toolCallId = call.id || activeToolCallId;
+            if (!toolCallId) continue;
+            let block = toolBlocks.get(toolCallId);
+            if (block === undefined) {
+              block = { index: nextIndex++, name: call.name };
+              toolBlocks.set(toolCallId, block);
+              toolPartialJson.set(toolCallId, "");
+              yield { type: "tool_call_start", index: block.index, id: toolCallId, name: call.name };
+            }
+            if (call.name) block.name = call.name;
+            activeToolCallId = toolCallId;
+            if (!call.argumentsJson) continue;
+            const previousJson = toolPartialJson.get(toolCallId) ?? "";
+            // The server may send cumulative JSON instead of deltas; merge
+            // whichever representation arrived into one delta stream.
+            const accumulated = call.argumentsJson.startsWith(previousJson)
+              ? call.argumentsJson
+              : previousJson + call.argumentsJson;
+            const delta = accumulated.slice(previousJson.length);
+            toolPartialJson.set(toolCallId, accumulated);
+            const throttled = parseStreamingJsonThrottled(accumulated, toolLastParseLen.get(toolCallId) ?? 0);
+            if (throttled) toolLastParseLen.set(toolCallId, throttled.parsedLen);
+            yield { type: "tool_call_delta", index: block.index, id: toolCallId, argumentsDelta: delta };
           }
         }
-        throw new DevinStreamError(trailerError.formatted, trailerError.code, contextOverflow);
-      }
 
-      const msg = fromBinary(GetChatMessageResponseSchema, envelope.payload);
-      if (msg.messageId && !responseId) responseId = msg.messageId;
-      // The router reports the concrete model it landed on; it can differ
-      // from the uid AssignModel handed back (fallbacks, capacity routing).
-      if (msg.actualModelUid) upstreamModel = msg.actualModelUid;
+        if (msg.stopReason !== StopReason.UNSPECIFIED) latestStopReason = msg.stopReason;
 
-      if (msg.deltaThinking) {
-        markToken();
-        if (openThinking === undefined) {
-          openThinking = { index: nextIndex++, text: "" };
-          yield { type: "thinking_start", index: openThinking.index };
-        }
-        openThinking.text += msg.deltaThinking;
-        yield { type: "thinking_delta", index: openThinking.index, delta: msg.deltaThinking };
-      }
-
-      // The signature can land on a frame that carries no thinking delta.
-      if (msg.deltaSignature && openThinking !== undefined) openThinking.signature = msg.deltaSignature;
-
-      if (msg.deltaText) {
-        markToken();
-        if (openThinking !== undefined) {
-          yield {
-            type: "thinking_end",
-            index: openThinking.index,
-            thinking: openThinking.text,
-            ...(openThinking.signature ? { signature: openThinking.signature } : {}),
+        if (msg.usage || msg.creditCost || msg.committedCreditCost || msg.committedAcuCost) {
+          const usage = {
+            input: Number(msg.usage?.inputTokens ?? 0n),
+            output: Number(msg.usage?.outputTokens ?? 0n),
+            cacheRead: Number(msg.usage?.cacheReadTokens ?? 0n),
+            cacheWrite: Number(msg.usage?.cacheWriteTokens ?? 0n),
           };
-          openThinking = undefined;
-        }
-        if (openText === undefined) {
-          openText = { index: nextIndex++, text: "" };
-          yield { type: "text_start", index: openText.index };
-        }
-        openText.text += msg.deltaText;
-        yield { type: "text_delta", index: openText.index, delta: msg.deltaText };
-      }
-
-      if (msg.deltaToolCalls.length > 0) {
-        markToken();
-        if (openText !== undefined) {
-          yield { type: "text_end", index: openText.index, text: openText.text };
-          openText = undefined;
-        }
-        if (openThinking !== undefined) {
-          yield {
-            type: "thinking_end",
-            index: openThinking.index,
-            thinking: openThinking.text,
-            ...(openThinking.signature ? { signature: openThinking.signature } : {}),
+          const totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+          // The backend stamps a usage field on every frame; only a counter that
+          // moved is worth an event — all-zero frames are per-token noise.
+          const credits = msg.creditCost || msg.committedCreditCost || msg.committedAcuCost;
+          const moved =
+            responseUsage === undefined
+              ? totalTokens > 0 || credits !== 0
+              : totalTokens !== responseUsage.totalTokens || credits !== (responseUsage.credits ?? 0);
+          if (!moved) continue;
+          responseUsage = {
+            ...usage,
+            totalTokens,
+            ...(credits ? { credits } : {}),
+            cost: calculateDevinCost(model.cost, usage),
           };
-          openThinking = undefined;
-        }
-        for (const call of msg.deltaToolCalls) {
-          const toolCallId = call.id || activeToolCallId;
-          if (!toolCallId) continue;
-          let block = toolBlocks.get(toolCallId);
-          if (block === undefined) {
-            block = { index: nextIndex++, name: call.name };
-            toolBlocks.set(toolCallId, block);
-            toolPartialJson.set(toolCallId, "");
-            yield { type: "tool_call_start", index: block.index, id: toolCallId, name: call.name };
-          }
-          if (call.name) block.name = call.name;
-          activeToolCallId = toolCallId;
-          if (!call.argumentsJson) continue;
-          const previousJson = toolPartialJson.get(toolCallId) ?? "";
-          // The server may send cumulative JSON instead of deltas; merge
-          // whichever representation arrived into one delta stream.
-          const accumulated = call.argumentsJson.startsWith(previousJson)
-            ? call.argumentsJson
-            : previousJson + call.argumentsJson;
-          const delta = accumulated.slice(previousJson.length);
-          toolPartialJson.set(toolCallId, accumulated);
-          const throttled = parseStreamingJsonThrottled(accumulated, toolLastParseLen.get(toolCallId) ?? 0);
-          if (throttled) toolLastParseLen.set(toolCallId, throttled.parsedLen);
-          yield { type: "tool_call_delta", index: block.index, id: toolCallId, argumentsDelta: delta };
+          yield { type: "usage", usage: responseUsage };
         }
       }
 
-      if (msg.stopReason !== StopReason.UNSPECIFIED) latestStopReason = msg.stopReason;
-
-      if (msg.usage || msg.creditCost || msg.committedCreditCost || msg.committedAcuCost) {
-        const usage = {
-          input: Number(msg.usage?.inputTokens ?? 0n),
-          output: Number(msg.usage?.outputTokens ?? 0n),
-          cacheRead: Number(msg.usage?.cacheReadTokens ?? 0n),
-          cacheWrite: Number(msg.usage?.cacheWriteTokens ?? 0n),
-        };
-        const totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-        // The backend stamps a usage field on every frame; only a counter that
-        // moved is worth an event — all-zero frames are per-token noise.
-        const credits = msg.creditCost || msg.committedCreditCost || msg.committedAcuCost;
-        const moved =
-          responseUsage === undefined
-            ? totalTokens > 0 || credits !== 0
-            : totalTokens !== responseUsage.totalTokens || credits !== (responseUsage.credits ?? 0);
-        if (!moved) continue;
-        responseUsage = {
-          ...usage,
-          totalTokens,
-          ...(credits ? { credits } : {}),
-          cost: calculateDevinCost(model.cost, usage),
-        };
-        yield { type: "usage", usage: responseUsage };
-      }
+      if (done) break;
     }
-
-    if (done) break;
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
 
   if (openText !== undefined) {
