@@ -1,360 +1,97 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  getKiroCliCredentials,
-  getKiroCliCredentialsAllowExpired,
-  getKiroCliSocialToken,
-  saveKiroCliCredentials,
-} from "../src/kiro-cli.js";
-import { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "../src/kiro-ide.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KiroCredentials } from "../src/oauth.js";
-import { refreshKiroToken, resolveKiroCredentials } from "../src/oauth.js";
+import { refreshKiroToken, resolveKiroAuthSource, resolveKiroCredentials } from "../src/oauth.js";
 
-// Mock kiro-cli to prevent fallback to real credentials
-vi.mock("../src/kiro-cli.js", () => ({
-  getKiroCliCredentials: vi.fn(() => undefined),
-  getKiroCliCredentialsAllowExpired: vi.fn(() => undefined),
-  getKiroCliSocialToken: vi.fn(() => undefined),
-  getKiroCliSocialTokenAllowExpired: vi.fn(() => undefined),
-  saveKiroCliCredentials: vi.fn(),
-}));
-
-// The IDE credential source is a real file read; stub it so a developer's live
-// Kiro IDE session cannot satisfy the refresh under test.
-vi.mock("../src/kiro-ide.js", () => ({
-  getKiroIdeCredentials: vi.fn(() => undefined),
-  getKiroIdeCredentialsAllowExpired: vi.fn(() => undefined),
-}));
-
-// The network half of a refresh runs in the Go sidecar; these tests cover the
-// store-selection orchestration that stays in this process, so the op call is
-// stubbed rather than a real ns-bridge binary spawned.
-const runKiroOp = vi.fn<(op: string, request: () => Record<string, unknown>) => Promise<KiroCredentials>>();
+// Store selection and the network refresh run in the Go sidecar. These tests
+// cover the facade: which op is called, and that a refreshed session still
+// schedules the in-process catalog refresh.
+const runKiroOp = vi.fn<(op: string, request: () => Record<string, unknown>) => Promise<unknown>>();
 vi.mock("../src/engine-ops.js", () => ({
   runKiroOp: (op: string, request: () => Record<string, unknown>) => runKiroOp(op, request),
 }));
 
-beforeEach(() => {
-  vi.mocked(getKiroCliSocialToken).mockReset();
-  vi.mocked(getKiroCliSocialToken).mockReturnValue(undefined);
-  vi.mocked(getKiroIdeCredentials).mockReset();
-  vi.mocked(getKiroIdeCredentials).mockReturnValue(undefined);
-  runKiroOp.mockReset();
-});
-
 afterEach(() => {
+  runKiroOp.mockReset();
+  delete process.env.KIRO_AUTH_SOURCE;
   vi.unstubAllGlobals();
 });
 
-describe("Feature 3: OAuth — Token Refresh", () => {
-  describe("refreshKiroToken", () => {
-    it("passes refreshed credentials through", async () => {
-      runKiroOp.mockResolvedValueOnce({
-        refresh: "new_rt|cid|csec|idc",
-        access: "new_at",
-        expires: Date.now() + 3_600_000,
-        clientId: "cid",
-        clientSecret: "csec",
-        region: "us-east-1",
-        authMethod: "idc",
-      });
+const refreshed: KiroCredentials = {
+  refresh: "new_rt|cid|csec|idc",
+  access: "new_at",
+  expires: Date.now() + 3_600_000,
+  clientId: "cid",
+  clientSecret: "csec",
+  region: "us-east-1",
+  authMethod: "idc",
+};
 
-      const creds = await refreshKiroToken({
-        refresh: "old_rt|cid|csec|idc",
-        access: "old_at",
-        expires: 0,
-        clientId: "cid",
-        clientSecret: "csec",
-        region: "us-east-1",
-        authMethod: "idc",
-      });
-      expect(creds.access).toBe("new_at");
-      expect(creds.refresh).toContain("new_rt|cid|csec|idc");
-      expect(runKiroOp).toHaveBeenCalledWith("refreshToken", expect.any(Function));
-    });
+describe("refreshKiroToken", () => {
+  it("forwards the session to refreshSession and returns the result", async () => {
+    runKiroOp.mockResolvedValueOnce(refreshed);
+    const input: KiroCredentials = { ...refreshed, access: "old_at", refresh: "old_rt|cid|csec|idc" };
 
-    it("throws on failed refresh", async () => {
-      runKiroOp.mockRejectedValueOnce(new Error("Token refresh failed: 401"));
-      await expect(
-        refreshKiroToken({
-          refresh: "rt|c|s|idc",
-          access: "x",
-          expires: 0,
-          clientId: "",
-          clientSecret: "",
-          region: "us-east-1",
-          authMethod: "idc",
-        }),
-      ).rejects.toThrow();
-    });
+    const creds = await refreshKiroToken(input);
 
-    it("refreshes desktop tokens via the sidecar op", async () => {
-      runKiroOp.mockResolvedValueOnce({
-        refresh: "desk_rt|desktop",
-        access: "desk_at",
-        expires: Date.now() + 3_600_000,
-        clientId: "",
-        clientSecret: "",
-        region: "us-east-1",
-        authMethod: "desktop",
-      } as KiroCredentials);
+    expect(creds).toEqual(refreshed);
+    expect(runKiroOp).toHaveBeenCalledWith("refreshSession", expect.any(Function));
+    expect(runKiroOp.mock.calls[0]?.[1]()).toEqual({ credentials: input });
+  });
 
-      const creds = await refreshKiroToken({
-        refresh: "desk_rt|desktop",
-        access: "old",
-        expires: 0,
-        region: "us-east-1",
-      } as KiroCredentials);
-      expect(creds.access).toBe("desk_at");
-      expect(creds.refresh).toContain("desk_rt|desktop");
-      expect((creds as KiroCredentials).authMethod).toBe("desktop");
-    });
-
-    it("refreshes external IdP tokens via the sidecar op", async () => {
-      const tokenEndpoint = "https://example.okta.com/oauth2/default/v1/token";
-      runKiroOp.mockResolvedValueOnce({
-        refresh: `idp_rt2|0oaEXAMPLE|${tokenEndpoint}|external-idp`,
-        access: "idp_at",
-        expires: Date.now() + 3_600_000,
-        clientId: "0oaEXAMPLE",
-        clientSecret: "",
-        region: "us-east-1",
-        authMethod: "external-idp",
-      } as KiroCredentials);
-
-      const creds = await refreshKiroToken({
-        refresh: `idp_rt|0oaEXAMPLE|${tokenEndpoint}|external-idp`,
-        access: "old",
-        expires: 0,
-        region: "us-east-1",
-      } as KiroCredentials);
-
-      expect(creds.access).toBe("idp_at");
-      expect(creds.refresh).toBe(`idp_rt2|0oaEXAMPLE|${tokenEndpoint}|external-idp`);
-      expect((creds as KiroCredentials).authMethod).toBe("external-idp");
-    });
-
-    it("propagates a refresh failure", async () => {
-      runKiroOp.mockRejectedValueOnce(new Error("External IdP token refresh failed: 400"));
-      await expect(
-        refreshKiroToken({
-          refresh: "idp_rt|cid|https://idp.example/token|external-idp",
-          access: "old",
-          expires: 0,
-        } as KiroCredentials),
-      ).rejects.toThrow("External IdP token refresh failed: 400");
-    });
-
-    it("uses expired kiro-cli creds as fallback when direct refresh fails", async () => {
-      const { getKiroCliCredentialsAllowExpired } = await import("../src/kiro-cli.js");
-      vi.mocked(getKiroCliCredentialsAllowExpired).mockReturnValueOnce({
-        refresh: "cli_rt|cli_cid|cli_csec|idc",
-        access: "cli_at",
-        expires: Date.now() - 1000,
-        clientId: "cli_cid",
-        clientSecret: "cli_csec",
-        region: "us-east-1",
-        authMethod: "idc",
-      });
-
-      runKiroOp.mockRejectedValueOnce(new Error("Token refresh failed: 401")).mockResolvedValueOnce({
-        refresh: "new_rt|cli_cid|cli_csec|idc",
-        access: "new_at",
-        expires: Date.now() + 3_600_000,
-        clientId: "cli_cid",
-        clientSecret: "cli_csec",
-        region: "us-east-1",
-        authMethod: "idc",
-      });
-
-      const creds = await refreshKiroToken({
-        refresh: "stale_rt|cid|csec|idc",
-        access: "stale_at",
+  it("propagates a refresh failure", async () => {
+    runKiroOp.mockRejectedValueOnce(new Error("Token refresh failed: 401"));
+    await expect(
+      refreshKiroToken({
+        refresh: "rt|c|s|idc",
+        access: "x",
         expires: 0,
         clientId: "",
         clientSecret: "",
         region: "us-east-1",
         authMethod: "idc",
-      });
-      expect(creds.access).toBe("new_at");
-    });
-
-    it("falls through to graceful degradation when expired creds refresh also fails", async () => {
-      const { getKiroCliCredentialsAllowExpired } = await import("../src/kiro-cli.js");
-      vi.mocked(getKiroCliCredentialsAllowExpired).mockReturnValueOnce({
-        refresh: "cli_rt|cli_cid|cli_csec|idc",
-        access: "cli_at",
-        expires: Date.now() - 1000,
-        clientId: "cli_cid",
-        clientSecret: "cli_csec",
-        region: "us-east-1",
-        authMethod: "idc",
-      });
-
-      runKiroOp
-        .mockRejectedValueOnce(new Error("Token refresh failed: 401"))
-        .mockRejectedValueOnce(new Error("Token refresh failed: 401"));
-
-      const creds = await refreshKiroToken({
-        refresh: "old_rt|cid|csec|idc",
-        access: "old_at",
-        expires: Date.now() - 60_000,
-        clientId: "cid",
-        clientSecret: "csec",
-        region: "us-east-1",
-        authMethod: "idc",
-      });
-      expect(creds.access).toBe("old_at");
-      expect(creds.expires).toBeGreaterThan(Date.now());
-    });
-  });
-
-  describe("loginKiroWithApiKey", () => {
-    it("validates Kiro API key format", async () => {
-      const { loginKiroWithApiKey } = await import("../src/oauth.js");
-      await expect(loginKiroWithApiKey("invalid_key")).rejects.toThrow("Invalid API key format");
-    });
-  });
-
-  it("does not replace desktop credentials with an unrelated IDE IDC account", async () => {
-    vi.mocked(getKiroIdeCredentials).mockReturnValueOnce({
-      refresh: "ide_rt|ide_cid|ide_csec|idc",
-      access: "ide_at",
-      expires: Date.now() + 3_600_000,
-      clientId: "ide_cid",
-      clientSecret: "ide_csec",
-      region: "eu-central-1",
-      authMethod: "idc",
-    });
-    vi.mocked(getKiroCliSocialToken).mockReturnValueOnce({
-      refresh: "social_rt|desktop",
-      access: "social_at",
-      expires: Date.now() + 3_600_000,
-      clientId: "",
-      clientSecret: "",
-      region: "us-east-1",
-      authMethod: "desktop",
-      profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/social",
-    });
-
-    const creds = (await refreshKiroToken({
-      refresh: "stored_rt|desktop",
-      access: "stored_at",
-      expires: 0,
-      clientId: "",
-      clientSecret: "",
-      region: "us-east-1",
-      authMethod: "desktop",
-    } as KiroCredentials)) as KiroCredentials;
-
-    expect(creds.access).toBe("social_at");
-    expect(creds.authMethod).toBe("desktop");
-    expect(creds.region).toBe("us-east-1");
-    expect(runKiroOp).not.toHaveBeenCalled();
+      }),
+    ).rejects.toThrow("Token refresh failed: 401");
   });
 });
 
-describe("sign-in source", () => {
-  const cliLogin: KiroCredentials = {
-    refresh: "cli_rt|cli_cid|cli_csec|idc",
-    access: "cli_at",
-    expires: Date.now() + 3_600_000,
-    clientId: "cli_cid",
-    clientSecret: "cli_csec",
-    region: "us-east-1",
-    authMethod: "idc",
-  };
-  const ideLogin: KiroCredentials = {
-    refresh: "ide_rt|ide_cid|ide_csec|idc",
-    access: "ide_at",
-    expires: Date.now() + 3_600_000,
-    clientId: "ide_cid",
-    clientSecret: "ide_csec",
-    region: "us-east-1",
-    authMethod: "idc",
-  };
-
-  beforeEach(() => {
-    delete process.env.KIRO_AUTH_SOURCE;
-    vi.mocked(getKiroCliCredentials).mockReset().mockReturnValue(cliLogin);
-    vi.mocked(getKiroCliCredentialsAllowExpired).mockReset();
-    vi.mocked(getKiroIdeCredentials).mockReset().mockReturnValue(ideLogin);
-    vi.mocked(getKiroIdeCredentialsAllowExpired).mockReset();
-    vi.mocked(saveKiroCliCredentials).mockClear();
+describe("resolveKiroCredentials", () => {
+  it("returns the session the resolveCredentials op selected", async () => {
+    runKiroOp.mockResolvedValueOnce(refreshed);
+    expect(await resolveKiroCredentials()).toEqual(refreshed);
+    expect(runKiroOp).toHaveBeenCalledWith("resolveCredentials", expect.any(Function));
+    expect(runKiroOp.mock.calls[0]?.[1]()).toEqual({});
   });
 
-  afterEach(() => {
-    delete process.env.KIRO_AUTH_SOURCE;
-    vi.unstubAllGlobals();
+  it("returns undefined when the machine has no session", async () => {
+    runKiroOp.mockResolvedValueOnce(null);
+    expect(await resolveKiroCredentials()).toBeUndefined();
   });
 
-  it("keeps refreshing the kiro-cli login instead of adopting the IDE's", async () => {
-    const refreshed = (await refreshKiroToken(cliLogin)) as KiroCredentials;
-    expect(refreshed.access).toBe("cli_at");
-    expect(refreshed.refresh).toContain("cli_cid");
-    expect(runKiroOp).not.toHaveBeenCalled();
+  it("strips the catalog-refresh mark from the credentials it returns", async () => {
+    runKiroOp.mockResolvedValueOnce({ ...refreshed, kiroSessionRefreshed: true });
+    expect(await resolveKiroCredentials()).toEqual(refreshed);
   });
+});
 
-  it("resolves the IDE login when KIRO_AUTH_SOURCE=ide, the kiro-cli login otherwise", async () => {
-    expect((await resolveKiroCredentials())?.access).toBe("cli_at");
-
-    process.env.KIRO_AUTH_SOURCE = "ide";
-    expect((await resolveKiroCredentials())?.access).toBe("ide_at");
-  });
-
-  it("ignores an unrecognized KIRO_AUTH_SOURCE and keeps the default", async () => {
+describe("resolveKiroAuthSource", () => {
+  it("defaults to cli and warns once on an unrecognized value", () => {
+    expect(resolveKiroAuthSource()).toBe("cli");
     process.env.KIRO_AUTH_SOURCE = "oidc";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    expect((await resolveKiroCredentials())?.access).toBe("cli_at");
+    expect(resolveKiroAuthSource()).toBe("cli");
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
 
-  it("refreshes a stale kiro-cli session rather than adopting the IDE's fresh one", async () => {
-    // The kiro-cli token ages out hourly while the IDE keeps its own fresh; the
-    // machine must stay on the kiro-cli login it was already using.
-    vi.mocked(getKiroCliCredentials).mockReturnValue(undefined);
-    vi.mocked(getKiroCliCredentialsAllowExpired).mockReturnValue({ ...cliLogin, expires: Date.now() - 1_000 });
-    runKiroOp.mockResolvedValueOnce({
-      ...cliLogin,
-      access: "cli_new_at",
-      refresh: "cli_new_rt|cli_cid|cli_csec|idc",
-      expires: Date.now() + 3_600_000,
-    });
-
-    const resolved = (await resolveKiroCredentials()) as KiroCredentials;
-    expect(resolved.access).toBe("cli_new_at");
-    expect(resolved.refresh).toContain("cli_cid");
-    expect(vi.mocked(saveKiroCliCredentials)).toHaveBeenCalled();
+  it("accepts ide", () => {
+    process.env.KIRO_AUTH_SOURCE = "IDE";
+    expect(resolveKiroAuthSource()).toBe("ide");
   });
+});
 
-  it("falls back to the IDE session when the machine has no kiro-cli session", async () => {
-    vi.mocked(getKiroCliCredentials).mockReturnValue(undefined);
-
-    const resolved = (await resolveKiroCredentials()) as KiroCredentials;
-    expect(resolved.access).toBe("ide_at");
-  });
-
-  it("does not write the IDE's login into the kiro-cli store", async () => {
-    // kiro-cli is signed in as someone else, with nothing fresh to offer, so the
-    // only refresheable session is the IDE's — which must stay out of that store.
-    vi.mocked(getKiroCliCredentials).mockReturnValue(undefined);
-    vi.mocked(getKiroCliCredentialsAllowExpired).mockReturnValue({
-      ...cliLogin,
-      refresh: "other_rt|other_cid|other_csec|idc",
-      expires: Date.now() - 1_000,
-    });
-    vi.mocked(getKiroIdeCredentials).mockReturnValue(undefined);
-    vi.mocked(getKiroIdeCredentialsAllowExpired).mockReturnValue(ideLogin);
-    runKiroOp.mockResolvedValueOnce({
-      ...ideLogin,
-      access: "ide_new_at",
-      refresh: "ide_new_rt|ide_cid|ide_csec|idc",
-      expires: Date.now() + 3_600_000,
-    });
-
-    const refreshed = (await refreshKiroToken(ideLogin)) as KiroCredentials;
-    expect(refreshed.access).toBe("ide_new_at");
-    expect(vi.mocked(saveKiroCliCredentials)).not.toHaveBeenCalled();
+describe("loginKiroWithApiKey", () => {
+  it("validates Kiro API key format", async () => {
+    const { loginKiroWithApiKey } = await import("../src/oauth.js");
+    await expect(loginKiroWithApiKey("invalid_key")).rejects.toThrow("Invalid API key format");
   });
 });

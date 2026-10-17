@@ -233,6 +233,40 @@ func GetCredentials() *Credentials { return get(false) }
 // GetCredentialsAllowExpired is getKiroCliCredentialsAllowExpired.
 func GetCredentialsAllowExpired() *Credentials { return get(true) }
 
+// GetSocialToken is getKiroCliSocialToken: only the desktop/social row.
+func GetSocialToken() *Credentials { return social(false) }
+
+// GetSocialTokenAllowExpired is getKiroCliSocialTokenAllowExpired.
+func GetSocialTokenAllowExpired() *Credentials { return social(true) }
+
+func social(allowExpired bool) *Credentials {
+	dbPath := DBPath()
+	if dbPath == "" {
+		return nil
+	}
+	return TryToken(dbPath, "kirocli:social:token", "desktop", allowExpired)
+}
+
+// GetIDC is the IDC row only, matching the refresh path that keeps a desktop
+// session from being treated as an IDC login. A social or external-IdP row in
+// the same database is ignored.
+func GetIDC() *Credentials { return idcToken(false) }
+
+// GetIDCAllowExpired is GetIDC without the expiry check.
+func GetIDCAllowExpired() *Credentials { return idcToken(true) }
+
+func idcToken(allowExpired bool) *Credentials {
+	dbPath := DBPath()
+	if dbPath == "" {
+		return nil
+	}
+	c := TryToken(dbPath, "kirocli:odic:token", "idc", allowExpired)
+	if c != nil && c.AuthMethod == "idc" {
+		return c
+	}
+	return nil
+}
+
 // GetExternalIdpCredentials is getKiroCliExternalIdpCredentials.
 func GetExternalIdpCredentials() *Credentials {
 	dbPath := DBPath()

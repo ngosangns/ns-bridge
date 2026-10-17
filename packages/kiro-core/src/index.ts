@@ -1,7 +1,8 @@
 // Public surface of the host-neutral Kiro core.
-// Vendor wire protocol (requests, streaming, retries, catalog and usage RPCs)
-// runs in the Go sidecar; what remains here is the host-facing vocabulary,
-// credential-store orchestration, model catalog caches, and sidecar facades.
+// Vendor wire protocol, credential selection and refresh, the profile-ARN
+// cache, and the cross-turn cache-read estimate run in the Go sidecar. What
+// remains here is the host-facing vocabulary, the synchronous credential-file
+// readers, the synchronous catalog read, and the sidecar facade.
 
 export { applyCacheEstimate, resetCacheEstimatorForTests } from "./cache-estimator.js";
 export { debugEnabled, debugLog, formatSafeError, redactSensitiveText } from "./debug.js";

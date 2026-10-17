@@ -28,8 +28,9 @@ adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
 - **Streaming** — AWS event-stream framing, thinking-tag parsing, native and
   text-dialect tool-call recovery, history validation and repair, and the whole
   retry ladder (transport timeouts, capacity pressure, request-rate windows, 403
-  credential rotation, degenerate 200s) — in the Go vendor; this package keeps
-  the facade that carries process state across each sidecar call.
+  credential rotation, degenerate 200s) — in the Go vendor, along with the
+  profile-ARN cache and the cross-turn cache-read estimate. This package keeps
+  the facade that calls the binary.
 
 ## Engine
 
@@ -38,10 +39,13 @@ The public entry points (`streamKiro`, `updateKiroModelsCache`, `fetchKiroUsage`
 [`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar —
 the TypeScript engine was removed, so the
 [`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin) binary is
-required (`NS_BRIDGE_BIN` or `ns-bridge` on `PATH` also work). Per-process
-state stays in this package: the local credential stores and their selection
-(`KIRO_AUTH_SOURCE`), the profile-ARN and region caches, the cache-read
-estimate, and catalog refresh scheduling, each carried across every call.
+required (`NS_BRIDGE_BIN` or `ns-bridge` on `PATH` also work). Credential
+selection and refresh (`KIRO_AUTH_SOURCE`, both stores, write-back) run in the
+binary; this package keeps synchronous readers for the public API and schedules
+the catalog refresh. The profile-ARN cache and the cache-read
+estimate live in `~/.ns-kiro-provider-process-state.json`, which each sidecar
+call reads and writes. Catalog refresh is scheduled here after a turn, because
+the binary has exited by then.
 
 ## The neutral seam
 
@@ -81,11 +85,11 @@ the seam and the per-process state:
 
 | Export | Does |
 | --- | --- |
-| `streamKiro` / `streamKiroOnEngine` | The facade: pre-resolve the model id and profile, run `ns-bridge stream --vendor kiro`, fold `kiroProfileArns` / `kiroRuntimeRegion` back, apply the cache-read estimate |
-| `resolveKiroCredentials` / `refreshKiroToken` | Pick the local store (kiro-cli or Kiro IDE), hand the network half to the `refreshToken` op, write refreshes back |
-| `getKiroCliCredentials` / `getKiroIdeCredentials` | Read the kiro-cli SQLite store / the IDE token file |
+| `streamKiro` / `streamKiroOnEngine` | The facade: pre-resolve the model id, run `ns-bridge stream --vendor kiro`, strip bookkeeping fields, schedule a catalog refresh. Profile cache and cache-read estimate run in the binary |
+| `resolveKiroCredentials` / `refreshKiroToken` | Call the `resolveCredentials` / `refreshSession` ops, which pick the local store, refresh, and write back. The facade schedules the catalog refresh |
+| `getKiroCliCredentials` / `getKiroIdeCredentials` | Synchronous reads of the kiro-cli SQLite store / the IDE token file. The binary has the same readers and is what resolution uses |
 | `updateKiroModelsCache` / `getCachedModels` | Refresh the authenticated catalog (the Go `refreshModels` op writes the cache) and read it synchronously |
-| `applyCacheEstimate` | Cross-turn cache-read estimation on the facade side |
+| `applyCacheEstimate` | The same estimate the binary applies. Direct callers, and a facade talking to a binary that did not set `cacheEstimateHandled`, still use it |
 
 ## What Kiro reports, and what it does not
 

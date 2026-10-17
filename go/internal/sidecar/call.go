@@ -22,7 +22,7 @@ var ErrUnknownOp = errors.New("unknown op")
 
 // RunCall executes one operation: the same envelope as Run on stdin, and on
 // stdout a single `{"type":"result","result":…}` line or a terminal error line.
-func RunCall(ctx context.Context, vendor, op string, registry Registry, stdin io.Reader, stdout io.Writer) int {
+func RunCall(ctx context.Context, vendor, op string, registry Registry, opts Options, stdin io.Reader, stdout io.Writer) int {
 	out := bridge.NewWriter(stdout)
 	fail := func(err *bridge.Error) int {
 		if err.Vendor == "" {
@@ -56,11 +56,13 @@ func RunCall(ctx context.Context, vendor, op string, registry Registry, stdin io
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	rest := io.MultiReader(dec.Buffered(), stdin)
-	go func() {
-		_, _ = io.Copy(io.Discard, rest)
-		cancel(errStdinClosed)
-	}()
+	if !opts.IgnoreStdinEOF {
+		rest := io.MultiReader(dec.Buffered(), stdin)
+		go func() {
+			_, _ = io.Copy(io.Discard, rest)
+			cancel(errStdinClosed)
+		}()
+	}
 
 	result, err := caller.Call(ctx, op, envelope.Request)
 	switch {

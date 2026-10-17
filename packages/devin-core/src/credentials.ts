@@ -1,9 +1,12 @@
 // ABOUTME: The Devin CLI credential store: a flat TOML file at
 // ABOUTME: ~/.local/share/devin/credentials.toml shared with `devin auth`.
+// ABOUTME: Reading and writing the file runs in the ns-bridge binary. These
+// ABOUTME: functions stay synchronous because Pi resolves a token while
+// ABOUTME: registering the provider, so they use `ns-bridge call --ignore-stdin-eof`.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { sidecarCallSync } from "ns-bridge-core/sidecar";
 import { credentialsFromToken, type DevinCredentials } from "./oauth.js";
 
 /** Keys the CLI credential file carries that this provider reads or writes. */
@@ -26,44 +29,14 @@ export function devinCredentialsPath(): string {
   return join(dataHome, "devin", "credentials.toml");
 }
 
-/** Parse the flat `key = "value"` TOML the CLI writes. Quoted strings only. */
-function parseCredentialsToml(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("[")) continue;
-    const match = /^([\w.-]+)\s*=\s*"(.*)"\s*$/.exec(trimmed);
-    if (!match) continue;
-    // The CLI writes plain strings; decode the two escapes it can emit.
-    out[match[1]] = match[2].replace(/\\(["\\])/g, "$1");
-  }
-  return out;
-}
-
 /**
  * Read the machine's Devin session. Returns `undefined` when the file is
  * missing or carries no usable token — the caller decides whether to prompt.
+ * The file itself is read by `ns-bridge call --vendor devin --op loadCredentials`.
  */
 export function resolveDevinCredentials(): DevinStoredCredentials | undefined {
-  let text: string;
-  try {
-    text = readFileSync(devinCredentialsPath(), "utf8");
-  } catch {
-    return undefined;
-  }
-  const fields = parseCredentialsToml(text);
-  const apiKey = fields.windsurf_api_key?.trim() || fields.api_key?.trim();
-  if (!apiKey) return undefined;
-  const trimUrl = (value: string | undefined): string | undefined => {
-    const trimmed = value?.trim().replace(/\/+$/, "");
-    return trimmed ? trimmed : undefined;
-  };
-  return {
-    apiKey,
-    apiServerUrl: trimUrl(fields.api_server_url),
-    devinApiUrl: trimUrl(fields.devin_api_url),
-    devinWebappHost: trimUrl(fields.devin_webapp_host),
-  };
+  const stored = sidecarCallSync<DevinStoredCredentials | null>("devin", "loadCredentials", {});
+  return stored ?? undefined;
 }
 
 /** The session as {@link DevinCredentials}, or `undefined` when logged out. */
@@ -74,26 +47,14 @@ export function resolveDevinSession(): DevinCredentials | undefined {
 
 /**
  * Persist a session token so the Devin CLI and this provider share it.
- * Existing unrelated keys in the file are preserved.
+ * Existing unrelated keys in the file are preserved. The write runs in
+ * `ns-bridge call --vendor devin --op saveCredentials`.
  */
 export function saveDevinCredentials(apiKey: string, extras?: Partial<DevinStoredCredentials>): void {
-  const path = devinCredentialsPath();
-  const existing = parseCredentialsToml(
-    (() => {
-      try {
-        return readFileSync(path, "utf8");
-      } catch {
-        return "";
-      }
-    })(),
-  );
-  existing.windsurf_api_key = apiKey;
-  if (extras?.apiServerUrl) existing.api_server_url = extras.apiServerUrl;
-  if (extras?.devinApiUrl) existing.devin_api_url = extras.devinApiUrl;
-  if (extras?.devinWebappHost) existing.devin_webapp_host = extras.devinWebappHost;
-  const body = Object.entries(existing)
-    .map(([key, value]) => `${key} = "${value.replace(/(["\\])/g, "\\$1")}"`)
-    .join("\n");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${body}\n`, { mode: 0o600 });
+  sidecarCallSync("devin", "saveCredentials", {
+    apiKey,
+    ...(extras?.apiServerUrl ? { apiServerUrl: extras.apiServerUrl } : {}),
+    ...(extras?.devinApiUrl ? { devinApiUrl: extras.devinApiUrl } : {}),
+    ...(extras?.devinWebappHost ? { devinWebappHost: extras.devinWebappHost } : {}),
+  });
 }

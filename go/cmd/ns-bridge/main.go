@@ -96,6 +96,7 @@ func call(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	vendor := flags.String("vendor", "", "vendor id (see `ns-bridge vendors`)")
 	op := flags.String("op", "", "operation, e.g. refreshModels, usage, refreshToken")
+	ignoreEOF := flags.Bool("ignore-stdin-eof", false, "keep running after stdin closes (for requests piped in by hand)")
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -105,7 +106,7 @@ func call(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
-	return sidecar.RunCall(ctx, *vendor, *op, registry(), stdin, stdout)
+	return sidecar.RunCall(ctx, *vendor, *op, registry(), sidecar.Options{IgnoreStdinEOF: *ignoreEOF}, stdin, stdout)
 }
 
 func login(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -128,7 +129,7 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `usage:
   ns-bridge stream --vendor <id> [--ignore-stdin-eof]
       Read {"protocol":1,"request":{...}} on stdin, write BridgeStreamEvent NDJSON on stdout.
-  ns-bridge call --vendor <id> --op <op>
+  ns-bridge call --vendor <id> --op <op> [--ignore-stdin-eof]
       Read {"protocol":1,"request":{...}} on stdin, write one {"type":"result","result":...} line.
   ns-bridge login --vendor <id>
       Interactive login: host notifications on stdout, then one result or error line.
