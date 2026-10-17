@@ -11,18 +11,13 @@ host adapters (`@ngosangns/ns-pi-provider`, `ns-omp-provider`,
 ## Engine
 
 The public entry points (`streamDevin`, `fetchDevinModels`, `fetchDevinUsage`,
-`loginDevinWithPkce`) run in the
-[`ns-bridge`](https://github.com/ngosangns/ns-bridge/tree/main/go) Go sidecar —
-the TypeScript engine was removed, so the
-[`ns-bridge-bin`](https://www.npmjs.com/package/ns-bridge-bin) binary is
-required (`NS_BRIDGE_BIN` or `ns-bridge` on `PATH` also work). This package
-keeps the credential store, the model cache, the error vocabulary, and the
-facades that pack a request for the binary and map `SidecarError` back to
-Devin errors.
+`loginDevinWithPkce`) run in this package: Connect/protobuf streaming, model
+discovery, usage, and the browser PKCE login. The credential store, the model
+cache, and the error vocabulary stay here too.
 
 ## What it does
 
-- `streamDevin(request)` — one Cascade turn, in the binary: `GetUserJwt`
+- `streamDevin(request)` — one Cascade turn: `GetUserJwt`
   (session → user JWT + optional edge URL), `AssignModel` for router models,
   then `GetChatMessage` over Connect server-streaming framed protobuf.
 - `fetchDevinModels()` — `GetCliModelConfigs` under the pinned CLI identity,
@@ -30,7 +25,7 @@ Devin errors.
 - `resolveDevinCredentials()` / `saveDevinCredentials()` — the CLI credential
   store at `~/.local/share/devin/credentials.toml`, shared with `devin auth`.
 - `loginDevinWithPkce()` — the CLI's browser PKCE flow against app.devin.ai,
-  driven by `ns-bridge login --vendor devin` through host callbacks.
+  in this process.
 - `fetchDevinUsage()` — plan tier, credit buckets, and daily/weekly quota
   windows from `SeatManagementService/GetUserStatus`.
 - `streamDevinWithCapacityRetry(request, options)` — `streamDevin` plus a

@@ -13,7 +13,5 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     testTimeout: 30_000,
     hookTimeout: 60_000,
-    // Exercise the in-process TypeScript cores, not an installed Go sidecar.
-    env: { NS_BRIDGE_ENGINE: "ts" },
   },
 });

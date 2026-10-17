@@ -40,7 +40,6 @@ Harness chunk) lands in one bridge and reaches every vendor.
 | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP adapter | `kiro` for OMP — the recommended Kiro path there | [![npm](https://img.shields.io/npm/v/ns-omp-provider-kiro)](https://www.npmjs.com/package/ns-omp-provider-kiro) |
 | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro) | DSH adapter | `kiro` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-kiro)](https://www.npmjs.com/package/ns-dsh-llm-kiro) |
 | [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | DSH adapter | `devin` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-devin)](https://www.npmjs.com/package/ns-dsh-llm-devin) |
-| [`ns-bridge-bin`](packages/bridge-bin) (+ `ns-bridge-bin-<os>-<cpu>`) | sidecar | The Go `ns-bridge` binary every vendor call runs in — a required dependency ([protocol](docs/SIDECAR-PROTOCOL.md)) | [![npm](https://img.shields.io/npm/v/ns-bridge-bin)](https://www.npmjs.com/package/ns-bridge-bin) |
 
 Package names did not change in the merge; existing installs keep working. Each
 package keeps its own version.
@@ -51,9 +50,10 @@ and `ns-devin-provider` (archived, each pointing here).
 
 ## Sign in
 
-No package runs a browser flow of its own for Kiro or Devin — each reads the
-session the vendor's own CLI leaves on the machine, refreshes it, and writes the
-refresh back so the CLI stays on the same token.
+Each package reads the session the vendor's own CLI leaves on the machine,
+refreshes it, and writes the refresh back so the CLI stays on the same token.
+`loginKiroWithApiKey` accepts a Kiro API key and calls GetProfile in this
+process. `loginDevinWithPkce` runs the browser PKCE flow in this process.
 
 ```bash
 kiro-cli login        # Builder ID, IAM Identity Center, Google, GitHub, enterprise OIDC

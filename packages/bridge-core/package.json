@@ -17,10 +17,6 @@
     "./dsh": {
       "types": "./dist/dsh/index.d.ts",
       "default": "./dist/dsh/index.js"
-    },
-    "./sidecar": {
-      "types": "./dist/sidecar/index.d.ts",
-      "default": "./dist/sidecar/index.js"
     }
   },
   "license": "MIT",
@@ -37,9 +33,6 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "prepublishOnly": "pnpm run check && pnpm run build"
-  },
-  "dependencies": {
-    "ns-bridge-bin": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": ">=0.1.0-0"

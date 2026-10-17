@@ -10,9 +10,8 @@ adapters — not meant to be installed on its own.
 `BridgeMessage`, `BridgeTool`, `BridgeContext`, `BridgeStreamEvent`,
 `BridgeUsage`, `BridgeEffort`, `BridgeStopReason`. `ns-kiro-core` and
 `ns-devin-core` emit this shape structurally — their own request and event
-types are assignable to it (each core's `vocabulary.test.ts` pins that). The
-cores depend on this package for the sidecar client (`ns-bridge-core/sidecar`);
-this package never depends on a vendor core.
+types are assignable to it (each core's `vocabulary.test.ts` pins that). This
+package never depends on a vendor core.
 
 ## Pi-family bridge (`ns-bridge-core/pi`)
 
@@ -42,20 +41,3 @@ A new vendor is a core that emits `BridgeStreamEvent`s; every host gets it
 through the existing bridges. A new host is one bridge here; every vendor gets it
 for free. Host adapters stay glue: credentials and the model catalog come from
 the vendor core, translation from here.
-
-## Sidecar client (`ns-bridge-core/sidecar`)
-
-Runs a vendor call in the `ns-bridge` Go binary and yields its events, ready
-for `streamToPi` or `streamToDsh`. Protocol:
-[docs/SIDECAR-PROTOCOL.md](../../docs/SIDECAR-PROTOCOL.md).
-
-| Export | Does |
-| --- | --- |
-| `sidecarStream(vendor, request, { signal, binary, env })` | Start `ns-bridge stream --vendor <vendor>`, yield `BridgeStreamEvent`s; abort closes stdin, then SIGTERM, then SIGKILL |
-| `SidecarError`, `isSidecarError` | The typed failure: `kind`, `status`, `retryAfterMs`, `reasonCode`, `exitCode`, `stderr` |
-| `sidecarCall(vendor, op, request, options)` | One `ns-bridge call` operation (catalog, usage, token refresh); resolves to its result |
-| `sidecarLogin(vendor, request, callbacks)` | One `ns-bridge login` run: JSON-RPC notifications drive `onOpen` / `onPrompt` / `onProgress`; resolves to the credentials |
-| `engineStream`, `engineCall` | Run a call in the binary — every vendor call is sidecar-only (there is no TypeScript engine to select) |
-| `resolveSidecarBinary`, `findPackagedSidecarBinary` | `NS_BRIDGE_BIN`, then the explicit path, then the binary [`ns-bridge-bin`](../bridge-bin) installed (a required dependency), then `ns-bridge` on PATH |
-
-Needs `node:child_process` (Node or Bun); the root and `./pi` / `./dsh` entries do not load it.

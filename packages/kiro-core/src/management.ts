@@ -184,7 +184,6 @@ export function resetKiroProfileArnCache(): void {
 
 /**
  * The resolved profile ARNs this process holds, keyed like the internal cache.
- * The Go sidecar runs one turn per process, so the facade seeds it with these.
  */
 export function snapshotKiroProfileArnCache(): Record<string, string> {
   return Object.fromEntries(profileArnCache);
@@ -195,7 +194,7 @@ export function snapshotKiroProfileRegionCache(): Record<string, string> {
   return Object.fromEntries(profileRegionCache);
 }
 
-/** Fold back the profile regions a sidecar operation resolved. */
+/** Record profile regions learned while resolving a profile. */
 export function applyKiroProfileRegionChanges(regions: Record<string, string> | undefined): void {
   if (!regions) return;
   for (const [key, region] of Object.entries(regions))
@@ -203,8 +202,8 @@ export function applyKiroProfileRegionChanges(regions: Record<string, string> | 
 }
 
 /**
- * Fold back what a sidecar turn learned: an ARN it resolved, or `null` for an
- * entry it invalidated after a 403.
+ * Record what a turn learned: an ARN it resolved, or `null` for an entry it
+ * invalidated after a 403.
  */
 export function applyKiroProfileArnCacheChanges(changes: Record<string, string | null> | undefined): void {
   if (!changes) return;
