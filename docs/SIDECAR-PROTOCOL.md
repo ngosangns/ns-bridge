@@ -67,9 +67,8 @@ signal (see [Cancellation](#cancellation)). Bytes after the envelope carry
 host→sidecar messages — today, only the answers to `login` host prompts
 (see [Login](#login)); v1 binaries read and discard anything else.
 
-For a request piped in by hand, or a synchronous `spawn` that closes stdin as
-soon as it has written the envelope, pass `--ignore-stdin-eof` (on `stream`
-and on `call`). Otherwise the end of the pipe cancels the call immediately:
+For a request piped in by hand, pass `--ignore-stdin-eof`, otherwise the end
+of the pipe cancels the call immediately:
 
 ```bash
 echo '{"protocol":1,"request":{"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}}' \
@@ -203,20 +202,14 @@ which maps a `SidecarError` back into the vendor's own error classes.
 | --- | --- | --- | --- |
 | `kiro` | `refreshModels` | `{accessToken, region, profileArn?, known, cachePath}` | `{region, models}`; also rewrites the catalog cache file at `cachePath` (`~/.ns-kiro-provider-models-cache.json`) exactly as `updateKiroModelsCache` does |
 | `kiro` | `usage` | `{credentials}` | `KiroProviderUsage` |
-| `kiro` | `refreshToken` | `{credentials}` | `KiroCredentials` from the desktop, external-IdP or IAM Identity Center token endpoint. The network half only; `refreshSession` is what chooses a store and saves |
-| `kiro` | `refreshSession` | `{credentials}` | `KiroCredentials`. Same-login replacement across the kiro-cli and Kiro IDE stores (`KIRO_AUTH_SOURCE`), then `refreshToken`, then write-back. An IDE login is not written into the kiro-cli store. API keys (`ksk_`) come back unchanged |
-| `kiro` | `resolveCredentials` | `{}` | The usable session from the preferred store, refreshed if it is stale, else the other store; `null` when the machine has none. A session that had to be refreshed carries `kiroSessionRefreshed`, which the facade strips before scheduling the catalog refresh |
+| `kiro` | `refreshToken` | `{credentials}` | `KiroCredentials` from the desktop, external-IdP or IAM Identity Center token endpoint (store selection and saving stay in TypeScript) |
 | `devin` | `models` | `{apiKey?, baseUrl?, timeoutMs?}` | `DevinModelSpec[]` (native `GetCliModelConfigs`, legacy-identity fallback, lane collapse, fusion routing, `localeCompare` order), or `null` on failure / an empty catalog |
 | `devin` | `usage` | `{apiKey?, baseUrl?}` | `{report, raw}`: the `DevinProviderUsage` minus `raw`, plus the base64 `GetUserStatusResponse` body the facade decodes into `raw`; `null` on failure |
-| `devin` | `loadCredentials` | `{}` | The CLI credential file (`~/.local/share/devin/credentials.toml`, `DEVIN_CREDENTIALS_PATH`, `XDG_DATA_HOME`) as `{apiKey, apiServerUrl?, devinApiUrl?, devinWebappHost?}`, or `null` when it is missing or has no token |
-| `devin` | `saveCredentials` | `{apiKey, apiServerUrl?, devinApiUrl?, devinWebappHost?}` | `null`. Writes `windsurf_api_key` and preserves unrelated keys. The sync facade calls this with `--ignore-stdin-eof` |
 
-Kiro calls that omit `profileArnCache` and `profileRegions` load and save
-`~/.ns-kiro-provider-process-state.json` (`KIRO_PROCESS_STATE_PATH`, or `off`
-to disable). A present map, even `{}`, is an explicit cache and is not
-written to that file. Results may still carry `kiroProfileArns` /
-`kiroProfileRegions`; the facade drops them. `KIRO_DESKTOP_REFRESH_ENDPOINT`
-and `KIRO_OIDC_ENDPOINT` (`{region}` substituted) override the refresh hosts.
+Kiro requests also carry `profileArnCache` / `profileRegions` (the facade's
+in-memory caches) and results return `kiroProfileArns` / `kiroProfileRegions`,
+which `runKiroOp` folds back. `KIRO_DESKTOP_REFRESH_ENDPOINT` and
+`KIRO_OIDC_ENDPOINT` (`{region}` substituted) override the refresh hosts.
 
 Devin's operations are fail-soft: `runDevinOp` (`devin-core/src/engine-ops.ts`)
 turns a sidecar failure into the same `null` callers always got for a failed
@@ -281,18 +274,15 @@ the state a one-call process cannot keep:
 | Field | |
 | --- | --- |
 | `conversationId` | `sessionId`, or one the facade minted (the cache estimator keys on it) |
-| `profileArnCache` | Optional. Omitted: the binary reads and writes the process-state file. Present: explicit ARN map by `region:base64url(sha256(token))`, not written to disk |
-| `applyCacheEstimate` | When true, the binary applies the cross-turn cache-read estimate and sets `usage.cacheEstimateHandled` |
+| `profileArnCache` | Resolved profile ARNs by `region:base64url(sha256(token))` |
 | `timeouts` | `{firstTokenMs, requestHeaderMs, idleMs?}` |
 | `capacityRetry` | `{maxRetries, baseDelayMs}` |
 | `testProfileArn` | Skip profile resolution (tests) |
 
 Extra event fields, stripped by the facade: `usage.kiroWireCache` (Kiro
-reported cache counters itself), `usage.cacheEstimateHandled` (the binary
-already applied the estimate), and on `done` `kiroProfileArns` (cache
-changes; `null` = invalidated), `kiroRuntimeRegion` and `kiroProfileArn`.
-The profile changes are persisted by the binary when `profileArnCache` was
-omitted. The facade refreshes a stale model catalog from `kiroRuntimeRegion`.
+reported cache counters itself, so the cross-turn estimate is skipped), and
+on `done` `kiroProfileArns` (cache changes; `null` = invalidated),
+`kiroRuntimeRegion` and `kiroProfileArn`.
 
 Errors carry `vendorError` and, for `KiroApiError`, `status`, `reasonCode`,
 `retryAfterMs` and `providerAttempts`; `kiroErrorFromSidecar` rebuilds them.

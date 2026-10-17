@@ -16,10 +16,9 @@ import (
 )
 
 // Call implements sidecar.Caller: the one-shot `models` (GetCliModelConfigs)
-// and `usage` (GetUserStatus) operations, plus the credential-file ops
-// `loadCredentials` / `saveCredentials`. The network ops are advisory and
-// fail soft, exactly like fetchDevinModels / fetchDevinUsage: a failed
-// request is a null result, not an error. The credential ops are not.
+// and `usage` (GetUserStatus) operations. Both are advisory and fail soft,
+// exactly like fetchDevinModels / fetchDevinUsage: a failed request is a null
+// result, not an error.
 func (Vendor) Call(ctx context.Context, op string, raw json.RawMessage) (any, error) {
 	switch op {
 	case "models":
@@ -55,13 +54,6 @@ func (Vendor) Call(ctx context.Context, op string, raw json.RawMessage) (any, er
 			return nil, ctx.Err()
 		}
 		return result, nil
-	case "loadCredentials":
-		return LoadCredentials(), nil
-	case "saveCredentials":
-		if err := SaveCredentials(raw); err != nil {
-			return nil, err
-		}
-		return nil, nil
 	default:
 		return nil, sidecar.ErrUnknownOp
 	}

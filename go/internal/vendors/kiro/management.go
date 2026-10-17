@@ -81,36 +81,21 @@ func isExternalIdpAccessToken(token string) bool {
 	return false
 }
 
-// profileCache is one call's view of the profile-ARN cache. A request that
-// carries profileArnCache seeds it (the old facade contract). A request that
-// omits the field loads and writes ~/.ns-kiro-provider-process-state.json.
+// profileCache is the facade-seeded stand-in for management.ts's in-memory
+// profileArnCache; changes go back to the facade on the done event.
 type profileCache struct {
 	entries map[string]string
 	changes map[string]*string
 	// Where a profile resolved this process actually lives (profileRegionCache).
-	regions       map[string]string
-	regionChanges map[string]string
+	regions map[string]string
 }
 
 func newProfileCache(seed map[string]string) *profileCache {
-	c := &profileCache{
-		entries:       map[string]string{},
-		changes:       map[string]*string{},
-		regions:       map[string]string{},
-		regionChanges: map[string]string{},
-	}
+	c := &profileCache{entries: map[string]string{}, changes: map[string]*string{}, regions: map[string]string{}}
 	for k, v := range seed {
 		c.entries[k] = v
 	}
 	return c
-}
-
-func (c *profileCache) setRegion(key, region string) {
-	if region == "" {
-		return
-	}
-	c.regions[key] = region
-	c.regionChanges[key] = region
 }
 
 func profileCacheKey(a managementAuth) string {
@@ -249,7 +234,7 @@ func (s *session) resolveProfileArn(ctx context.Context, a managementAuth) (stri
 			return "", err
 		}
 		s.profiles.set(a, arn)
-		s.profiles.setRegion(profileCacheKey(a), apiKeyRegion)
+		s.profiles.regions[profileCacheKey(a)] = apiKeyRegion
 		debugLog("profile.resolve", map[string]any{"source": "api-key", "region": apiKeyRegion, "arn": arn})
 		return arn, nil
 	}
@@ -271,7 +256,7 @@ func (s *session) resolveProfileArn(ctx context.Context, a managementAuth) (stri
 		for _, p := range resp.Profiles {
 			if p.Arn != "" {
 				s.profiles.set(a, p.Arn)
-				s.profiles.setRegion(profileCacheKey(a), region)
+				s.profiles.regions[profileCacheKey(a)] = region
 				debugLog("profile.resolve", map[string]any{"source": "network", "region": region, "arn": p.Arn})
 				return p.Arn, nil
 			}

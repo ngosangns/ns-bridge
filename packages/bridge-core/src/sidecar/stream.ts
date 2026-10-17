@@ -1,7 +1,7 @@
 // ABOUTME: Runs one vendor call in the ns-bridge Go binary and yields its events as BridgeStreamEvents.
 // ABOUTME: Wire format: docs/SIDECAR-PROTOCOL.md — envelope on stdin, NDJSON on stdout, terminal error line.
 
-import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import type { BridgeStreamEvent } from "../types.js";
 import { DEFAULT_SIDECAR_COMMAND, findPackagedSidecarBinary, resolveSidecarBinary } from "./binary.js";
 import { SidecarError, type SidecarErrorPayload } from "./errors.js";
@@ -101,54 +101,6 @@ export async function sidecarCall<TResult = unknown>(
     "result",
   )) {
     if (message.type === "result") result = (message as { result?: unknown }).result;
-  }
-  return result as TResult;
-}
-
-/**
- * {@link sidecarCall} for a caller that cannot await. stdin is closed as soon
- * as the envelope is written, so the binary is started with `--ignore-stdin-eof`;
- * without that flag the closed pipe cancels the op.
- */
-export function sidecarCallSync<TResult = unknown>(
-  vendor: string,
-  op: string,
-  request: unknown,
-  options: { bin?: string } = {},
-): TResult {
-  const binary = resolveSidecarBinary(options.bin);
-  const spawned = spawnSync(binary, ["call", "--vendor", vendor, "--op", op, "--ignore-stdin-eof"], {
-    input: `${JSON.stringify({ protocol: SIDECAR_PROTOCOL_VERSION, request })}\n`,
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-    windowsHide: true,
-  });
-  if (spawned.error) throw unavailable(binary, vendor, spawned.error);
-  if (spawned.stderr) process.stderr.write(spawned.stderr);
-  const stderr = spawned.stderr?.trim() || undefined;
-  const details = () => ({ vendor, exitCode: spawned.status, exitSignal: spawned.signal, stderr });
-  let result: unknown;
-  let sawResult = false;
-  for (const line of (spawned.stdout ?? "").split("\n")) {
-    if (!line.trim()) continue;
-    const message = parseLine(line, details);
-    if (message.type === "error") {
-      throw SidecarError.fromPayload(
-        message.error ?? { kind: "protocol", message: "ns-bridge wrote an error line without a payload" },
-        details(),
-      );
-    }
-    if (message.type === "result") {
-      sawResult = true;
-      result = (message as { result?: unknown }).result;
-    }
-  }
-  if (spawned.status !== 0) {
-    const how = spawned.signal ? `was killed by ${spawned.signal}` : `exited with code ${spawned.status}`;
-    throw new SidecarError("crashed", `ns-bridge (${vendor}) ${how} without reporting an error`, details());
-  }
-  if (!sawResult) {
-    throw new SidecarError("protocol", `ns-bridge (${vendor}) exited without a result line`, details());
   }
   return result as TResult;
 }

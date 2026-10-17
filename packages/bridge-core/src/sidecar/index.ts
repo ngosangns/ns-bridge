@@ -34,7 +34,6 @@ export {
   type SidecarLoginCallbacks,
   type SidecarStreamOptions,
   sidecarCall,
-  sidecarCallSync,
   sidecarLogin,
   sidecarStream,
 } from "./stream.js";

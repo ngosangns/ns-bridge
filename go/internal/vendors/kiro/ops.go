@@ -2,8 +2,7 @@ package kiro
 
 // One-shot operations (`ns-bridge call --vendor kiro --op <op>`): the model
 // catalog refresh that feeds the disk cache getCachedModels reads, the usage
-// report, the network half of a token refresh, and the store-selection
-// orchestration around it (refreshSession, resolveCredentials).
+// report, and the network half of a token refresh.
 
 import (
 	"bytes"
@@ -41,10 +40,6 @@ func (Vendor) Call(ctx context.Context, op string, raw json.RawMessage) (any, er
 		result, err = fetchUsage(ctx, raw)
 	case "refreshToken":
 		result, err = refreshToken(ctx, raw)
-	case "refreshSession":
-		result, err = refreshSession(ctx, raw)
-	case "resolveCredentials":
-		result, err = resolveCredentials(ctx, raw)
 	default:
 		return nil, sidecar.ErrUnknownOp
 	}
@@ -77,25 +72,16 @@ func resolveAPIRegion(sso string) string {
 	return sso
 }
 
-// opState is the per-call profile cache. Both maps nil means the binary
-// loads and saves the on-disk process state. A present map, even empty, is
-// the old facade contract and is not written to disk.
+// opSession is the per-call state shared by the ops: the profile caches the
+// facade seeded, which go back with the result.
 type opState struct {
 	ProfileArnCache map[string]string `json:"profileArnCache"`
 	ProfileRegions  map[string]string `json:"profileRegions"`
 }
 
 func (o opState) session() *session {
-	arns := o.ProfileArnCache
-	regions := o.ProfileRegions
-	disk := o.ProfileArnCache == nil && o.ProfileRegions == nil
-	if disk {
-		st := peekProcessState()
-		arns = st.ProfileArns
-		regions = st.ProfileRegions
-	}
-	s := &session{client: httpClient(), profiles: newProfileCache(arns), persistProfiles: disk}
-	for k, v := range regions {
+	s := &session{client: httpClient(), profiles: newProfileCache(o.ProfileArnCache)}
+	for k, v := range o.ProfileRegions {
 		s.profiles.regions[k] = v
 	}
 	return s
@@ -131,9 +117,6 @@ func (s *session) profileState(out *jsjson.Object) {
 			regions.Set(k, v)
 		}
 		out.Set("kiroProfileRegions", regions)
-	}
-	if s.persistProfiles && (len(s.profiles.changes) > 0 || len(s.profiles.regionChanges) > 0) {
-		updateProcessState(func(st *processState) { s.profiles.writeTo(st) })
 	}
 }
 

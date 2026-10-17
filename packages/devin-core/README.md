@@ -29,9 +29,6 @@ Devin errors.
   normalized onto `DevinModelSpec` with effort-lane collapse (`effortMap`).
 - `resolveDevinCredentials()` / `saveDevinCredentials()` — the CLI credential
   store at `~/.local/share/devin/credentials.toml`, shared with `devin auth`.
-  The file is read and written by the `loadCredentials` / `saveCredentials`
-  ops; these functions stay synchronous and call the binary with
-  `--ignore-stdin-eof`.
 - `loginDevinWithPkce()` — the CLI's browser PKCE flow against app.devin.ai,
   driven by `ns-bridge login --vendor devin` through host callbacks.
 - `fetchDevinUsage()` — plan tier, credit buckets, and daily/weekly quota

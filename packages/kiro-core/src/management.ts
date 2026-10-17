@@ -1,13 +1,10 @@
-// ABOUTME: The error class management failures rebuild into, plus the sync
-// ABOUTME: helpers that edit the profile-ARN file the Go sidecar owns
-// ABOUTME: (~/.ns-kiro-provider-process-state.json). The RPCs themselves
-// ABOUTME: (ListAvailableProfiles, ListAvailableModels, GetUsageLimits,
-// ABOUTME: GetProfile) run in go/internal/vendors/kiro.
+// ABOUTME: Shared state for the Kiro management control plane: the profile
+// ABOUTME: ARN/region caches this process carries across sidecar calls, plus
+// ABOUTME: the error class management failures rebuild into. The RPCs
+// ABOUTME: themselves (ListAvailableProfiles, ListAvailableModels,
+// ABOUTME: GetUsageLimits, GetProfile) run in go/internal/vendors/kiro.
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 export interface KiroManagementAuth {
   accessToken: string;
@@ -40,48 +37,11 @@ export interface KiroGetUsageLimitsRequest {
 const profileArnCache = new Map<string, string>();
 /**
  * Region where the token actually has a profile, keyed like profileArnCache.
- * The binary's process-state file is the copy the next call reads. These maps
- * stay so a caller that still snapshots them, and the sync reset/invalidate
- * helpers, see the same edit.
+ * Populated when a sidecar call finds the ARN on a non-primary region so
+ * callers can route profile-dependent management calls (ListAvailableModels) to
+ * the same region where the profile exists.
  */
 const profileRegionCache = new Map<string, string>();
-
-interface ProcessStateFile {
-  profileArns?: Record<string, string>;
-  profileRegions?: Record<string, string>;
-  [key: string]: unknown;
-}
-
-/** Same path the binary uses (KIRO_PROCESS_STATE_PATH, or the home file). */
-function processStatePath(): string | undefined {
-  const override = process.env.KIRO_PROCESS_STATE_PATH;
-  if (override === "off") return undefined;
-  if (override) return override;
-  const home = homedir();
-  return home ? join(home, ".ns-kiro-provider-process-state.json") : undefined;
-}
-
-/** Edit the profile section of the process-state file, leaving estimates alone. */
-function editProcessState(edit: (state: ProcessStateFile) => void): void {
-  const path = processStatePath();
-  if (!path || !existsSync(path)) return;
-  let state: ProcessStateFile = {};
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) state = parsed as ProcessStateFile;
-  } catch {
-    return;
-  }
-  if (!state.profileArns || typeof state.profileArns !== "object") state.profileArns = {};
-  if (!state.profileRegions || typeof state.profileRegions !== "object") state.profileRegions = {};
-  edit(state);
-  try {
-    writeFileSync(path, JSON.stringify(state));
-  } catch {
-    // The binary rewrites this file under its own lock. A failed local edit
-    // only affects the sync helpers, which run between calls.
-  }
-}
 
 export class KiroManagementHttpError extends Error {
   constructor(
@@ -96,10 +56,6 @@ export class KiroManagementHttpError extends Error {
 export function resetKiroProfileArnCache(): void {
   profileArnCache.clear();
   profileRegionCache.clear();
-  editProcessState((state) => {
-    state.profileArns = {};
-    state.profileRegions = {};
-  });
 }
 
 /**
@@ -148,8 +104,4 @@ export function invalidateKiroProfileArn(auth: KiroManagementAuth): void {
   const key = profileCacheKey(auth);
   profileArnCache.delete(key);
   profileRegionCache.delete(key);
-  editProcessState((state) => {
-    delete state.profileArns?.[key];
-    delete state.profileRegions?.[key];
-  });
 }

@@ -43,18 +43,15 @@ var httpClient = httpx.Client
 
 // session is one turn's mutable state.
 type session struct {
-	client          *http.Client
-	profiles        *profileCache
-	persistProfiles bool
+	client   *http.Client
+	profiles *profileCache
 }
 
-// UsageEvent is the usage event plus whether Kiro reported cache counters.
-// cacheEstimateHandled means the binary already applied the cross-turn
-// estimate, so the facade must not apply it again.
+// UsageEvent is the usage event plus whether Kiro reported cache counters
+// (the facade's cache estimator needs it; hosts never see the field).
 type UsageEvent struct {
 	bridge.UsageEvent
-	WireCache            bool `json:"kiroWireCache,omitempty"`
-	CacheEstimateHandled bool `json:"cacheEstimateHandled,omitempty"`
+	WireCache bool `json:"kiroWireCache,omitempty"`
 }
 
 // DoneEvent is done plus the profile ARN cache changes for the facade.
@@ -253,7 +250,7 @@ func errStr(err error) string { return redact.Kiro(err.Error()) }
 
 // Stream runs one Kiro turn.
 func Stream(ctx context.Context, req *StreamRequest, emit func(bridge.Event) error) error {
-	s := newStreamSession(req)
+	s := &session{client: httpClient(), profiles: newProfileCache(req.ProfileArnCache)}
 	model := &req.Model
 	if req.AccessToken == "" {
 		return errors.New("Kiro credentials not set. Run `kiro-cli login`, or set KIRO_API_KEY.")
@@ -720,8 +717,7 @@ requestLoop:
 			}
 		}
 		wireCache := wire != nil && (wire.CacheReadInputTokens != nil || wire.CacheWriteInputTokens != nil)
-		handled := commitTurnState(s, req, &usage, wireCache, errorMessage, conversationID)
-		if err := emit(UsageEvent{UsageEvent: bridge.UsageUpdate(usage), WireCache: wireCache, CacheEstimateHandled: handled}); err != nil {
+		if err := emit(UsageEvent{UsageEvent: bridge.UsageUpdate(usage), WireCache: wireCache}); err != nil {
 			return err
 		}
 		done := bridge.Done(stopReason)
@@ -733,40 +729,6 @@ requestLoop:
 		return emit(DoneEvent{DoneEvent: done, ProfileArns: changes, RuntimeRegion: runtimeRegion, ProfileArn: profileArn})
 	}
 	return errors.New("Kiro API error: retry budget exhausted")
-}
-
-// newStreamSession seeds the profile cache from the request when the facade
-// sent one, and from the process-state file when it did not.
-func newStreamSession(req *StreamRequest) *session {
-	if req.ProfileArnCache != nil {
-		return &session{client: httpClient(), profiles: newProfileCache(req.ProfileArnCache)}
-	}
-	st := peekProcessState()
-	s := &session{client: httpClient(), profiles: newProfileCache(st.ProfileArns), persistProfiles: true}
-	for k, v := range st.ProfileRegions {
-		s.profiles.regions[k] = v
-	}
-	return s
-}
-
-// commitTurnState writes this turn's profile delta and, when the facade asked,
-// applies the cache-read estimate. The bool is cacheEstimateHandled.
-func commitTurnState(s *session, req *StreamRequest, usage *bridge.Usage, wireCache bool, errorMessage, conversationID string) bool {
-	needProfiles := s.persistProfiles && (len(s.profiles.changes) > 0 || len(s.profiles.regionChanges) > 0)
-	needEstimate := req.ApplyCacheEstimate && req.UsageTracking != nil && errorMessage == "" &&
-		(req.UsageTracking.EstimateCacheUsage || wireCache)
-	if !needProfiles && !needEstimate {
-		return false
-	}
-	updateProcessState(func(st *processState) {
-		if needProfiles {
-			s.profiles.writeTo(st)
-		}
-		if needEstimate {
-			applyCacheEstimate(st, conversationID, usage, wireCache, req.UsageTracking, int64(nowMs()))
-		}
-	})
-	return needEstimate
 }
 
 // estimateCreditCost is estimateKiroCreditCost.

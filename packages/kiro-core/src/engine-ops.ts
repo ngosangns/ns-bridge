@@ -1,9 +1,15 @@
-// ABOUTME: Runs Kiro's one-shot operations (catalog refresh, usage, token refresh)
-// ABOUTME: in the Go sidecar and maps sidecar failures back to Kiro's error classes.
+// ABOUTME: Runs Kiro's one-shot operations (catalog refresh, usage, token refresh) on the selected engine,
+// ABOUTME: carrying the profile caches across and mapping sidecar failures back to Kiro's error classes.
 
 import { engineCall, type SidecarError } from "ns-bridge-core/sidecar";
 import { KiroApiError, type KiroProviderAttempts } from "./errors.js";
-import { KiroManagementHttpError } from "./management.js";
+import {
+  applyKiroProfileArnCacheChanges,
+  applyKiroProfileRegionChanges,
+  KiroManagementHttpError,
+  snapshotKiroProfileArnCache,
+  snapshotKiroProfileRegionCache,
+} from "./management.js";
 
 /**
  * The Kiro error a sidecar failure stands for, rebuilt from the class the Go
@@ -35,18 +41,23 @@ interface ProfileState {
 }
 
 /**
- * Run `op` in the Go sidecar. Profile caches live in the binary's process-state
- * file, so the request does not carry them. Bookkeeping fields on the result
- * are dropped before the caller sees it.
+ * Run `op` in the Go sidecar, seeded with this process's profile caches. The
+ * sidecar's cache changes are folded back before the result is returned.
  */
 export async function runKiroOp<TResult>(op: string, request: () => Record<string, unknown>): Promise<TResult> {
   const result = await engineCall<TResult & ProfileState, Record<string, unknown>>({
     vendor: "kiro",
     op,
-    request,
+    request: () => ({
+      ...request(),
+      profileArnCache: snapshotKiroProfileArnCache(),
+      profileRegions: snapshotKiroProfileRegionCache(),
+    }),
     mapError: kiroErrorFromSidecar,
   });
   if (!result || typeof result !== "object") return result;
-  const { kiroProfileArns: _arns, kiroProfileRegions: _regions, ...rest } = result;
+  const { kiroProfileArns, kiroProfileRegions, ...rest } = result;
+  applyKiroProfileArnCacheChanges(kiroProfileArns);
+  applyKiroProfileRegionChanges(kiroProfileRegions);
   return rest as TResult;
 }

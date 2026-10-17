@@ -169,42 +169,9 @@ func TestRunCall(t *testing.T) {
 	}
 	for _, c := range cases {
 		var out bytes.Buffer
-		code := RunCall(context.Background(), c.vendor, c.op, reg, Options{}, strings.NewReader(`{"protocol":1,"request":21}`), &out)
+		code := RunCall(context.Background(), c.vendor, c.op, reg, strings.NewReader(`{"protocol":1,"request":21}`), &out)
 		if code != c.code || !strings.Contains(out.String(), c.want) {
 			t.Errorf("%s/%s: exit %d, out %q", c.vendor, c.op, code, out.String())
 		}
-	}
-}
-
-// patient returns once its context ends, or "ok" if the context stays alive.
-// A closed stdin cancels the call unless IgnoreStdinEOF is set, which is how
-// a synchronous spawn (stdin already at EOF) can still get a result.
-type patient struct{ silent }
-
-func (patient) Call(ctx context.Context, op string, _ json.RawMessage) (any, error) {
-	if op != "wait" {
-		return nil, ErrUnknownOp
-	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(50 * time.Millisecond):
-		return "ok", nil
-	}
-}
-
-func TestRunCallIgnoreStdinEOF(t *testing.T) {
-	reg := Registry{"patient": patient{}}
-	in := strings.NewReader(`{"protocol":1,"request":{}}`)
-	var cancelled bytes.Buffer
-	code := RunCall(context.Background(), "patient", "wait", reg, Options{}, in, &cancelled)
-	if code != ExitError || !strings.Contains(cancelled.String(), `"kind":"aborted"`) {
-		t.Fatalf("closed stdin: exit %d, out %s", code, cancelled.String())
-	}
-
-	var kept bytes.Buffer
-	code = RunCall(context.Background(), "patient", "wait", reg, Options{IgnoreStdinEOF: true}, strings.NewReader(`{"protocol":1,"request":{}}`), &kept)
-	if code != ExitOK || !strings.Contains(kept.String(), `"result":"ok"`) {
-		t.Fatalf("ignore eof: exit %d, out %s", code, kept.String())
 	}
 }

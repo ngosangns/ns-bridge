@@ -1,13 +1,13 @@
-// ABOUTME: Kiro ↔ sidecar glue: the request the Go vendor reads, plus the
-// ABOUTME: catalog refresh a one-turn sidecar cannot finish after it exits.
-// ABOUTME: Profile ARNs and the cache-read estimate live in the binary's
-// ABOUTME: process-state file.
+// ABOUTME: Kiro ↔ sidecar glue: the request the Go vendor reads and the
+// ABOUTME: per-process state (profile ARNs, cache estimates, catalog refresh)
+// ABOUTME: a one-turn sidecar cannot hold, folded back over the event stream.
 
 import { engineStream, SidecarError } from "ns-bridge-core/sidecar";
 import { applyCacheEstimate } from "./cache-estimator.js";
 import { debugLog, formatSafeError } from "./debug.js";
 import { getKiroRegionFromProfileArn } from "./endpoints.js";
 import { kiroErrorFromSidecar } from "./engine-ops.js";
+import { applyKiroProfileArnCacheChanges, snapshotKiroProfileArnCache } from "./management.js";
 import { isCacheStale, resolveKiroModel, updateKiroModelsCache } from "./models.js";
 import { capacityRetryConfig, firstTokenTimeoutForModel, retryConfig } from "./retry.js";
 import type { KiroStreamRequest } from "./stream.js";
@@ -20,11 +20,8 @@ export const KIRO_SIDECAR_VENDOR = "kiro";
 
 /**
  * The JSON the Go vendor reads (go/internal/vendors/kiro StreamRequest): the
- * request with its model id pre-resolved. Profile ARNs and the cache-read
- * estimate are the binary's process-state file, so they are not sent.
- * `applyCacheEstimate` asks the binary to apply the estimate; a binary that
- * does not know the field leaves `cacheEstimateHandled` unset and this facade
- * applies it. Throws whatever {@link resolveKiroModel} throws.
+ * request with its model id pre-resolved, plus the state this process holds.
+ * Throws whatever {@link resolveKiroModel} throws.
  */
 export function toKiroSidecarRequest(request: KiroStreamRequest, conversationId: string): Record<string, unknown> {
   const { signal: _signal, ...wire } = request;
@@ -34,7 +31,7 @@ export function toKiroSidecarRequest(request: KiroStreamRequest, conversationId:
     ...wire,
     model: { ...request.model, kiroModelId },
     conversationId,
-    applyCacheEstimate: true,
+    profileArnCache: snapshotKiroProfileArnCache(),
     timeouts: {
       firstTokenMs: request.model.firstTokenTimeout ?? firstTokenTimeoutForModel(request.model.id),
       requestHeaderMs: retryConfig.requestHeaderTimeoutMs,
@@ -44,12 +41,7 @@ export function toKiroSidecarRequest(request: KiroStreamRequest, conversationId:
   };
 }
 
-type SidecarUsageEvent = {
-  type: "usage";
-  usage: KiroUsage;
-  kiroWireCache?: boolean;
-  cacheEstimateHandled?: boolean;
-};
+type SidecarUsageEvent = { type: "usage"; usage: KiroUsage; kiroWireCache?: boolean };
 type SidecarDoneEvent = Extract<KiroStreamEvent, { type: "done" }> & {
   kiroProfileArns?: Record<string, string | null>;
   kiroRuntimeRegion?: string;
@@ -57,10 +49,9 @@ type SidecarDoneEvent = Extract<KiroStreamEvent, { type: "done" }> & {
 };
 
 /**
- * Strip the binary's bookkeeping fields and refresh a stale model catalog in
- * this process. The catalog refresh stays here because the binary exits when
- * the call ends. Cache estimation runs here only for a binary that did not
- * set `cacheEstimateHandled`.
+ * Apply to sidecar events what needs per-process state: fold profile ARNs back
+ * into the cache, estimate cache reads across turns, and refresh a stale model
+ * catalog in the background.
  */
 async function* postProcess(
   events: AsyncIterable<KiroStreamEvent>,
@@ -77,7 +68,8 @@ async function* postProcess(
       yield event;
       continue;
     }
-    const { kiroProfileArns: _arns, kiroRuntimeRegion, kiroProfileArn, ...done } = event as SidecarDoneEvent;
+    const { kiroProfileArns, kiroRuntimeRegion, kiroProfileArn, ...done } = event as SidecarDoneEvent;
+    applyKiroProfileArnCacheChanges(kiroProfileArns);
     const region = kiroRuntimeRegion ?? getKiroRegionFromProfileArn(kiroProfileArn) ?? request.model.region;
     if (!process.env.VITEST && region && kiroProfileArn && isCacheStale(region)) {
       updateKiroModelsCache(request.accessToken, region, kiroProfileArn).catch((error) => {
@@ -85,8 +77,8 @@ async function* postProcess(
       });
     }
     if (pendingUsage) {
-      const { kiroWireCache, cacheEstimateHandled, ...usageEvent } = pendingUsage;
-      if (!cacheEstimateHandled && !done.errorMessage) {
+      const { kiroWireCache, ...usageEvent } = pendingUsage;
+      if (!done.errorMessage) {
         const estimatedRead = applyCacheEstimate(
           conversationId,
           usageEvent.usage,
@@ -108,7 +100,7 @@ async function* postProcess(
     yield done as KiroStreamEvent;
   }
   if (pendingUsage) {
-    const { kiroWireCache: _wire, cacheEstimateHandled: _handled, ...usageEvent } = pendingUsage;
+    const { kiroWireCache: _wire, ...usageEvent } = pendingUsage;
     yield usageEvent as KiroStreamEvent;
   }
 }

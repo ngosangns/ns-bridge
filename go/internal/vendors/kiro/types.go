@@ -106,14 +106,10 @@ type StreamRequest struct {
 
 	// The conversation id (sessionId, or one the facade minted).
 	ConversationID string `json:"conversationId"`
-	// Profile ARNs by profileCacheKey. Nil means the binary loads and saves
-	// the on-disk process state; an empty object is an explicit empty cache.
+	// Profile ARNs the facade's in-memory cache holds, by profileCacheKey.
 	ProfileArnCache map[string]string `json:"profileArnCache"`
-	// When true, the binary applies the cross-turn cache-read estimate and
-	// marks the usage event cacheEstimateHandled.
-	ApplyCacheEstimate bool           `json:"applyCacheEstimate"`
-	Timeouts           *Timeouts      `json:"timeouts"`
-	CapacityRetry      *CapacityRetry `json:"capacityRetry"`
+	Timeouts        *Timeouts         `json:"timeouts"`
+	CapacityRetry   *CapacityRetry    `json:"capacityRetry"`
 	// Set by tests that skip management lookups (resetProfileArnCache(true)).
 	TestProfileArn string `json:"testProfileArn"`
 }
