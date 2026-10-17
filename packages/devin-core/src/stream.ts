@@ -3,7 +3,6 @@
 
 import { assignDevinModel, DEVIN_CHAT_MESSAGE_PATH, type FetchImpl, fetchDevinAuthMetadata } from "./client.js";
 import { ConnectFrameReader, encodeConnectFrame } from "./connect.js";
-import { streamDevinOnEngine } from "./engine.js";
 import { createDevinHttpError, DevinProtocolError, DevinStreamError, readConnectTrailerError } from "./errors.js";
 import { parseStreamingJsonThrottled, parseToolCallArguments } from "./json.js";
 import {
@@ -73,13 +72,11 @@ export function calculateDevinCost(
 }
 
 /**
- * Stream one Cascade turn as neutral block events, on the engine
- * `NS_BRIDGE_ENGINE` selects: the ns-bridge Go sidecar or this package's
- * in-process TypeScript core ({@link streamDevinInProcess}). A request that
- * injects its own `fetch` always runs in process.
+ * Stream one Cascade turn as neutral block events. A request may inject its
+ * own `fetch`; otherwise the global `fetch` is used.
  */
 export function streamDevin(request: DevinStreamRequest): AsyncIterable<DevinStreamEvent> {
-  return streamDevinOnEngine(request, undefined, streamDevinInProcess);
+  return streamDevinInProcess(request);
 }
 
 /**

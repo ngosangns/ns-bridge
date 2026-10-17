@@ -16,18 +16,15 @@ describe("devin catalog (devin-core) for Pi", () => {
   });
 
   it("keeps the cached / bootstrap catalog when discovery fails", async () => {
-    // Discovery runs in the Go sidecar; an unavailable binary is the failure
-    // the cache survives.
-    const prev = process.env.NS_BRIDGE_BIN;
-    process.env.NS_BRIDGE_BIN = "/nonexistent/ns-bridge";
-    try {
-      const result = await refreshDevinModels({ force: true, token: "tok" });
-      expect(result.fromCache).toBe(true);
-      expect(result.models.map((model) => model.id)).toEqual(devinModels.map((model) => model.id));
-    } finally {
-      if (prev === undefined) delete process.env.NS_BRIDGE_BIN;
-      else process.env.NS_BRIDGE_BIN = prev;
-    }
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 500 }));
+    const result = await refreshDevinModels({
+      force: true,
+      token: "tok",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(fetchImpl).toHaveBeenCalled();
+    expect(result.fromCache).toBe(true);
+    expect(result.models.map((model) => model.id)).toEqual(devinModels.map((model) => model.id));
   });
 
   it("does not touch the network without a token", async () => {

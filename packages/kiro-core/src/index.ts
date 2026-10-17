@@ -26,15 +26,6 @@ export {
   resolveApiRegion,
 } from "./endpoints.js";
 export {
-  KIRO_SIDECAR_VENDOR,
-  kiroErrorFromSidecar,
-  SidecarError,
-  selectKiroEngine,
-  streamKiroOnEngine,
-  toKiroSidecarRequest,
-} from "./engine.js";
-export { runKiroOp } from "./engine-ops.js";
-export {
   extractKiroReasonCode,
   KiroApiError,
   type KiroProviderAttempts,

@@ -40,12 +40,6 @@ export {
   normalizeDevinModels,
 } from "./discovery.js";
 export {
-  DEVIN_SIDECAR_VENDOR,
-  devinErrorFromSidecar,
-  selectDevinEngine,
-  toDevinSidecarRequest,
-} from "./engine.js";
-export {
   type ConnectTrailerError,
   createDevinHttpError,
   DevinApiError,

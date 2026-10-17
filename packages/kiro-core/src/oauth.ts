@@ -280,16 +280,11 @@ async function refreshKiroTokenInternal(credentials: KiroCredentials): Promise<K
 
 /**
  * The network half of a refresh (desktop, external IdP or IAM Identity Center
- * token endpoint). Runs in the Go sidecar when NS_BRIDGE_ENGINE(_KIRO) selects
- * it; which store to trust and where to save stays here.
+ * token endpoint). Which store to trust and where to save stays in
+ * {@link refreshKiroTokenInternal}.
  */
 async function refreshKiroTokenDirect(credentials: KiroCredentials): Promise<KiroCredentials> {
-  const { runKiroOp } = await import("./engine-ops.js");
-  return runKiroOp(
-    "refreshToken",
-    () => ({ credentials }),
-    () => refreshKiroTokenDirectInProcess(credentials),
-  );
+  return refreshKiroTokenDirectInProcess(credentials);
 }
 
 /** Overrides the desktop refresh URL; `{region}` is substituted (tests, proxies). */

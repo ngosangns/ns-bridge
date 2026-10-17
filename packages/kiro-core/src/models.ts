@@ -576,35 +576,14 @@ export function isCacheStale(region: string): boolean {
 
 /**
  * Refresh one region's catalog into the disk cache that {@link getCachedModels}
- * reads synchronously. Runs in the Go sidecar when NS_BRIDGE_ENGINE(_KIRO)
- * selects it (the binary writes the same file), in process otherwise.
+ * reads synchronously.
  */
 export async function updateKiroModelsCache(accessToken: string, region: string, profileArn?: string): Promise<void> {
-  // Imported lazily: engine-ops → errors → retry → models is a cycle at load time.
-  const { runKiroOp } = await import("./engine-ops.js");
-  await runKiroOp(
-    "refreshModels",
-    () => ({
-      accessToken,
-      region,
-      ...(profileArn ? { profileArn } : {}),
-      known: kiroModels.map((model) => ({
-        id: model.id,
-        name: model.name,
-        input: model.input,
-        ...(model.firstTokenTimeout ? { firstTokenTimeout: model.firstTokenTimeout } : {}),
-      })),
-      cachePath: KIRO_MANAGEMENT_CACHE_PATH,
-    }),
-    async () => {
-      await updateKiroModelsCacheInProcess(accessToken, region, profileArn);
-      return {};
-    },
-  );
+  await updateKiroModelsCacheInProcess(accessToken, region, profileArn);
   refreshKnownModelIds(readManagementCache());
 }
 
-/** {@link updateKiroModelsCache} in TypeScript, regardless of NS_BRIDGE_ENGINE. */
+/** {@link updateKiroModelsCache} against the management API. */
 export async function updateKiroModelsCacheInProcess(
   accessToken: string,
   region: string,

@@ -6,7 +6,6 @@ import { applyCacheEstimate } from "./cache-estimator.js";
 import { debugEnabled, debugLog, formatSafeError, redactSensitiveText } from "./debug.js";
 import { buildKiroAdditionalModelRequestFields, clampKiroEffort, getKiroEffortConfig } from "./effort.js";
 import { getKiroEndpoints, getKiroRegionFromProfileArn } from "./endpoints.js";
-import { streamKiroOnEngine } from "./engine.js";
 import { extractKiroReasonCode, KiroApiError, parseRetryAfterMs } from "./errors.js";
 import { getKiroCliCredentials, getKiroCliCredentialsAllowExpired, refreshViaKiroCli } from "./kiro-cli.js";
 import {
@@ -233,12 +232,12 @@ function throwOnTerminalWireStop(wireStopReason: string | undefined, stopDetails
  * governs.
  */
 export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
-  yield* streamKiroOnEngine(request, streamKiroInProcess);
+  yield* streamKiroInProcess(request);
 }
 
 /**
- * The in-process TypeScript implementation of {@link streamKiro}, which runs
- * regardless of NS_BRIDGE_ENGINE (the fallback when the Go sidecar is absent).
+ * The implementation of {@link streamKiro}. Exported so tests and hosts can
+ * call the same generator without going through the public wrapper.
  */
 export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
   const { model, signal } = request;
