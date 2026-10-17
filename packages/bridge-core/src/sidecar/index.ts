@@ -12,6 +12,7 @@ export {
   SIDECAR_BIN_PACKAGE,
 } from "./binary.js";
 export {
+  type BridgeEngine,
   type BridgeEngineSetting,
   bridgeEngineSetting,
   type EngineCallOptions,
@@ -19,6 +20,7 @@ export {
   engineCall,
   engineStream,
   NS_BRIDGE_ENGINE_ENV,
+  selectBridgeEngine,
   sidecarBinaryAvailable,
 } from "./engine.js";
 export {

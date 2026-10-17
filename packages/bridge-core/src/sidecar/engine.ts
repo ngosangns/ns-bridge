@@ -1,5 +1,5 @@
-// ABOUTME: Runs every vendor call in the ns-bridge Go binary. The in-process
-// ABOUTME: TypeScript engines were removed — the binary (ns-bridge-bin) is required.
+// ABOUTME: Runs a vendor call in the ns-bridge Go binary, or in-process when
+// ABOUTME: NS_BRIDGE_ENGINE=ts and the caller passed an in-process core.
 
 import { existsSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
@@ -10,8 +10,9 @@ import { type SidecarStreamOptions, sidecarCall, sidecarStream } from "./stream.
 /** Environment variable that used to select the engine; still read for warnings. */
 export const NS_BRIDGE_ENGINE_ENV = "NS_BRIDGE_ENGINE";
 
-/** What NS_BRIDGE_ENGINE may say; only `go` is honored — `ts` and `auto` warn and still run Go. */
-export type BridgeEngineSetting = "go" | "ts" | "auto";
+/** What NS_BRIDGE_ENGINE may say. Unset stays on the Go sidecar. */
+export type BridgeEngine = "go" | "ts";
+export type BridgeEngineSetting = BridgeEngine | "auto";
 
 function parseSetting(value: string | undefined): BridgeEngineSetting | undefined {
   switch (value?.trim().toLowerCase()) {
@@ -77,14 +78,26 @@ export function sidecarBinaryAvailable(env: NodeJS.ProcessEnv = process.env): bo
 let warnedTsSetting = false;
 
 /**
- * Warn once when NS_BRIDGE_ENGINE(_<VENDOR>)=ts is still set: the TypeScript
- * engine no longer exists, so the call runs in the Go binary anyway.
+ * The engine a call runs on. An explicit `ts` uses the in-process core when
+ * the caller passed one. Unset or `go` stays on the sidecar and never falls
+ * back. `auto` uses the sidecar when a binary is installed.
+ */
+export function selectBridgeEngine(vendor?: string, env: NodeJS.ProcessEnv = process.env): BridgeEngine {
+  const setting = bridgeEngineSetting(vendor, env);
+  if (setting === "ts") return "ts";
+  if (setting === "auto") return sidecarBinaryAvailable(env) ? "go" : "ts";
+  return "go";
+}
+
+/**
+ * Warn once when NS_BRIDGE_ENGINE(_<VENDOR>)=ts is set but the caller has no
+ * in-process core to run. The call stays on the Go binary.
  */
 function warnOnTsSetting(vendor: string, env: NodeJS.ProcessEnv): void {
-  if (warnedTsSetting || bridgeEngineSetting(vendor, env) !== "ts") return;
+  if (warnedTsSetting || selectBridgeEngine(vendor, env) !== "ts") return;
   warnedTsSetting = true;
   console.warn(
-    `[ns-bridge] ${NS_BRIDGE_ENGINE_ENV}=ts is no longer supported: the TypeScript engine was removed. ` +
+    `[ns-bridge] ${NS_BRIDGE_ENGINE_ENV}=ts is set but this call has no in-process core. ` +
       "The call runs in the ns-bridge Go binary.",
   );
 }
@@ -93,23 +106,29 @@ export interface EngineStreamOptions<TEvent, TRequest> {
   vendor: string;
   /** The request as the Go vendor reads it (JSON-serialisable). */
   request: () => TRequest;
+  /** The in-process TypeScript core. Used when {@link selectBridgeEngine} is `ts`. */
+  inProcess?: () => AsyncIterable<TEvent>;
   /** Turn a sidecar failure back into the vendor core's own error type. */
   mapError?: (error: SidecarError) => unknown;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   sidecar?: Omit<SidecarStreamOptions, "signal" | "env">;
   /**
-   * Post-process the events the sidecar yields, e.g. to apply per-process
-   * state the binary cannot hold.
+   * Post-process the events the sidecar yields (never the in-process ones),
+   * e.g. to apply per-process state the binary cannot hold.
    */
   transform?: (events: AsyncIterable<TEvent>) => AsyncIterable<TEvent>;
 }
 
-/** Run one vendor call in the Go sidecar. */
+/** Run one vendor call on the selected engine. Unset stays on the Go sidecar. */
 export async function* engineStream<TEvent, TRequest>(
   options: EngineStreamOptions<TEvent, TRequest>,
 ): AsyncGenerator<TEvent, void, undefined> {
   const env = options.env ?? process.env;
+  if (selectBridgeEngine(options.vendor, env) === "ts" && options.inProcess) {
+    yield* options.inProcess();
+    return;
+  }
   warnOnTsSetting(options.vendor, env);
   try {
     const raw = sidecarStream(options.vendor, options.request(), {
@@ -129,6 +148,8 @@ export interface EngineCallOptions<_TResult, TRequest> {
   op: string;
   /** The request as the Go vendor reads it (JSON-serialisable). */
   request: () => TRequest;
+  /** The in-process TypeScript implementation. Used when {@link selectBridgeEngine} is `ts`. */
+  inProcess?: () => Promise<_TResult>;
   /** Turn a sidecar failure back into the vendor core's own error type. */
   mapError?: (error: SidecarError) => unknown;
   signal?: AbortSignal;
@@ -136,9 +157,10 @@ export interface EngineCallOptions<_TResult, TRequest> {
   sidecar?: Omit<SidecarStreamOptions, "signal" | "env">;
 }
 
-/** Run one vendor operation (catalog, usage, token refresh) in the Go sidecar. */
+/** Run one vendor operation (catalog, usage, token refresh) on the selected engine. */
 export async function engineCall<TResult, TRequest>(options: EngineCallOptions<TResult, TRequest>): Promise<TResult> {
   const env = options.env ?? process.env;
+  if (selectBridgeEngine(options.vendor, env) === "ts" && options.inProcess) return options.inProcess();
   warnOnTsSetting(options.vendor, env);
   try {
     return await sidecarCall<TResult>(options.vendor, options.op, options.request(), {

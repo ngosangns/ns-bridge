@@ -41,10 +41,16 @@ interface ProfileState {
 }
 
 /**
- * Run `op` in the Go sidecar, seeded with this process's profile caches. The
- * sidecar's cache changes are folded back before the result is returned.
+ * Run `op` in the Go sidecar (with this process's profile caches) or
+ * in-process, per NS_BRIDGE_ENGINE(_KIRO). The sidecar's cache changes are
+ * folded back before the result is returned.
  */
-export async function runKiroOp<TResult>(op: string, request: () => Record<string, unknown>): Promise<TResult> {
+export async function runKiroOp<TResult>(
+  op: string,
+  request: () => Record<string, unknown>,
+  inProcess: () => Promise<TResult>,
+): Promise<TResult> {
+  let ranInProcess = false;
   const result = await engineCall<TResult & ProfileState, Record<string, unknown>>({
     vendor: "kiro",
     op,
@@ -53,9 +59,13 @@ export async function runKiroOp<TResult>(op: string, request: () => Record<strin
       profileArnCache: snapshotKiroProfileArnCache(),
       profileRegions: snapshotKiroProfileRegionCache(),
     }),
+    inProcess: async () => {
+      ranInProcess = true;
+      return (await inProcess()) as TResult & ProfileState;
+    },
     mapError: kiroErrorFromSidecar,
   });
-  if (!result || typeof result !== "object") return result;
+  if (ranInProcess || !result || typeof result !== "object") return result;
   const { kiroProfileArns, kiroProfileRegions, ...rest } = result;
   applyKiroProfileArnCacheChanges(kiroProfileArns);
   applyKiroProfileRegionChanges(kiroProfileRegions);
