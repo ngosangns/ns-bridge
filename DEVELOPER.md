@@ -7,6 +7,8 @@ project is and how to install/use it, see [README.md](README.md).
 
 pnpm workspace. Ten packages under `packages/`. npm publishes only `@ngosangns/ns-bridge`. The other packages stay at their last published version.
 
+This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns-pi-provider`, `ns-omp-provider`, and `ns-devin-provider` (archived, each pointing here).
+
 | Layer | Package | Owns |
 | --- | --- | --- |
 | shared | [`ns-bridge-core`](packages/bridge-core) | The neutral vocabulary (`Bridge*` messages, tools, stream events, usage, effort) and one bridge per host family: `./pi` (Pi and OMP) and `./dsh` (DeepSeek Harness) |
