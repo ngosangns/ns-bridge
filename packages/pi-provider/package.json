@@ -1,7 +1,7 @@
 {
   "name": "@ngosangns/ns-pi-provider",
   "version": "0.5.3",
-  "description": "Unified Pi coding-agent providers for Kiro, Devin, and Grok — OAuth/CLI auth, streaming, and auto-updating model catalogs with disk TTL cache.",
+  "description": "No longer developed. Pi providers for Kiro, Devin, and Grok. Use @ngosangns/ns-bridge.",
   "type": "module",
   "license": "MIT",
   "author": "ngosangns",

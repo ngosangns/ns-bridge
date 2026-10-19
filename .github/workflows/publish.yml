@@ -1,27 +1,23 @@
 name: Publish
 
-# Publishes the workspace's npm packages via trusted publishing (OIDC): no npm
-# token is stored anywhere. npm verifies the workflow identity instead, so the
-# trusted publisher registered on npmjs.com for EACH package must name this
-# repository (ngosangns/ns-bridge) AND this file (.github/workflows/publish.yml).
+# Publishes @ngosangns/ns-bridge via trusted publishing (OIDC). No npm token
+# is stored. The trusted publisher on that package must name this repository
+# (ngosangns/ns-bridge) and this file (.github/workflows/publish.yml).
 #
-# Every package keeps its own version. To release:
-#   1. bump "version" in each package.json you want to ship (and anything that
-#      must ship with it — a dependent pins the exact core version it was packed
-#      against);
+# The provider packages are no longer released. To release the CLI:
+#   1. bump "version" in packages/cli/package.json;
 #   2. commit and push to main;
-#   3. push one tag naming any one of them, scope dropped:
-#        git tag ns-kiro-core@0.3.9 && git push origin ns-kiro-core@0.3.9
+#   3. push one tag, scope dropped:
+#        git tag ns-bridge@0.1.1 && git push origin ns-bridge@0.1.1
 #
-# The run publishes every public package whose package.json version is not on
-# npm yet, dependencies first (scripts/release-plan.mjs), and refuses a tag
-# whose package is not part of that plan. A package npm has never seen is left
-# out with a warning: trusted publishing cannot create one, so its first
-# version is published by hand and its trusted publisher registered after.
+# scripts/release-plan.mjs refuses a tag that is not that package at a version
+# npm does not have yet. A package npm has never seen cannot be created by
+# OIDC; its first version is published by hand and the trusted publisher is
+# registered after.
 
 on:
   push:
-    tags: ["*@*"]
+    tags: ["ns-bridge@*"]
   workflow_dispatch:
     inputs:
       dry-run:

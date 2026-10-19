@@ -1,5 +1,7 @@
 # ns-bridge-core
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 The host-neutral half of [ns-bridge](https://github.com/ngosangns/ns-bridge): the
 vocabulary every vendor core speaks, and one bridge per host family that turns
 that vocabulary into the host's own types. A dependency of the ns-bridge

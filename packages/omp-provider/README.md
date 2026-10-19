@@ -1,5 +1,7 @@
 # ns-omp-provider
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 [OMP](https://omp.sh) (oh-my-pi) plugin that exposes the **Kiro**, **Devin**, and
 **Grok** providers from [`@ngosangns/ns-pi-provider`](../pi-provider), part of
 [ns-bridge](https://github.com/ngosangns/ns-bridge).

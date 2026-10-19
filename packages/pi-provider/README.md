@@ -1,5 +1,7 @@
 # @ngosangns/ns-pi-provider
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 Unified [Pi](https://pi.dev) coding-agent providers for **Kiro**, **Devin**, and **Grok**.
 
 - Provider ids: `kiro`, `devin`, `grok`

@@ -1,7 +1,7 @@
 {
   "name": "ns-dsh-llm-devin",
   "version": "0.4.3",
-  "description": "DeepSeek Harness (dsh) LLM adapter adding Devin (Cognition Cascade) as a model provider",
+  "description": "No longer developed. DeepSeek Harness adapter for Devin. Use @ngosangns/ns-bridge.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

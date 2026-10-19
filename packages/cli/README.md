@@ -2,11 +2,9 @@
 
 CLI for the [ns-bridge](https://github.com/ngosangns/ns-bridge) providers. It installs host packages and refreshes model catalogs in its own process, so Pi and OMP only read the files those commands write.
 
-The package is private until its first hand publish. Trusted publishing cannot create a package npm has never seen. From this repo:
-
 ```bash
-pnpm --filter @ngosangns/ns-bridge build
-pnpm exec ns-bridge help
+npm install -g @ngosangns/ns-bridge
+ns-bridge help
 ```
 
 ## Commands
@@ -36,6 +34,6 @@ DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it
 - Devin: `$NS_DEVIN_MODEL_CACHE`, or `$XDG_DATA_HOME/ns-devin-provider/models.json`
 - Grok: `~/.pi/agent/cache/ns-pi-provider/grok.models.json`
 
-`models refresh --apply` loads `@ngosangns/ns-pi-provider` and writes those files. A missing file is reported as missing. The command does not print the in-memory fallback list.
+`models refresh --apply` writes those files from the bundled refresh. A missing file is reported as missing. The command does not print the in-memory fallback list.
 
 Pi, OMP, and DSH read those files while they run. They do not refresh them.

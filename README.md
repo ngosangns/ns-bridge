@@ -1,5 +1,13 @@
 # ns-bridge
 
+Development of the individual provider packages has stopped. The package this
+repo still publishes is [`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge):
+
+```bash
+npm install -g @ngosangns/ns-bridge
+ns-bridge help
+```
+
 Third-party model vendors — **Kiro**, **Devin**, **Grok** — as providers for
 three coding-agent hosts: [Pi](https://pi.dev), [OMP](https://github.com/can1357/oh-my-pi)
 (oh-my-pi), and the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
@@ -42,8 +50,8 @@ Harness chunk) lands in one bridge and reaches every vendor.
 | [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | DSH adapter | `devin` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-devin)](https://www.npmjs.com/package/ns-dsh-llm-devin) |
 | [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | DSH adapter | `grok` as a Harness `LlmAdapter` over the local `grok` CLI | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-grok)](https://www.npmjs.com/package/ns-dsh-llm-grok) |
 
-Package names did not change in the merge; existing installs keep working. Each
-package keeps its own version.
+These packages are no longer developed. Existing installs keep the last
+published version. npm marks each one deprecated.
 
 This repository was assembled from four, with their history:
 `ns-kiro-provider` (renamed to this one), `ns-pi-provider`, `ns-omp-provider`
@@ -66,18 +74,17 @@ A Kiro API key (`ksk_…`) and `KIRO_API_KEY` are accepted directly.
 
 ## CLI
 
-`ns-bridge` installs and updates the host packages, and refreshes model catalogs, in its own process. Pi, OMP, and DSH read the catalog files and do not refresh them. Build it from this repo, then:
+`ns-bridge` installs and updates the host packages, and refreshes model catalogs, in its own process. Pi, OMP, and DSH read the catalog files and do not refresh them.
 
 ```bash
-pnpm --filter @ngosangns/ns-bridge build
-pnpm exec ns-bridge help
-pnpm exec ns-bridge install          # preview
-pnpm exec ns-bridge install --apply  # pi + omp; DSH needs --profile
-pnpm exec ns-bridge models list
-pnpm exec ns-bridge models refresh --apply
+npm install -g @ngosangns/ns-bridge
+ns-bridge install          # preview
+ns-bridge install --apply  # pi + omp; DSH needs --profile
+ns-bridge models list
+ns-bridge models refresh --apply
 ```
 
-Mutating commands preview unless you pass `--apply`. DSH needs `--profile <name>`. The `desktop` profile stays with the Electron app. The package is private until its first publish. See [packages/cli](packages/cli).
+Mutating commands preview unless you pass `--apply`. DSH needs `--profile <name>`. The `desktop` profile stays with the Electron app. See [packages/cli](packages/cli).
 
 ## Pi
 

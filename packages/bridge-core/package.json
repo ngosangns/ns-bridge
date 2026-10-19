@@ -1,7 +1,7 @@
 {
   "name": "ns-bridge-core",
   "version": "0.3.2",
-  "description": "Host-neutral vocabulary and host bridges (Pi / OMP / DeepSeek Harness) shared by the ns-bridge vendor providers; a dependency, not for direct install",
+  "description": "No longer developed. Host-neutral vocabulary and host bridges shared by the ns-bridge providers. Use @ngosangns/ns-bridge.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

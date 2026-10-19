@@ -10,9 +10,9 @@ description: >
 
 # Skill: release
 
-Làm theo [DEVELOPER.md](../../../DEVELOPER.md) mục Releasing. Mỗi package một version. Một tag `<tên-không-scope>@<version>` (ví dụ `ns-kiro-core@0.5.2`) kích hoạt `.github/workflows/publish.yml`. Workflow đăng mọi package public mà version trong `package.json` chưa có trên npm, theo thứ tự phụ thuộc. `gh` luôn kèm `-R ngosangns/ns-bridge`.
+Làm theo [DEVELOPER.md](../../../DEVELOPER.md) mục Releasing. npm chỉ phát hành `@ngosangns/ns-bridge`. Tag `ns-bridge@<version>` kích hoạt `.github/workflows/publish.yml`. Các package provider giữ version cuối và không được bump để publish lại. `gh` luôn kèm `-R ngosangns/ns-bridge`.
 
-Không dùng tag `vX.Y.Z`. Không khóa ba package cùng một version. Repo cũ `ns-kiro-provider` không còn là origin.
+Không dùng tag `vX.Y.Z`. Không đẩy tag của package provider. Repo cũ `ns-kiro-provider` không còn là origin.
 
 ## Không hỏi đăng nhập npm
 
@@ -24,9 +24,9 @@ Package npm chưa từng thấy thì OIDC không tạo được. Lần đầu: `
 
 ## Cắt bản
 
-1. `node scripts/release-plan.mjs`. Package có code đã phát hành thay đổi phải được bump trước package phụ thuộc. Test và markdown không tính là code phát hành.
+1. `node scripts/release-plan.mjs`. Chỉ `@ngosangns/ns-bridge` nằm trong plan. Bump `packages/cli/package.json` khi phát hành. Không bump package provider.
 2. Commit và push `main`.
-3. Push đúng một tag của một package nằm trong plan.
+3. Push đúng một tag `ns-bridge@<version>` nằm trong plan.
 4. Chờ workflow trên runner `macmini`. Xác nhận bằng document `https://registry.npmjs.org/<tên>/<version>` trả version đó và `dist-tags.latest` khớp. `npm view` có thể sớm hơn document.
 5. `gh release create <tag> -R ngosangns/ns-bridge` sau khi registry xác nhận. `--latest` chỉ cho bản người dùng muốn là bản mới nhất. Không ghi provenance.
 

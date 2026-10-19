@@ -1,5 +1,7 @@
 # ns-devin-core
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 Shared host-neutral core for Devin (Cognition Cascade): the Connect/protobuf
 wire protocol, PKCE + API-key credentials, model discovery, and the
 `DevinStreamEvent` streaming vocabulary. The Devin vendor core of

@@ -1,7 +1,7 @@
 {
   "name": "ns-devin-core",
   "version": "0.4.2",
-  "description": "Shared Devin (Cognition Cascade) protocol core — credentials, model discovery, Connect streaming; a dependency, not for direct install",
+  "description": "No longer developed. Shared Devin protocol core. Use @ngosangns/ns-bridge.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

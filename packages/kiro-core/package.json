@@ -1,7 +1,7 @@
 {
   "name": "ns-kiro-core",
   "version": "0.5.3",
-  "description": "Shared Kiro (AWS CodeWhisperer/Q) protocol core — credentials, model catalog, streaming; a dependency, not for direct install",
+  "description": "No longer developed. Shared Kiro protocol core. Use @ngosangns/ns-bridge.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

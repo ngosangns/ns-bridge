@@ -1,5 +1,7 @@
 # ns-omp-provider-kiro
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 Kiro (AWS CodeWhisperer/Q) models in [OMP](https://github.com/can1357/oh-my-pi).
 
 Published on npm as `ns-omp-provider-kiro`:

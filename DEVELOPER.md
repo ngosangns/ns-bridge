@@ -5,7 +5,7 @@ project is and how to install/use it, see [README.md](README.md).
 
 ## Layout
 
-pnpm workspace. Ten packages under `packages/`. The CLI is private until its first hand publish; a tag does not publish it.
+pnpm workspace. Ten packages under `packages/`. npm publishes only `@ngosangns/ns-bridge`. The other packages stay at their last published version.
 
 | Layer | Package | Owns |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ pnpm workspace. Ten packages under `packages/`. The CLI is private until its fir
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh` |
 | host adapter | [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter` that lists the Pi Grok catalog and streams by spawning the local `grok` CLI |
-| cli | [`@ngosangns/ns-bridge`](packages/cli) (private) | `ns-bridge`: install, update, and uninstall host packages; list and refresh model catalogs outside the host process |
+| cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Installs host packages and refreshes model catalogs outside the host process |
 
 Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh --apply` writes them.
 
@@ -115,56 +115,45 @@ A DSH profile can point at a local build with
 
 ## Releasing
 
-Every package keeps its own version.
+npm publishes only `@ngosangns/ns-bridge`. The provider packages are no longer
+developed; their last versions stay on npm and are marked deprecated.
 Publishing runs from `.github/workflows/publish.yml` using npm **trusted
 publishing** (OIDC) on the self-hosted runner, so no npm token is stored.
+The workflow accepts only a `ns-bridge@<version>` tag.
 
 ### Cutting a release
 
-1. Bump `version` in each `packages/*/package.json` you want to ship. A package
-   whose shipped code changed since its last release must be bumped before any
-   package that depends on it can ship — the dependent is packed with an exact
-   pin, and would otherwise install the old code.
+1. Bump `version` in `packages/cli/package.json`.
 2. Commit and push to `main`.
-3. Push one tag naming any of the bumped packages, npm scope dropped:
+3. Push the tag, npm scope dropped:
 
    ```bash
-   git tag ns-kiro-core@0.3.9 && git push origin ns-kiro-core@0.3.9
-   git tag ns-pi-provider@0.2.3 && git push origin ns-pi-provider@0.2.3
+   git tag ns-bridge@0.1.1 && git push origin ns-bridge@0.1.1
    ```
 
 The workflow re-runs lint, build, typecheck and tests, then
-[`scripts/release-plan.mjs`](scripts/release-plan.mjs) computes the release:
-every public package whose `package.json` version is not on npm yet, in
-dependency order. It refuses to run when
-
-- the tag's package is not in the plan (version not bumped, or already on npm);
-- a planned package depends on a sibling whose code changed since that
-  sibling's released version (bump the sibling too).
+[`scripts/release-plan.mjs`](scripts/release-plan.mjs) publishes that CLI
+version when npm does not have it yet. It refuses a tag for any other package,
+or a CLI version already on npm.
 
 A package npm has never seen is left out of the plan with a warning: trusted
 publishing cannot create a package, so its first version is published by hand
-(`npm publish` with 2FA, dependencies first) and its trusted publisher
-registered afterwards (`npm trust github <name> --file publish.yml --repo
-ngosangns/ns-bridge --allow-publish`). A planned package that depends on one
-is refused until then; a peer dependency (ns-bridge-core → @deepseek-ai/dsh-llm)
-does not count.
+and its trusted publisher registered afterwards
+(`npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bridge --allow-publish`).
 
-Then it packs with `pnpm pack` (which rewrites `workspace:*` to exact versions),
-verifies every packed manifest (no `workspace:` ranges left, every internal pin
-on npm or in this run, `repository.url` naming this repo), and publishes with
-`npm publish`, dependencies first. Run `node scripts/release-plan.mjs` locally to
-see what a tag would ship. `workflow_dispatch` runs the same job, dry-run by
-default.
+Then it packs with `pnpm pack`, verifies the packed manifest (`repository.url`
+naming this repo, no `workspace:` range), and publishes with `npm publish`.
+Run `node scripts/release-plan.mjs` locally to see what a tag would ship.
+`workflow_dispatch` runs the same job, dry-run by default.
 
 Tags from before the merge were renamed to the same scheme
 (`ns-pi-provider@0.2.2`, `ns-omp-provider@0.3.1`, `ns-devin-core@0.2.0`, …);
 the former ns-kiro-provider `v*` tags are kept and mirrored as
 `ns-kiro-core@<version>`.
 
-### One-time setup (per package, on npmjs.com)
+### One-time setup for `@ngosangns/ns-bridge`
 
-For each package: Settings → Trusted Publisher → GitHub Actions, with
+Settings → Trusted Publisher → GitHub Actions, with
 
 | Field | Value |
 | --- | --- |
@@ -176,7 +165,7 @@ For each package: Settings → Trusted Publisher → GitHub Actions, with
 or:
 
 ```bash
-npm trust github <package> --file publish.yml --repo ngosangns/ns-bridge --allow-publish
+npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bridge --allow-publish
 ```
 
 `--allow-publish` is required. npm can stage by default, and this workflow
@@ -187,8 +176,8 @@ npm only allows a trusted publisher on a package that exists, so a brand-new
 package needs its first version published by hand from a logged-in machine:
 
 ```bash
-pnpm --filter <name> build && cd packages/<dir> && pnpm pack && npm publish ./<name>-<v>.tgz --access public
-npm trust github <name> --file publish.yml --repo ngosangns/ns-bridge --allow-publish
+pnpm --filter @ngosangns/ns-bridge build && cd packages/cli && pnpm pack && npm publish ./ngosangns-ns-bridge-<version>.tgz --access public
+npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bridge --allow-publish
 ```
 
 A trusted publisher that has never published expires 48 hours after it is

@@ -2,11 +2,9 @@
 // ABOUTME: Lists the workspace packages whose package.json version is not on npm yet,
 // ABOUTME: in dependency order, so publish.yml can release them without a broken window.
 //
-// Every package keeps its own version. A release is "bump the version in the
-// package.json files that changed, push, then push one tag" — this script decides
-// what that tag actually ships: every public package whose current version npm
-// does not have, dependencies before dependents. Publishing a dependent before
-// the exact version it pins would leave it briefly uninstallable.
+// The only package this repo publishes is @ngosangns/ns-bridge. The provider
+// packages stay on npm at their last version and are not released again.
+// A release is "bump that package, push, then push the tag ns-bridge@<version>".
 //
 // A package npm has never seen is left out of the CI plan with a warning:
 // trusted publishing cannot create a package, so its first version is
@@ -32,7 +30,7 @@ const packages = readdirSync(packagesDir, { withFileTypes: true })
     const manifest = JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8"));
     return { dir, manifest };
   })
-  .filter(({ manifest }) => !manifest.private);
+  .filter(({ manifest }) => manifest.name === "@ngosangns/ns-bridge" && !manifest.private);
 
 const byName = new Map(packages.map((pkg) => [pkg.manifest.name, pkg]));
 

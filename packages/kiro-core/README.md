@@ -1,5 +1,7 @@
 # ns-kiro-core
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 The Kiro (AWS CodeWhisperer/Q) protocol, with no host types in it.
 
 This package is the Kiro vendor core of

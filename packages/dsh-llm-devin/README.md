@@ -1,5 +1,7 @@
 # ns-dsh-llm-devin
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 DeepSeek Harness (dsh) LLM adapter that adds Devin (Cognition Cascade) as a
 model provider. Sessions come from the machine — `devin auth login` — so no
 credential setup lives here.

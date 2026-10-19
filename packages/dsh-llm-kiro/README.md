@@ -1,5 +1,7 @@
 # ns-dsh-llm-kiro
 
+> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
 Kiro (AWS CodeWhisperer/Q) as a provider route in the
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
