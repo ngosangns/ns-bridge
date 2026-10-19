@@ -6,26 +6,39 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
+import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
 import {
+  type ContentBlock,
   type GenerateOptions,
   LlmAdapter,
   LlmError,
   type LlmModelInfo,
   type LlmProviderInfo,
   type LlmResolvedModelInfo,
+  offloadedImageText,
   ReasoningEffortId,
   type StreamChunk,
+  textOnlyImageText,
 } from "@deepseek-ai/dsh-llm";
 import { type GrokListedModel, readGrokCatalog } from "./catalog.js";
 import { buildGrokCliArgs, resolveGrokBinary } from "./cli.js";
 import { createMessagesParseState, finishMessagesParse, parseGrokMessagesLine } from "./messages.js";
-import { buildGrokPrompt } from "./prompt.js";
+import { buildGrokAcpContent, type GrokAcpBlock, grokAcpDocument } from "./prompt.js";
+import { createToolChunkTranslator } from "./tools.js";
 
 export interface GrokAdapterOptions {
   provider: string;
   displayName: string;
+  /** Optional durable attachment service, resolved at request time. */
+  attachments?: () => AttachmentStore | undefined;
 }
+
+/** Every listed Grok model accepts images. The catalog file stays text-only. */
+const INPUT_MODALITIES = ["text", "image"] as const;
 
 const EFFORTS = [
   ["minimal", "Minimal"],
@@ -89,10 +102,21 @@ export class GrokAdapter extends LlmAdapter {
       yield errorFinish(error instanceof Error ? error.message : String(error));
       return;
     }
+    let promptFile: { dir: string; file: string };
+    try {
+      promptFile = await this.writePromptFile(options);
+    } catch (error) {
+      if (options.signal?.aborted) {
+        yield abortedFinish();
+        return;
+      }
+      yield errorFinish(error instanceof Error ? error.message : String(error));
+      return;
+    }
     const child = spawn(
       binary,
       buildGrokCliArgs({
-        prompt: buildGrokPrompt(options),
+        promptFile: promptFile.file,
         model: options.model,
         reasoningEffort: options.reasoningEffort,
       }),
@@ -112,12 +136,13 @@ export class GrokAdapter extends LlmAdapter {
     };
     options.signal?.addEventListener("abort", onAbort, { once: true });
     const state = createMessagesParseState();
+    const tools = createToolChunkTranslator(options.tools);
     try {
       if (child.stdout) {
         const lines = createInterface({ input: child.stdout });
         for await (const line of lines) {
           if (options.signal?.aborted) break;
-          yield* parseGrokMessagesLine(line, state);
+          for (const chunk of parseGrokMessagesLine(line, state)) yield* tools.push(chunk);
         }
       }
       const code = await waitClose(child);
@@ -129,10 +154,11 @@ export class GrokAdapter extends LlmAdapter {
         yield errorFinish(stderr.trim() || spawnError?.message || `grok exited ${code ?? "null"}`);
         return;
       }
-      yield* finishMessagesParse(state);
+      for (const chunk of finishMessagesParse(state)) yield* tools.push(chunk);
     } finally {
       options.signal?.removeEventListener("abort", onAbort);
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      await rm(promptFile.dir, { recursive: true, force: true });
     }
   }
 
@@ -145,7 +171,71 @@ export class GrokAdapter extends LlmAdapter {
       provider,
       id: model.id,
       name: model.name,
-      inputModalities: model.input,
+      inputModalities: [...INPUT_MODALITIES],
     };
+  }
+
+  private async writePromptFile(options: GenerateOptions): Promise<{ dir: string; file: string }> {
+    const content = await this.acpContent(options);
+    const dir = await mkdtemp(join(tmpdir(), "ns-dsh-grok-"));
+    const file = join(dir, "prompt.json");
+    try {
+      await writeFile(file, grokAcpDocument(content), { encoding: "utf8", mode: 0o600 });
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true });
+      throw error;
+    }
+    return { dir, file };
+  }
+
+  private async acpContent(options: GenerateOptions): Promise<GrokAcpBlock[]> {
+    const store = this.options.attachments?.();
+    const messages = [];
+    for (const message of options.messages) {
+      const content = [];
+      for (const block of message.content) {
+        if (block.type === "text" || block.type === "reasoning" || block.type === "tool-call") {
+          content.push(block);
+        } else if (block.type === "image") {
+          content.push(await this.imageBlock(block, store, options.signal));
+        }
+      }
+      messages.push({ role: message.role, content });
+    }
+    return buildGrokAcpContent({ system: options.system, messages });
+  }
+
+  private async imageBlock(
+    block: Extract<ContentBlock, { type: "image" }>,
+    store: AttachmentStore | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<{ type: "image"; data?: string; mimeType?: string; placeholder: string }> {
+    if (block.offloaded === true) {
+      return { type: "image", placeholder: this.omittedImageText(block.attachment, store, true) };
+    }
+    if (!store) return { type: "image", placeholder: textOnlyImageText(block.attachment) };
+    try {
+      const stored = await store.readImage(block.attachment, signal);
+      return {
+        type: "image",
+        data: Buffer.from(stored.data).toString("base64"),
+        mimeType: block.attachment.mediaType,
+        placeholder: textOnlyImageText(block.attachment),
+      };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return { type: "image", placeholder: textOnlyImageText(block.attachment) };
+    }
+  }
+
+  private omittedImageText(ref: ImageAttachmentRef, store: AttachmentStore | undefined, offloaded: boolean): string {
+    if (!offloaded) return textOnlyImageText(ref);
+    let hostPath: string | undefined;
+    try {
+      hostPath = store?.imageHostPath(ref);
+    } catch {
+      hostPath = undefined;
+    }
+    return offloadedImageText(ref, hostPath ? { readonlyPath: hostPath } : undefined);
   }
 }

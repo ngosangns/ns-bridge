@@ -13,6 +13,7 @@ import { wrapExtensionApi } from "./adapter.js";
 import { resolveProviderSelection } from "./config.js";
 
 export { adaptProviderConfig, toPiContext, toOmpApiKey, toFetchDynamicModels, wrapExtensionApi } from "./adapter.js";
+export { attachGrokNativeEdit, createGrokNativeEditHost, GROK_NATIVE_EDIT } from "./grok-native-edit.js";
 export { resolveProviderSelection } from "./config.js";
 
 export default async function nsOmpProvider(pi: object): Promise<void> {

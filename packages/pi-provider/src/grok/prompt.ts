@@ -32,7 +32,15 @@ function contentToText(content: unknown): string {
 			if (b.type === "thinking") return "";
 			if (b.type === "image") return "[image omitted]";
 			if (b.type === "toolCall") {
-				return `[tool call: ${String(b.name ?? "unknown")} args=${JSON.stringify(b.arguments ?? {})}]`;
+				// `__parseError` is the host's do-not-execute latch, not a Grok argument.
+				const args = b.arguments;
+				let shown = args;
+				if (args && typeof args === "object" && !Array.isArray(args) && "__parseError" in args) {
+					const copy = { ...(args as Record<string, unknown>) };
+					delete copy.__parseError;
+					shown = copy;
+				}
+				return `[tool call: ${String(b.name ?? "unknown")} args=${JSON.stringify(shown ?? {})}]`;
 			}
 			return "";
 		})

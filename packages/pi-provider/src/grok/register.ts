@@ -20,6 +20,7 @@ import {
   resolveIntegrationMode,
 } from "./config.js";
 import { discoverModels, fallbackModels, toProviderModels } from "./models.js";
+import { registerPiGrokActivity, runningInsideOmp } from "./pi-activity.js";
 import { streamGrokAgent } from "./provider.js";
 import { registerSessionScope, scopeKeyFromCtx } from "./session-scope.js";
 import { disposeAllSessionAgents, disposeSessionAgentsForScope } from "./session-agent.js";
@@ -275,6 +276,16 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
     description: "Grok CLI provider: /grok status | models | refresh",
     handler: commandHandler,
   });
+
+  // Pi draws finished Grok tools as its own tool cards. OMP already stamps
+  // those calls and must not also register this display tool.
+  if (!runningInsideOmp()) {
+    try {
+      registerPiGrokActivity(pi);
+    } catch {
+      // The markdown lines remain when the card cannot be registered.
+    }
+  }
 }
 
 export default registerGrokProvider;

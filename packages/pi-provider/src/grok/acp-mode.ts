@@ -17,6 +17,7 @@ import {
 } from "./events.js";
 import { resolveCliModelId } from "./models.js";
 import { buildFullPrompt, buildIncrementalPrompt, contextHistoryFingerprint } from "./prompt.js";
+import { applyGrokToolActivity, grokNativeEditHost } from "./native-edit.js";
 import { getSessionCwd } from "./session-scope.js";
 import { promptAcpSession, withSessionAgent } from "./session-agent.js";
 import { ToolActivityTracker } from "./tool-activity.js";
@@ -64,6 +65,7 @@ export function streamViaAcp(
 				true,
 			);
 			const tools = new ToolActivityTracker(cwd);
+			const nativeEdit = grokNativeEditHost(options);
 			const cliModelId = resolveCliModelId(model.id);
 
 			// Live assistant row before first token (native pi feel).
@@ -106,8 +108,14 @@ export function streamViaAcp(
 									showTools &&
 									(kind === "tool_call" || kind === "tool_call_update")
 								) {
-									const lines = tools.handle(update);
-									if (lines) emitter.appendToolActivity(lines);
+									const activity = tools.handle(update);
+									if (!activity) return;
+									return applyGrokToolActivity(
+										emitter,
+										activity,
+										nativeEdit,
+										options?.cursorOnToolResult,
+									);
 								}
 							});
 						},

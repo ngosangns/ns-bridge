@@ -17,11 +17,10 @@ export function resolveCliModelId(modelId: string): string {
   return modelId;
 }
 
-export function buildGrokCliArgs(options: { prompt: string; model: string; reasoningEffort?: string }): string[] {
-  const prompt = options.prompt.length > 0 ? options.prompt : " ";
+export function buildGrokCliArgs(options: { promptFile: string; model: string; reasoningEffort?: string }): string[] {
   const args = [
-    "--single",
-    prompt,
+    "--prompt-file",
+    options.promptFile,
     "--output-format",
     "streaming-messages-json",
     "--include-partial-messages",

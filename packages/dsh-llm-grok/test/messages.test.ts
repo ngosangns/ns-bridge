@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildGrokCliArgs, resolveGrokBinary } from "../src/cli.js";
 import { createMessagesParseState, parseGrokMessagesLine } from "../src/messages.js";
-import { buildGrokPrompt } from "../src/prompt.js";
+import { buildGrokAcpContent } from "../src/prompt.js";
 
 const LINES = [
   '{"type":"message_start","message":{"usage":{"input_tokens":3,"output_tokens":1}}}',
@@ -90,10 +90,14 @@ describe("grok CLI stream mapping", () => {
   });
 
   it("builds a one-turn command without tool approval", () => {
-    const args = buildGrokCliArgs({ prompt: "hi", model: "grok-4.5-agent", reasoningEffort: "high" });
+    const args = buildGrokCliArgs({
+      promptFile: "/tmp/prompt.json",
+      model: "grok-4.5-agent",
+      reasoningEffort: "high",
+    });
     expect(args).toEqual([
-      "--single",
-      "hi",
+      "--prompt-file",
+      "/tmp/prompt.json",
       "--output-format",
       "streaming-messages-json",
       "--include-partial-messages",
@@ -106,22 +110,34 @@ describe("grok CLI stream mapping", () => {
       "--reasoning-effort",
       "high",
     ]);
+    expect(args).not.toContain("--single");
     expect(args).not.toContain("--always-approve");
+    expect(args.join(" ")).not.toContain("base64");
   });
 
-  it("puts system text and tool calls in the prompt", () => {
-    const prompt = buildGrokPrompt({
+  it("puts system text, tool calls, and images into ACP in order", () => {
+    const content = buildGrokAcpContent({
       system: "Be brief",
       messages: [
-        { role: "user", content: [{ type: "text", text: "hi" }] },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "hi" },
+            { type: "image", data: "AAAA", mimeType: "image/png", placeholder: "dropped" },
+            { type: "image", placeholder: "offloaded one" },
+          ],
+        },
         { role: "assistant", content: [{ type: "tool-call", name: "bash", arguments: '{"cmd":"ls"}' }] },
         { role: "tool", content: [{ type: "text", text: "file.txt" }] },
       ],
     });
-    expect(prompt).toContain("Be brief");
-    expect(prompt).toContain("hi");
-    expect(prompt).toContain('bash {"cmd":"ls"}');
-    expect(prompt).toContain("file.txt");
+    expect(content).toEqual([
+      { type: "text", text: "Be brief" },
+      { type: "text", text: "User:\nhi\noffloaded one" },
+      { type: "image", mimeType: "image/png", data: "AAAA" },
+      { type: "text", text: 'Assistant:\nbash {"cmd":"ls"}' },
+      { type: "text", text: "Tool:\nfile.txt" },
+    ]);
   });
 
   it("uses an explicit binary path", () => {

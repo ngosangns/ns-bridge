@@ -47,11 +47,17 @@ Pi-specific translation (context in, `AssistantMessageEventStream` out) is
 
 Grok runs as its own coding agent (the local `grok agent stdio` ACP process): it reads,
 edits, writes and runs commands itself with its built-in tools — Pi/OMP never execute
-them. Each of those tools is shown as one line in the reply (`` - Edit `src/a.ts` (+3 −1) ``,
-`` - Run `npm test` ``, failures as `✗ … failed`), so edits are visible. Set
-`PI_GROK_SDK_SHOW_TOOLS=0` to hide them. Cold-start prompts also carry a short bridge
-note telling Grok that the host's tool names are not callable and to act with its own
-tools (`PI_GROK_SDK_BRIDGE_NOTE=0` to drop it).
+them. In OMP a finished tool is the matching card: `edit` (including writes
+and deletes), `read` (files, directories, and fetched pages), `bash`, `grep`,
+`glob`, and `web_search`. The call is stamped so OMP does not run it again, and
+its arguments include a marker OMP's validator rejects if that stamp is missed.
+In Pi the same finished tools are one `grok_activity` card (Pi's own tool box).
+That tool only redisplays the text and does not read, write, or run a command.
+A tool Pi does not know how to draw stays one line (`` - Edit `src/a.ts` (+3 −1) ``,
+failures as `✗ … failed`). Set `PI_GROK_SDK_SHOW_TOOLS=0` to
+hide them. Cold-start prompts also carry a short bridge note telling Grok that the
+host's tool names are not callable and to act with its own tools
+(`PI_GROK_SDK_BRIDGE_NOTE=0` to drop it).
 
 Shared modules under `src/shared/` provide HTTP helpers, credential env resolution, and `CatalogCache` (TTL + optional ETag, in-memory + `~/.pi/agent/cache/ns-pi-provider`).
 

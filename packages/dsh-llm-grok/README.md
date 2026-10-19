@@ -18,6 +18,12 @@ Streaming spawns the local `grok` CLI. There is no HTTP client in this package.
     provider: grok
 ```
 
-The CLI is asked for one turn (`--max-turns 1`) and is not given
-`--always-approve`, so tool calls come back to the harness. Part of
-[ns-bridge](https://github.com/ngosangns/ns-bridge).
+The CLI is asked for one turn (`--max-turns 1`) via `--prompt-file` and is not
+given `--always-approve`, so tool calls come back to the harness. CLI tool
+names (`read_file`, `list_dir`, `run_terminal_command`, `search_replace`,
+`grep`, `write`) are rewritten onto harness tools before that, and those
+calls are the harness tool cards. `list_dir` becomes `bash` `ls`. `glob`,
+web search, and web fetch stay text: the harness has no tool for them, and
+it would run a display-only call. Images are ACP blocks in the same
+prompt file. The adapter advertises image input even when the catalog file
+lists text only. Part of [ns-bridge](https://github.com/ngosangns/ns-bridge).

@@ -68,8 +68,14 @@ function cloneContentBlock(
 		if (block.redacted !== undefined) out.redacted = block.redacted;
 		return out;
 	}
-	// toolCall / other — shallow copy
-	return { ...block };
+	// toolCall / other — shallow copy. Own symbols must survive: OMP skips a
+	// second `edit` only when `kCursorExecResolved` is still on the block inside
+	// `stream.end(snapshot())`. Object spread drops non-enumerable symbols.
+	const copy = { ...block };
+	for (const key of Object.getOwnPropertySymbols(block)) {
+		copy[key] = block[key];
+	}
+	return copy;
 }
 
 /** Immutable snapshot so consumers/TUI never observe torn mid-mutation state. */
@@ -210,6 +216,26 @@ export class PiContentEmitter {
 	}
 
 	/**
+	 * A file edit Grok already applied. The block must already carry the host's
+	 * skip-execution stamp. Closes the open answer text so the card sits between
+	 * prose segments, the same way a host-executed edit does.
+	 */
+	appendResolvedToolCall(block: {
+		type: "toolCall";
+		id: string;
+		name: string;
+		arguments: Record<string, unknown>;
+	}): void {
+		this.ensureStart();
+		this.closeThinking();
+		this.closeText();
+		const contentIndex = this.partial.content.length;
+		this.partial.content.push(block);
+		this.push({ type: "toolcall_start", contentIndex, partial: this.partial });
+		this.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: this.partial });
+	}
+
+	/**
 	 * Visible tool-activity line(s) ("- Edit `a.ts` (+1 −1)\n") in the answer
 	 * text, separated from surrounding prose so Markdown renders them as a list.
 	 */
@@ -300,7 +326,7 @@ export class PiContentEmitter {
  * and the UI only shows the final blob.
  */
 export class StreamingUpdatePump {
-	private queue: Array<() => void> = [];
+	private queue: Array<() => void | Promise<void>> = [];
 	private running = false;
 	private closed = false;
 	private drainResolve: (() => void) | undefined;
@@ -308,7 +334,7 @@ export class StreamingUpdatePump {
 
 	constructor(private readonly yieldEvery = 1) {}
 
-	enqueue(fn: () => void): void {
+	enqueue(fn: () => void | Promise<void>): void {
 		if (this.closed) return;
 		this.queue.push(fn);
 		void this.kick();
@@ -346,7 +372,7 @@ export class StreamingUpdatePump {
 			while (this.queue.length > 0 && !this.closed) {
 				const fn = this.queue.shift()!;
 				try {
-					fn();
+					await fn();
 				} catch {
 					// ignore individual update errors; outer path handles fatals
 				}

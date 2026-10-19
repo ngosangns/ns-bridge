@@ -16,6 +16,7 @@
  */
 
 import type { Context } from "@deepseek-ai/cordis";
+import type { AttachmentStore } from "@deepseek-ai/dsh-attachment";
 import z from "@deepseek-ai/schemastery";
 import { GrokAdapter } from "./adapter.js";
 
@@ -39,8 +40,28 @@ export const Config: z<Config> = z.object({
 });
 
 export function apply(ctx: Context, config: Config): void {
+  // Held here rather than read per request: a deployment without the attachment
+  // service never mounts it, and reading an uninjected service throws. The
+  // scoped fiber below sets it while the service exists and clears it when the
+  // service goes away, so an image-capable deployment gains image support
+  // without a text-only one failing to boot.
+  let attachments: AttachmentStore | undefined;
+  ctx.inject(["attachments"], (scope) => {
+    attachments = scope.attachments;
+    scope.effect(
+      () => () => {
+        attachments = undefined;
+      },
+      "dsh-llm-grok attachment store",
+    );
+  });
+
   ctx.llm.registerAdapter(
     [config.provider],
-    new GrokAdapter({ provider: config.provider, displayName: config.displayName }),
+    new GrokAdapter({
+      provider: config.provider,
+      displayName: config.displayName,
+      attachments: () => attachments,
+    }),
   );
 }

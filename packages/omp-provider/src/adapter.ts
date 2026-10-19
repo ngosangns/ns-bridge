@@ -21,7 +21,11 @@
  *    `session_info_changed`.
  */
 
+import { attachGrokNativeEdit } from "./grok-native-edit.js";
+
 export type AnyRecord = Record<string, unknown>;
+
+const GROK_APIS = new Set(["grok-cli", "grok-sdk"]);
 
 export interface OmpLikeContext {
   systemPrompt?: string | string[];
@@ -131,8 +135,9 @@ export function adaptProviderConfig(config: AnyRecord, env: NodeJS.ProcessEnv = 
 
   if (typeof next.streamSimple === "function") {
     const streamSimple = next.streamSimple as (model: unknown, context: OmpLikeContext, options?: unknown) => unknown;
+    const grok = typeof next.api === "string" && GROK_APIS.has(next.api);
     next.streamSimple = (model: unknown, context: OmpLikeContext, options?: unknown) =>
-      streamSimple(model, toPiContext(context), options);
+      streamSimple(model, toPiContext(context), grok ? attachGrokNativeEdit(options) : options);
   }
 
   if (typeof refreshModels === "function" && typeof next.fetchDynamicModels !== "function") {
