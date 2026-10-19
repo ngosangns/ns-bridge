@@ -9,3 +9,11 @@ tarballs/
 .smoke-home/
 coverage/
 .provider-creds/
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+id_rsa
+id_ed25519
