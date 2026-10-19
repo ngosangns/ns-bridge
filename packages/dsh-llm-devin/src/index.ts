@@ -11,7 +11,7 @@
  *
  * ```yaml
  * - id: llm-devin
- *   name: 'dsh-llm-devin'
+ *   name: 'ns-dsh-llm-devin'
  *   config:
  *     provider: devin
  * ```

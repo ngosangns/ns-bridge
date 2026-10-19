@@ -1,6 +1,5 @@
-# ns-devin-provider
+# ns-devin-core
 
-## Branching
+Devin protocol core in this repo. Branching and where code goes are in the root [AGENTS.md](../../AGENTS.md).
 
-- Work only on `main`. Do not create new branches.
-- Commit directly on `main` and push to `origin/main`.
+The last npm release is `0.4.2`. npm marks it deprecated. The maintained package is `@ngosangns/ns-bridge`. Hosts read the model cache file. `ns-bridge models refresh devin --apply` writes it.

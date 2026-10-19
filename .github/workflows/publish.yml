@@ -8,7 +8,8 @@ name: Publish
 #   1. bump "version" in packages/cli/package.json;
 #   2. commit and push to main;
 #   3. push one tag, scope dropped:
-#        git tag ns-bridge@0.1.1 && git push origin ns-bridge@0.1.1
+#        git tag ns-bridge@<version> && git push origin ns-bridge@<version>
+#   0.1.1 (tag ns-bridge@0.1.1) is already on npm.
 #
 # scripts/release-plan.mjs refuses a tag that is not that package at a version
 # npm does not have yet. A package npm has never seen cannot be created by

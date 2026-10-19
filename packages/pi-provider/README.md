@@ -7,13 +7,16 @@ Unified [Pi](https://pi.dev) coding-agent providers for **Kiro**, **Devin**, and
 - Provider ids: `kiro`, `devin`, `grok`
 - Auth: the vendor CLI's session (kiro-cli / Kiro IDE, `devin auth`, `grok`), plus API keys
 - Streaming + reasoning/thinking where supported
-- **Auto-updating model catalogs** with disk TTL cache (and ETag/version when available)
-- Commands: `/ns-pi refresh [all|kiro|devin|grok]`, `/ns-pi status`, plus `/grok`, `/devin-status`
+- Model catalogs are files on disk. `ns-bridge models refresh --apply` writes them. This package reads them.
+- Commands: `/ns-pi status`, `/ns-pi refresh` (points at the CLI), `/grok status|models|refresh`, `/devin-status`
 
 ## Install in Pi
 
 ```bash
-# from npm (after publish)
+# maintained installer (installs this package's last npm release)
+ns-bridge install pi --apply
+
+# the same host command, last published version
 pi install npm:@ngosangns/ns-pi-provider
 
 # local path (a clone of ns-bridge, after `pnpm install && pnpm -r build`)
@@ -34,11 +37,11 @@ Kiro and Devin are thin registrations over the shared vendor cores; the
 Pi-specific translation (context in, `AssistantMessageEventStream` out) is
 `ns-bridge-core/pi`, the same bridge `ns-omp-provider-kiro` uses.
 
-| Provider | Protocol + auth | Model refresh | Stream |
-|----------|-----------------|---------------|--------|
-| **kiro** | [`ns-kiro-core`](../kiro-core): kiro-cli / Kiro IDE session, `KIRO_API_KEY` | `ListAvailableModels` → catalog cache | AWS event-stream, via `ns-bridge-core/pi` |
-| **devin** | [`ns-devin-core`](../devin-core): `/login devin` (PKCE), `credentials.toml`, env | `GetCliModelConfigs` → catalog cache | Connect/protobuf with capacity retry, via `ns-bridge-core/pi` |
-| **grok** | in this package: Grok CLI / `~/.grok/auth.json` / `XAI_API_KEY` | `grok models` CLI → catalog cache | ACP or JSONL via local CLI |
+| Provider | Protocol + auth | Model list | Stream |
+|----------|-----------------|------------|--------|
+| **kiro** | [`ns-kiro-core`](../kiro-core): kiro-cli / Kiro IDE session, `KIRO_API_KEY` | `~/.ns-kiro-provider-models-cache.json` | AWS event-stream, via `ns-bridge-core/pi` |
+| **devin** | [`ns-devin-core`](../devin-core): `/login devin` (PKCE), `credentials.toml`, env | `ns-devin-provider/models.json` under `$XDG_DATA_HOME` or `~/.local/share` | Connect/protobuf with capacity retry, via `ns-bridge-core/pi` |
+| **grok** | in this package: Grok CLI / `~/.grok/auth.json` / `XAI_API_KEY` | `~/.pi/agent/cache/ns-pi-provider/grok.models.json` | ACP or JSONL via local CLI |
 
 ### Grok tool activity
 
@@ -74,8 +77,9 @@ pi --no-extensions -e ./packages/pi-provider/index.ts --list-models
 
 ## Publish
 
-Released from the ns-bridge workflow with tag `ns-pi-provider@<version>`; see
-[DEVELOPER.md](../../DEVELOPER.md#releasing).
+The last npm release is `0.5.3`. npm marks it deprecated. This repo publishes
+[`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge)
+from tag `ns-bridge@<version>`. See [DEVELOPER.md](../../DEVELOPER.md#releasing).
 
 ## Attribution
 

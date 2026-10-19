@@ -13,8 +13,8 @@
 //
 //   node scripts/release-plan.mjs            # human-readable plan
 //   node scripts/release-plan.mjs --json     # [{dir,name,version}] for CI
-//   node scripts/release-plan.mjs --tag ns-kiro-core@0.3.9
-//       exits non-zero unless that package is in the plan at that version
+//   node scripts/release-plan.mjs --tag ns-bridge@<version>
+//       exits non-zero unless the CLI is in the plan at that version
 
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";

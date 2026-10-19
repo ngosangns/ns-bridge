@@ -10,7 +10,7 @@ description: >
 
 # Skill: release
 
-Làm theo [DEVELOPER.md](../../../DEVELOPER.md) mục Releasing. npm chỉ phát hành `@ngosangns/ns-bridge`. Tag `ns-bridge@<version>` kích hoạt `.github/workflows/publish.yml`. Các package provider giữ version cuối và không được bump để publish lại. `gh` luôn kèm `-R ngosangns/ns-bridge`.
+Làm theo [DEVELOPER.md](../../../DEVELOPER.md) mục Releasing. npm chỉ phát hành `@ngosangns/ns-bridge`. Bản đang trên npm là `0.1.1` (tag `ns-bridge@0.1.1`). Tag `ns-bridge@<version>` kích hoạt `.github/workflows/publish.yml`. Các package provider giữ version cuối và không được bump để publish lại. `gh` luôn kèm `-R ngosangns/ns-bridge`.
 
 Không dùng tag `vX.Y.Z`. Không đẩy tag của package provider. Repo cũ `ns-kiro-provider` không còn là origin.
 

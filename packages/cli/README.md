@@ -1,6 +1,6 @@
 # @ngosangns/ns-bridge
 
-CLI for the [ns-bridge](https://github.com/ngosangns/ns-bridge) providers. It installs host packages and refreshes model catalogs in its own process, so Pi and OMP only read the files those commands write.
+CLI for the [ns-bridge](https://github.com/ngosangns/ns-bridge) providers. It installs the last published host packages and writes model catalogs in its own process. Pi, OMP, and DSH read those files.
 
 ```bash
 npm install -g @ngosangns/ns-bridge

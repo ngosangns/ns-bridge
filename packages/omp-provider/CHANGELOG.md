@@ -1,5 +1,9 @@
 # Changelog
 
+Development of `ns-omp-provider` stopped at **0.6.3**. npm marks that version deprecated. The maintained package is [`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
+This file records notes through 0.5.0. Later releases were not appended. The Go sidecar described under 0.5.0 is not in the tree. Kiro and Devin run in the host process, and `ns-bridge models refresh --apply` writes the model catalogs.
+
 ## 0.5.0
 
 Bundles `@ngosangns/ns-pi-provider@0.4.0`.

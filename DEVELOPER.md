@@ -85,7 +85,7 @@ cd ns-bridge
 pnpm install
 pnpm -r build       # check typechecks against built declarations, so build first
 pnpm -r check
-pnpm test           # vitest projects: bridge, kiro, devin, pi, omp
+pnpm test           # vitest projects: bridge, kiro, devin, grok-dsh, cli, pi, omp
 pnpm vitest run --project kiro   # one project
 pnpm lint           # biome check .  (lint:fix / format to write)
 ```
@@ -128,8 +128,11 @@ The workflow accepts only a `ns-bridge@<version>` tag.
 3. Push the tag, npm scope dropped:
 
    ```bash
-   git tag ns-bridge@0.1.1 && git push origin ns-bridge@0.1.1
+   git tag ns-bridge@<version> && git push origin ns-bridge@<version>
    ```
+
+The CLI on npm is `0.1.1`, tagged `ns-bridge@0.1.1`. That tag is already
+published. The next release is a new version in `packages/cli/package.json`.
 
 The workflow re-runs lint, build, typecheck and tests, then
 [`scripts/release-plan.mjs`](scripts/release-plan.mjs) publishes that CLI
@@ -151,9 +154,10 @@ Tags from before the merge were renamed to the same scheme
 the former ns-kiro-provider `v*` tags are kept and mirrored as
 `ns-kiro-core@<version>`.
 
-### One-time setup for `@ngosangns/ns-bridge`
+### Trusted publisher for `@ngosangns/ns-bridge`
 
-Settings → Trusted Publisher → GitHub Actions, with
+The publisher is registered and the `0.1.1` publish from this workflow
+validated it. Settings → Trusted Publisher → GitHub Actions, with
 
 | Field | Value |
 | --- | --- |
@@ -179,6 +183,10 @@ package needs its first version published by hand from a logged-in machine:
 pnpm --filter @ngosangns/ns-bridge build && cd packages/cli && pnpm pack && npm publish ./ngosangns-ns-bridge-<version>.tgz --access public
 npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bridge --allow-publish
 ```
+
+That sequence already ran for this CLI: `0.1.0` from a logged-in machine, then
+`0.1.1` from the workflow. A later release is a version bump and a new
+`ns-bridge@<version>` tag.
 
 A trusted publisher that has never published expires 48 hours after it is
 created. Uploading from the laptop does not validate it. The first successful

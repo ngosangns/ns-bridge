@@ -4,19 +4,19 @@
 
 Kiro (AWS CodeWhisperer/Q) models in [OMP](https://github.com/can1357/oh-my-pi).
 
-Published on npm as `ns-omp-provider-kiro`:
+The last npm release is `0.5.3`. npm marks it deprecated. Install it with the
+maintained CLI, or with OMP directly:
 
 ```bash
+ns-bridge install omp --apply
 omp plugin install ns-omp-provider-kiro
 ```
 
-Pin a version with `omp plugin install ns-omp-provider-kiro@0.2.1` — bare
-names, scoped names, and `name@version` all resolve as npm specs.
+`omp plugin install` accepts a bare name or `name@version`.
 
 ### From a local build
 
-To build from a clone instead — for developing this package or
-`ns-kiro-core` before a release — install from the path:
+To load a clone of this repo instead of the npm tarball:
 
 ```bash
 git clone git@github.com:ngosangns/ns-bridge.git
@@ -42,9 +42,10 @@ Then, in OMP:
 writing the refresh back so both tools stay on the same token. With no session
 on the machine it prompts for a Kiro API key (`ksk_…`) instead.
 
-`/model` lists whatever your account's region actually serves: the catalog is
-fetched from Kiro's management API and cached for an hour, so a model added
-upstream shows up without a release here.
+`/model` lists the catalog file for the account's region
+(`~/.ns-kiro-provider-models-cache.json`). `ns-bridge models refresh kiro --apply`
+writes that file from Kiro's management API. While OMP is running it reads the
+file and does not fetch a new one.
 
 ## Notes
 

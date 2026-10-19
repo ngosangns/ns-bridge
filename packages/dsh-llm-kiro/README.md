@@ -15,21 +15,20 @@ tool-change messages, offloaded images) and still reads the dsh 0.1
 
 ## Install
 
-Published on npm as `ns-dsh-llm-kiro`:
+The last npm release is `0.5.3`. npm marks it deprecated.
 
 ```bash
 kiro-cli login
-dsh plugin --profile <profile> add ns-dsh-llm-kiro
+ns-bridge install dsh --profile <profile> --apply
 ```
 
-Pin a version with `add ns-dsh-llm-kiro@0.2.1` — `dsh plugin add` forwards
-straight to `pnpm add`, which resolves bare names and `name@version` from the
-registry same as any other package.
+That runs `dsh plugin --profile <profile> add ns-dsh-llm-kiro`. `dsh plugin add`
+forwards to `pnpm add`, which accepts a bare name or `name@version`. Profile
+`desktop` stays with the Electron app.
 
 ### From a local build
 
-To point the profile at a local build instead — for developing this package or
-`ns-kiro-core` before a release:
+To point the profile at a clone of this repo:
 
 ```bash
 kiro-cli login

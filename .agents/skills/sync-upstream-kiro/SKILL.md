@@ -20,9 +20,9 @@ bản import squash. Kiến trúc cũng đã khác:
 
 | | upstream | repo này |
 | --- | --- | --- |
-| Layout | một package phẳng, `src/` ở root | pnpm workspace, `packages/{kiro-core,omp-provider-kiro,dsh-llm-kiro}` |
+| Layout | một package phẳng, `src/` ở root | pnpm workspace, `packages/kiro-core` cộng adapter Pi, OMP, DSH |
 | Vocabulary | message/event type của `@earendil-works/pi-ai` | type host-neutral trong `packages/kiro-core/src/types.ts` |
-| Host | chỉ pi/OMP | OMP **và** DeepSeek Harness |
+| Host | chỉ pi/OMP | Pi, OMP, và DeepSeek Harness |
 | Login | PKCE browser flow tự chạy (`login.ts`, `login-ui.ts`) | đọc lại session `kiro-cli` / Kiro IDE, cộng API key |
 
 Nên `git merge upstream/main`, `git rebase`, `git cherry-pick` đều **cấm**. Mỗi
@@ -66,14 +66,15 @@ git config remote.upstream.tagOpt --no-tags
 git fetch upstream
 ```
 
-`--no-tags` là bắt buộc: tag của upstream (`v0.10.x`) sẽ đè lên namespace tag của
-repo này, vốn version độc lập ở `0.1.0`. Nếu lỡ kéo về, xóa bằng
-`git tag -l | xargs git tag -d` — kiểm tra `git tag --merged main` rỗng trước đã.
+`--no-tags` là bắt buộc: tag `v*` của upstream không thuộc repo này. Tag của
+repo này có dạng `<tên-không-scope>@<version>` (`ns-bridge@0.1.1`,
+`ns-kiro-core@0.5.3`, …). Nếu một tag `v*` của upstream lọt vào local, xóa đúng
+tag đó bằng `git tag -d <tag>`. Không chạy `git tag -l | xargs git tag -d`.
 
 ### 1. Đánh giá khoảng cách — một lệnh
 
 ```bash
-node .Codex/skills/sync-upstream-kiro/scripts/upstream-status.mjs
+node .agents/skills/sync-upstream-kiro/scripts/upstream-status.mjs
 ```
 
 Script này chỉ đọc. Nó fetch, đọc baseline từ `.upstream-sync.json`, bỏ commit
@@ -152,7 +153,7 @@ Sau khi sửa `packages/kiro-core`, xem thay đổi có chạm export surface kh
 
 ```bash
 git diff packages/kiro-core/src/index.ts
-rg -n "<symbol vừa đổi>" packages/omp-provider-kiro/src packages/dsh-llm-kiro/src
+rg -n "<symbol vừa đổi>" packages/pi-provider/src packages/omp-provider-kiro/src packages/dsh-llm-kiro/src
 ```
 
 Đổi contract nội bộ là được phép (xem workflow `execution` trong `~/.Codex/AGENTS.md`),
@@ -208,11 +209,12 @@ Chỉ sync một phần range thì `syncedCommit` phải trỏ đúng commit cu�
 
 ## Cạm bẫy
 
-- **Đừng để tag upstream lọt vào repo.** `git tag --merged main` phải luôn rỗng
-  đối với tag của upstream.
+- **Đừng để tag `v*` của upstream lọt vào repo.** Tag `<tên>@<version>` của
+  repo này nằm trên `main` và phải được giữ.
 - **Đừng port CHANGELOG hay số version của upstream.** Package ở đây version độc lập.
 - **Đừng port thẳng `src/index.ts`.** Export surface của `packages/kiro-core` rộng hơn (nó
   còn phục vụ dsh) và có type riêng. Chỉ lấy phần export mới thật sự tương ứng.
 - **`NOTICE` là ràng buộc pháp lý.** Nếu bản port bắt đầu phủ vùng code mới của
   upstream, cập nhật đoạn mô tả trong `NOTICE`.
-- **Không đọc/ghi `docs/`** (quy ước chung của user).
+- **Không port `docs/` của upstream.** `.upstream-sync.json` liệt kê `docs/**`
+  trong `notPorted`.

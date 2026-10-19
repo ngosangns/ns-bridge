@@ -6,9 +6,12 @@ DeepSeek Harness (dsh) LLM adapter that adds Devin (Cognition Cascade) as a
 model provider. Sessions come from the machine — `devin auth login` — so no
 credential setup lives here.
 
+The last npm release is `0.4.3`. Install it with
+`ns-bridge install dsh --profile <profile> --apply`.
+
 ```yaml
 - id: llm-devin
-  name: 'dsh-llm-devin'
+  name: 'ns-dsh-llm-devin'
   config:
     provider: devin
 ```

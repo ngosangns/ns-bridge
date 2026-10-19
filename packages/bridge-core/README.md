@@ -41,5 +41,6 @@ For the DeepSeek Harness (`@deepseek-ai/dsh-llm`, an optional peer).
 
 A new vendor is a core that emits `BridgeStreamEvent`s; every host gets it
 through the existing bridges. A new host is one bridge here; every vendor gets it
-for free. Host adapters stay glue: credentials and the model catalog come from
-the vendor core, translation from here.
+for free. Host adapters stay glue: credentials come from the vendor core,
+translation from here. `ns-bridge models refresh --apply` writes the catalog
+files the adapters read.

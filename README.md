@@ -40,6 +40,7 @@ Harness chunk) lands in one bridge and reaches every vendor.
 
 | Package | Layer | What it is | npm |
 | --- | --- | --- | --- |
+| [`@ngosangns/ns-bridge`](packages/cli) | cli | Installs host packages and writes model catalogs | [![npm](https://img.shields.io/npm/v/@ngosangns/ns-bridge)](https://www.npmjs.com/package/@ngosangns/ns-bridge) |
 | [`ns-bridge-core`](packages/bridge-core) | shared | Neutral vocabulary + the Pi-family and Harness host bridges | [![npm](https://img.shields.io/npm/v/ns-bridge-core)](https://www.npmjs.com/package/ns-bridge-core) |
 | [`ns-kiro-core`](packages/kiro-core) | vendor core | The Kiro (AWS CodeWhisperer/Q) protocol | [![npm](https://img.shields.io/npm/v/ns-kiro-core)](https://www.npmjs.com/package/ns-kiro-core) |
 | [`ns-devin-core`](packages/devin-core) | vendor core | The Devin (Cognition Cascade) protocol | [![npm](https://img.shields.io/npm/v/ns-devin-core)](https://www.npmjs.com/package/ns-devin-core) |
@@ -50,8 +51,10 @@ Harness chunk) lands in one bridge and reaches every vendor.
 | [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | DSH adapter | `devin` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-devin)](https://www.npmjs.com/package/ns-dsh-llm-devin) |
 | [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | DSH adapter | `grok` as a Harness `LlmAdapter` over the local `grok` CLI | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-grok)](https://www.npmjs.com/package/ns-dsh-llm-grok) |
 
-These packages are no longer developed. Existing installs keep the last
-published version. npm marks each one deprecated.
+`@ngosangns/ns-bridge` is the package this repo publishes (current release
+`0.1.1`). The other rows stay at their last published version. npm marks each
+of those deprecated. Their source still lives in this repo, and the CLI
+installs those last versions into Pi, OMP, and DSH.
 
 This repository was assembled from four, with their history:
 `ns-kiro-provider` (renamed to this one), `ns-pi-provider`, `ns-omp-provider`
@@ -89,30 +92,34 @@ Mutating commands preview unless you pass `--apply`. DSH needs `--profile <name>
 ## Pi
 
 ```bash
-pi install npm:@ngosangns/ns-pi-provider
+ns-bridge install pi --apply
 pi --model kiro/claude-sonnet-4-6
 ```
 
-Registers `kiro`, `devin` and `grok`. See [the package README](packages/pi-provider).
+That runs `pi install npm:@ngosangns/ns-pi-provider` and registers `kiro`,
+`devin`, and `grok`. Inside Pi, `/ns-pi refresh` and `/grok refresh` point back
+at `ns-bridge models refresh --apply`. See [the package README](packages/pi-provider).
 
 ## OMP
 
 ```bash
-omp plugin install ns-omp-provider-kiro   # kiro
-omp plugin install ns-omp-provider        # devin + grok
+ns-bridge install omp --apply
 ```
 
-Both register into OMP; only one may own the `kiro` provider id. Kiro belongs to
+That runs `omp plugin install ns-omp-provider ns-omp-provider-kiro`. Both
+register into OMP; only one may own the `kiro` provider id. Kiro belongs to
 `ns-omp-provider-kiro`, so `ns-omp-provider` leaves its `kiro` off unless you set
-`NS_OMP_PROVIDER_ENABLE=kiro` — don't, while `ns-omp-provider-kiro` is installed.
-Both paths now run the same `ns-kiro-core`, so nothing is lost by choosing the
-dedicated plugin.
+`NS_OMP_PROVIDER_ENABLE=kiro`. Leave that unset while `ns-omp-provider-kiro` is
+installed. Both paths run the same `ns-kiro-core`.
 
 ## DeepSeek Harness
 
 ```bash
-dsh plugin --profile <profile> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok
+ns-bridge install dsh --profile <profile> --apply
 ```
+
+That runs `dsh plugin --profile <profile> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok`.
+Profile `desktop` stays with the Electron app, so the CLI refuses it.
 
 Then in that profile's `cordis.patch.yml`:
 
@@ -137,8 +144,9 @@ Then in that profile's `cordis.patch.yml`:
     model: claude-sonnet-4-6
 ```
 
-See [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro) and
-[`ns-dsh-llm-devin`](packages/dsh-llm-devin) for options.
+See [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro),
+[`ns-dsh-llm-devin`](packages/dsh-llm-devin), and
+[`ns-dsh-llm-grok`](packages/dsh-llm-grok) for options.
 
 ## Development
 

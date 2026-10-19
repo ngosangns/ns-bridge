@@ -1,3 +1,9 @@
+# Changelog
+
+Development of `@ngosangns/ns-pi-provider` stopped at **0.5.3**. npm marks that version deprecated. The maintained package is [`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+
+This file records notes through 0.4.0 and the 0.1.x line. Releases after 0.4.0 were not appended. The Go sidecar described under 0.4.0 is not in the tree: Kiro and Devin run in the host process, and `ns-bridge models refresh --apply` writes the model catalogs.
+
 ## 0.4.0
 
 Runs on `ns-bridge-core@0.2.0`, `ns-kiro-core@0.4.0` and `ns-devin-core@0.3.0`.
@@ -81,8 +87,6 @@ Moved into the [ns-bridge](https://github.com/ngosangns/ns-bridge) monorepo.
 ## 0.1.4
 
 - Republish of 0.1.3 (Devin await catalog before register) after npm staged-version conflict.
-
-# Changelog
 
 ## 0.1.3
 

@@ -8,13 +8,14 @@ This package is the Kiro vendor core of
 [ns-bridge](https://github.com/ngosangns/ns-bridge): everything a Kiro client
 needs that is not specific to one coding agent.
 
-Published on npm as `ns-kiro-core`. Pulled in as a dependency by the Kiro host
-adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
-`ns-dsh-llm-kiro` — not meant to be installed on its own.
+The last npm release is `ns-kiro-core@0.5.3`. npm marks it deprecated. The Kiro
+host adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
+`ns-dsh-llm-kiro` — depend on it. It is not meant to be installed on its own.
 
 - **Endpoints** — SSO region to management/runtime host resolution.
 - **Model catalog** — the bootstrap list, the authenticated regional catalog,
   and a validated on-disk cache at `~/.ns-kiro-provider-models-cache.json`.
+  Hosts read that file. `ns-bridge models refresh kiro --apply` writes it.
   Per-model billing weights (`rateMultiplier`) come from kiro-cli, the only
   source that publishes them.
 - **Usage** — Kiro reports no token counts, only a billed amount, surfaced as
@@ -37,8 +38,8 @@ adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
 The public entry points (`streamKiro`, `updateKiroModelsCache`, `fetchKiroUsage`,
 `refreshKiroToken`, `loginKiroWithApiKey`) run in this package. Per-process
 state stays here too: the local credential stores and their selection
-(`KIRO_AUTH_SOURCE`), the profile-ARN and region caches, the cache-read
-estimate, and catalog refresh scheduling.
+(`KIRO_AUTH_SOURCE`), the profile-ARN and region caches, and the cache-read
+estimate. Hosts read the catalog file. They do not schedule a catalog refresh.
 
 ## The neutral seam
 
@@ -80,7 +81,7 @@ retries, tokenizer, login) lives in this package:
 | `streamKiro` | Resolve the model id and profile, stream one turn, apply the cache-read estimate |
 | `resolveKiroCredentials` / `refreshKiroToken` | Pick the local store (kiro-cli or Kiro IDE), refresh the token, write the result back |
 | `getKiroCliCredentials` / `getKiroIdeCredentials` | Read the kiro-cli SQLite store / the IDE token file |
-| `updateKiroModelsCache` / `getCachedModels` | Refresh the authenticated catalog and read the on-disk cache |
+| `updateKiroModelsCache` / `getCachedModels` | Write the authenticated catalog (`ns-bridge models refresh`) and read the on-disk cache |
 | `applyCacheEstimate` | Cross-turn cache-read estimation |
 | `loginKiroWithApiKey` | Accept a `ksk_` key and call GetProfile |
 

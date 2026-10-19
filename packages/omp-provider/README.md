@@ -15,17 +15,20 @@ are bundled at build time with a small compat layer.
 |----------|------|-------|
 | `kiro` (**opt-in**) | kiro-cli / Kiro IDE session (`/login kiro`) + `KIRO_API_KEY` | Off by default — use [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro); see below |
 | `devin` | OAuth (`/login devin`) + `credentials.toml` / env | Swe-2 catalog when authenticated |
-| `grok` (+ `grok-sdk` alias) | Local `grok` CLI / `~/.grok` / `XAI_API_KEY` | Commands: `/grok status \| models \| refresh` |
+| `grok` (+ `grok-sdk` alias) | Local `grok` CLI / `~/.grok` / `XAI_API_KEY` | `/grok status`, `/grok models`. `/grok refresh` points at the CLI |
 
-Shared command: `/ns-pi status | refresh [all\|kiro\|devin\|grok]`.
+Shared command: `/ns-pi status`. `/ns-pi refresh [all|kiro|devin|grok]` points at `ns-bridge models refresh --apply`.
 
 ## Install
 
 ```bash
-# from npm
+# maintained installer (installs this package and ns-omp-provider-kiro)
+ns-bridge install omp --apply
+
+# the same host command for this package's last npm release
 omp plugin install ns-omp-provider
 
-# local link (dev, after `pnpm -r build` in ns-bridge)
+# local link (a clone of ns-bridge, after `pnpm -r build`)
 omp plugin link ~/Github/ngosangns/ns-bridge/packages/omp-provider
 
 # one-shot without installing
@@ -67,8 +70,9 @@ dedicated plugin loses nothing.
    - OMP contexts (`systemPrompt: string[]`, `developer` messages) become the
      Pi shape (`systemPrompt: string`, no developer role) before
      `streamSimple`.
-   - Pi's `refreshModels({credential, signal, allowNetwork})` is exposed as
-     OMP's `fetchDynamicModels(apiKey)`.
+   - Pi's `refreshModels` hook is exposed as OMP's `fetchDynamicModels`. Both
+     read the catalog file. A fresh file is returned; a stale or empty file
+     returns null so OMP keeps the models already registered.
    - Pi `$ENV` / `$$` apiKey syntax is translated to OMP's.
    - Unsupported events (`session_info_changed`) are no-ops; OMP's
      `session_switch` / `session_branch` also fire Pi's `session_start`
@@ -81,15 +85,15 @@ dedicated plugin loses nothing.
 - **`session_info_changed`** — OMP has no equivalent; the grok handler is a
   documented no-op (name changes do not re-key the agent pool).
 - **Duplicate `kiro`** — `kiro` is opt-in; don't enable it alongside `ns-omp-provider-kiro`.
-- **Unauthenticated catalogs** — without credentials, OMP may hide a provider's
-  models from `omp models` even though the provider is registered. After
-  `/login` (or with CLI creds present) the live catalog, including Devin
-  `swe-2-*`, appears via `fetchDynamicModels`.
-- **Kiro catalog** (when opted in) — models come only from Kiro's `ListAvailableModels`:
-  with no Kiro session and no saved catalog snapshot, `kiro` registers zero models.
+- **Catalog files** — the models OMP shows are the ones already on disk.
+  `ns-bridge models refresh --apply` writes them. `fetchDynamicModels` returns
+  a fresh file, or null when the file is missing, empty, or past its TTL, and
+  does not call the vendor.
+- **Kiro catalog** (when opted in) — with no saved catalog snapshot, `kiro`
+  registers zero models.
 - **Bundled Pi adapter** — the build bundles the workspace's
-  `@ngosangns/ns-pi-provider` (`workspace:*`), so an ns-omp-provider release
-  ships whatever the Pi adapter is at that commit; note it in the changelog.
+  `@ngosangns/ns-pi-provider` (`workspace:*`). The last published tarball is
+  `0.6.3`.
 
 ## Development
 
@@ -106,5 +110,6 @@ The smoke script needs `omp` on `PATH` and does not touch your real `~/.omp`.
 
 ## Publish
 
-Released from the ns-bridge workflow with tag `ns-omp-provider@<version>`; see
-[DEVELOPER.md](../../DEVELOPER.md#releasing).
+The last npm release is `0.6.3`. npm marks it deprecated. This repo publishes
+[`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge)
+from tag `ns-bridge@<version>`. See [DEVELOPER.md](../../DEVELOPER.md#releasing).
