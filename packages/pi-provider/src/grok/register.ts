@@ -5,6 +5,7 @@
  * Streaming: ACP/JSONL via adapted pi-grok-sdk (MIT).
  */
 
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,7 @@ import {
   CLIENT_VERSION,
   resolveIntegrationMode,
 } from "./config.js";
-import { discoverModels, toProviderModels } from "./models.js";
+import { discoverModels, fallbackModels, parseGrokModelsOutput, toProviderModels } from "./models.js";
 import { streamGrokAgent } from "./provider.js";
 import { registerSessionScope, scopeKeyFromCtx } from "./session-scope.js";
 import { disposeAllSessionAgents, disposeSessionAgentsForScope } from "./session-agent.js";
@@ -77,6 +78,8 @@ export function grokAuthPresent(): boolean {
 
 export function refreshGrokModels(options: {
   force?: boolean;
+  /** When false, a cache miss returns the static fallback and does not spawn `grok models`. */
+  allowCli?: boolean;
   binary?: string;
   cache?: ReturnType<typeof getDefaultCatalogCache>;
 } = {}): { models: ProviderModelConfig[]; fromCache: boolean; source: "live" | "fallback" | "cache" } {
@@ -91,6 +94,14 @@ export function refreshGrokModels(options: {
         source: "cache",
       };
     }
+  }
+
+  if (options.allowCli === false) {
+    return {
+      models: catalogToProviderModels(descriptorsToCatalog(fallbackModels())),
+      fromCache: false,
+      source: "fallback",
+    };
   }
 
   let binary: string | undefined = options.binary;
@@ -118,11 +129,49 @@ function createProviderConfig(models: ProviderModelConfig[]) {
     api: GROK_API,
     models,
     streamSimple: streamGrokAgent,
+    // OMP awaits this at startup and caches a non-null list for 24h. Re-read
+    // the disk cache so a probe that finished after this config was built is
+    // what gets stored. The static fallback is not stored, so it stays null
+    // and does not become that authoritative list.
+    fetchDynamicModels: async () => {
+      const latest = refreshGrokModels({ allowCli: false });
+      if (!latest.fromCache || latest.models.length === 0) return null;
+      return latest.models;
+    },
     async refreshModels({ allowNetwork }: { allowNetwork: boolean }) {
       if (!allowNetwork) return models;
       return refreshGrokModels({ force: true }).models;
     },
   };
+}
+
+type GrokRefresh = ReturnType<typeof refreshGrokModels>;
+
+/** One in-flight `grok models` probe. The child is async so it does not freeze startup. */
+let grokDiscover: Promise<void> | undefined;
+
+function discoverGrokModelsInBackground(binary: string, onModels: (refresh: GrokRefresh) => void): void {
+  if (grokDiscover) return;
+  grokDiscover = new Promise((resolve) => {
+    execFile(binary, ["models"], { timeout: 20_000, encoding: "utf8" }, (error, stdout) => {
+      try {
+        const parsed = error ? [] : parseGrokModelsOutput(String(stdout ?? ""));
+        const descriptors = parsed.length > 0 ? parsed : fallbackModels();
+        const catalog = descriptorsToCatalog(descriptors);
+        getDefaultCatalogCache().store(GROK_PROVIDER_ID, catalog, { version: "grok-cli-v1" });
+        onModels({
+          models: catalogToProviderModels(catalog),
+          fromCache: false,
+          source: parsed.length > 0 && !error ? "live" : "fallback",
+        });
+      } catch {
+        // keep the list already registered
+      } finally {
+        grokDiscover = undefined;
+        resolve();
+      }
+    });
+  });
 }
 
 export function registerGrokProvider(pi: ExtensionAPI): void {
@@ -152,16 +201,40 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
     binaryError = err instanceof Error ? err.message : String(err);
   }
 
-  let refreshed = refreshGrokModels({ binary });
+  // `grok models` is a synchronous CLI spawn of up to 20s. Pi awaits this
+  // factory, so registration serves the disk cache or the static fallback and
+  // probes the CLI off that path.
+  let refreshed = refreshGrokModels({ allowCli: false, binary });
   let models = refreshed.models;
-  const config = createProviderConfig(models);
-  pi.registerProvider(GROK_PROVIDER_ID, config as never);
-  // Alias for settings that still say grok-sdk
-  pi.registerProvider(GROK_SDK_PROVIDER_ID, {
-    ...config,
-    name: "Grok (sdk alias)",
-    api: GROK_SDK_API,
-  } as never);
+  const sameIds = (next: ProviderModelConfig[]) =>
+    models.length === next.length && models.every((model, index) => model.id === next[index]?.id);
+  const publish = (next: GrokRefresh, force = false) => {
+    if (!force && sameIds(next.models)) {
+      refreshed = next;
+      return;
+    }
+    models = next.models;
+    refreshed = next;
+    const config = createProviderConfig(models);
+    pi.registerProvider(GROK_PROVIDER_ID, config as never);
+    // Alias for settings that still say grok-sdk
+    pi.registerProvider(GROK_SDK_PROVIDER_ID, {
+      ...config,
+      name: "Grok (sdk alias)",
+      api: GROK_SDK_API,
+    } as never);
+  };
+  publish(refreshed, true);
+  if (!refreshed.fromCache && binary) {
+    discoverGrokModelsInBackground(binary, (next) => publish(next));
+  }
+
+  // OMP rebinds registerProvider onto the live registry just before this event.
+  // A probe that finished while extensions were loading is republished here,
+  // still without spawning the CLI.
+  pi.on("session_start", () => {
+    publish(refreshGrokModels({ allowCli: false, binary }));
+  });
 
   const commandHandler = async (
     args: string,

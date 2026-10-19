@@ -26,7 +26,11 @@ import { streamToPi, toBridgeContext, toBridgeEffort, toPiThinkingLevelMap } fro
 import {
   formatSafeError,
   getCachedModels,
+  getKiroCliCredentials,
+  getKiroCliCredentialsAllowExpired,
   getKiroEndpoints,
+  getKiroIdeCredentials,
+  getKiroIdeCredentialsAllowExpired,
   getKiroRegionFromEndpoint,
   isCacheStale,
   type KiroCredentials,
@@ -35,6 +39,7 @@ import {
   loginKiroFromSession,
   refreshKiroToken,
   resolveApiRegion,
+  resolveKiroAuthSource,
   resolveKiroCredentials,
   resolveKiroRequestCredentials,
   streamKiro,
@@ -80,12 +85,44 @@ function hasEnvKey(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.KIRO_API_KEY?.trim());
 }
 
+/**
+ * The preferred store's session, including an expired access token.
+ *
+ * Registration only needs the region so it can read that region's disk cache.
+ * Refreshing the token here is a network call, and Pi awaits the extension
+ * factory plus `session_start`, so the refresh stays on the request path
+ * ({@link resolveKiroCredentials}).
+ */
+function localKiroSession(): KiroCredentials | undefined {
+  try {
+    const preferIde = resolveKiroAuthSource() === "ide";
+    const preferred = preferIde
+      ? (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired())
+      : (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired());
+    if (preferred) return preferred;
+    return preferIde
+      ? (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired())
+      : (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired());
+  } catch {
+    return undefined;
+  }
+}
+
 async function storedSession(): Promise<KiroCredentials | undefined> {
   try {
     return await resolveKiroCredentials();
   } catch {
     return undefined;
   }
+}
+
+/** Disk catalog for the local session. Empty when this machine has no Kiro credential at all. */
+function localKiroCatalog(): { models: PiKiroModelConfig[]; region: string } {
+  const session = localKiroSession();
+  const token = session?.access || (hasEnvKey() ? process.env.KIRO_API_KEY?.trim() : undefined);
+  if (!token) return { models: [], region: DEFAULT_REGION };
+  const region = resolveApiRegion(session?.region);
+  return { models: getCachedModels(region).map(toPiKiroModel), region };
 }
 
 /**
@@ -163,8 +200,15 @@ export function streamKiroForPi(
   });
 }
 
+/** One catalog refresh shared by registration and every session_start. */
+let kiroCatalogRefresh: Promise<void> | undefined;
+
 export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
-  let current = await refreshKiroModels({ allowNetwork: false });
+  // Disk only. `refreshKiroModels` may refresh an expired token before it
+  // reads the catalog, and Pi awaits this factory.
+  let current = { ...localKiroCatalog(), fromCache: true };
+
+  const signature = () => `${current.region}\n${current.models.map((model) => model.id).join("\n")}`;
 
   const buildConfig = () => ({
     name: "Kiro",
@@ -174,6 +218,15 @@ export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
     authHeader: false,
     streamSimple: streamKiroForPi,
     models: current.models,
+    // OMP awaits this during startup and then treats a list as authoritative
+    // for 24h. Read the disk cache at call time so a refresh that finished
+    // after this config was built is what gets stored. Null leaves `models`
+    // in place and does not lock a stale catalog.
+    fetchDynamicModels: async () => {
+      const latest = localKiroCatalog();
+      if (latest.models.length === 0 || isCacheStale(latest.region)) return null;
+      return latest.models;
+    },
     async refreshModels({
       credential,
       allowNetwork,
@@ -182,10 +235,13 @@ export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
       signal: AbortSignal;
       allowNetwork: boolean;
     }) {
+      // Pi awaits refresh({ allowNetwork: false }) while creating the session.
+      // That path must not resolve or refresh credentials.
+      if (!allowNetwork) return current.models;
       const token =
         (credential?.type === "oauth" ? credential.access : undefined) ||
         (credential?.type === "api_key" ? credential.key : undefined);
-      current = await refreshKiroModels({ token, allowNetwork, force: allowNetwork });
+      current = await refreshKiroModels({ token, allowNetwork, force: true });
       return current.models;
     },
     oauth: {
@@ -203,20 +259,42 @@ export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
     },
   });
 
-  pi.registerProvider(KIRO_PROVIDER_ID, buildConfig() as never);
+  const publish = () => {
+    pi.registerProvider(KIRO_PROVIDER_ID, buildConfig() as never);
+  };
+  publish();
 
-  // Refresh the catalog off the startup path; re-register only when it changed.
-  pi.on("session_start", async () => {
-    try {
-      const before = current.models.map((model) => model.id).join(",");
-      current = await refreshKiroModels();
-      if (current.models.map((model) => model.id).join(",") !== before) {
-        pi.registerProvider(KIRO_PROVIDER_ID, buildConfig() as never);
+  const scheduleCatalogRefresh = () => {
+    if (kiroCatalogRefresh) return;
+    if (current.models.length === 0 || !isCacheStale(current.region)) return;
+    const before = signature();
+    kiroCatalogRefresh = (async () => {
+      try {
+        const next = await refreshKiroModels();
+        if (!next.models.length) return;
+        current = next;
+        if (signature() !== before) publish();
+      } catch {
+        // keep the current catalog
+      } finally {
+        kiroCatalogRefresh = undefined;
       }
-    } catch {
-      // keep the current catalog
-    }
+    })();
+  };
+
+  // Pi and OMP both await session_start before the session is usable. OMP
+  // also rebinds registerProvider onto the live registry just before that
+  // event, so republishing here is what makes a refresh that finished during
+  // extension load show up. The handler itself must not wait on the network.
+  pi.on("session_start", () => {
+    const before = signature();
+    const latest = localKiroCatalog();
+    if (latest.models.length) current = { ...latest, fromCache: true };
+    if (signature() !== before) publish();
+    scheduleCatalogRefresh();
   });
+
+  scheduleCatalogRefresh();
 }
 
 export default registerKiroProvider;

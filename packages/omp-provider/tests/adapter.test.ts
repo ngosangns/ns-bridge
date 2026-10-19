@@ -86,7 +86,7 @@ describe("adaptProviderConfig", () => {
     const fetchDynamicModels = adapted.fetchDynamicModels as (key?: string) => Promise<unknown[]>;
     await expect(fetchDynamicModels("tok")).resolves.toEqual([{ id: "m1" }]);
     expect(refreshModels).toHaveBeenLastCalledWith(
-      expect.objectContaining({ credential: { type: "api_key", key: "tok", access: "tok" }, allowNetwork: true }),
+      expect.objectContaining({ credential: { type: "api_key", key: "tok", access: "tok" }, allowNetwork: false }),
     );
     await fetchDynamicModels(undefined);
     expect(refreshModels).toHaveBeenLastCalledWith(expect.objectContaining({ credential: undefined }));
@@ -101,6 +101,10 @@ describe("adaptProviderConfig", () => {
 
   it("returns [] from fetchDynamicModels when refresh yields nothing", async () => {
     await expect(toFetchDynamicModels(() => undefined)(undefined)).resolves.toEqual([]);
+  });
+
+  it("passes a null catalog through so OMP does not cache it as authoritative", async () => {
+    await expect(toFetchDynamicModels(() => null)(undefined)).resolves.toBeNull();
   });
 
   it("keeps an explicit fetchDynamicModels", () => {

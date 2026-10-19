@@ -42,6 +42,7 @@
     "prepublishOnly": "pnpm run check && pnpm run build"
   },
   "dependencies": {
+    "js-tiktoken": "^1.0.21",
     "ns-kiro-core": "workspace:*"
   },
   "peerDependencies": {

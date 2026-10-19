@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { streamToPi, toPiThinkingLevelMap } from "../src/pi/index.js";
+import { describe, expect, it, vi } from "vitest";
+import { streamToDsh } from "../src/dsh/index.js";
+import { HOST_TURN_BUDGET_MS, streamToPi, toPiThinkingLevelMap } from "../src/pi/index.js";
 import type { BridgeStreamEvent } from "../src/types.js";
 
 class FakeStream {
@@ -243,6 +244,231 @@ describe("streamToPi", () => {
     expect(plainEvent.reason).toBe("error");
     expect(plainEvent.error.errorMessage).toBe("devin-session-token$[redacted]");
     expect(plainEvent.error.content).toEqual([]);
+  });
+
+  it("merges consecutive deltas for one block into a single host update", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () =>
+        from([
+          { type: "text_start", index: 0 },
+          { type: "text_delta", index: 0, delta: "he" },
+          { type: "text_delta", index: 0, delta: "llo" },
+          { type: "text_end", index: 0, text: "hello" },
+          { type: "thinking_start", index: 1 },
+          { type: "thinking_delta", index: 1, delta: "a" },
+          { type: "thinking_delta", index: 1, delta: "b" },
+          { type: "thinking_end", index: 1, thinking: "ab" },
+          { type: "tool_call_start", index: 2, id: "c1", name: "read" },
+          { type: "tool_call_delta", index: 2, id: "c1", argumentsDelta: '{"p":' },
+          { type: "tool_call_delta", index: 2, id: "c1", argumentsDelta: "1}" },
+          { type: "tool_call_end", index: 2, id: "c1", name: "read", arguments: { p: 1 } },
+          { type: "done", stopReason: "toolUse" },
+        ]),
+    });
+    await stream.done;
+    const deltas = stream.events.filter(
+      (event) => event.type === "text_delta" || event.type === "thinking_delta" || event.type === "toolcall_delta",
+    );
+    expect(deltas.map((event) => event.delta)).toEqual(["hello", "ab", '{"p":1}']);
+    const done = stream.events.at(-1) as { message: { content: unknown[] } };
+    expect(done.message.content).toEqual([
+      { type: "text", text: "hello" },
+      { type: "thinking", thinking: "ab" },
+      { type: "toolCall", id: "c1", name: "read", arguments: { p: 1 } },
+    ]);
+  });
+
+  it("flushes a burst of deltas while the next read is still pending", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: async function* () {
+        yield { type: "text_start", index: 0 };
+        yield { type: "text_delta", index: 0, delta: "aa" };
+        yield { type: "text_delta", index: 0, delta: "bb" };
+        await gate;
+        yield { type: "text_delta", index: 0, delta: "cc" };
+        yield { type: "done", stopReason: "stop" };
+      },
+    });
+    await vi.waitFor(
+      () => {
+        const deltas = stream.events.filter((event) => event.type === "text_delta");
+        expect(deltas.map((event) => event.delta)).toEqual(["aabb"]);
+      },
+      { timeout: 500 },
+    );
+    release();
+    await stream.done;
+    const deltas = stream.events.filter((event) => event.type === "text_delta");
+    expect(deltas.map((event) => event.delta)).toEqual(["aabb", "cc"]);
+    const done = stream.events.at(-1) as { message: { content: Array<{ text: string }> } };
+    expect(done.message.content).toEqual([{ type: "text", text: "aabbcc" }]);
+  });
+
+  it("holds tool argument deltas until the call ends", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: async function* () {
+        yield { type: "tool_call_start", index: 0, id: "c1", name: "write" };
+        yield { type: "tool_call_delta", index: 0, id: "c1", argumentsDelta: "aaaa" };
+        yield { type: "tool_call_delta", index: 0, id: "c1", argumentsDelta: "bbbb" };
+        await gate;
+        yield { type: "tool_call_end", index: 0, id: "c1", name: "write", arguments: { path: "a" } };
+        yield { type: "done", stopReason: "toolUse" };
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(stream.events.filter((event) => event.type === "toolcall_delta")).toEqual([]);
+    release();
+    await stream.done;
+    const deltas = stream.events.filter((event) => event.type === "toolcall_delta");
+    expect(deltas.map((event) => event.delta)).toEqual(["aaaabbbb"]);
+  });
+
+  it("waits longer before repainting a large open code fence", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fence = `\`\`\`ts\n${"const x = 1;\n".repeat(3_000)}`;
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: async function* () {
+        yield { type: "text_start", index: 0 };
+        yield { type: "text_delta", index: 0, delta: fence };
+        await gate;
+        yield { type: "done", stopReason: "stop" };
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(stream.events.some((event) => event.type === "text_delta")).toBe(false);
+    await vi.waitFor(
+      () => {
+        expect(stream.events.some((event) => event.type === "text_delta")).toBe(true);
+      },
+      { timeout: 800 },
+    );
+    release();
+    await stream.done;
+  });
+
+  it("drops deltas still held when a retry resets the message", async () => {
+    const stream = streamToPi({
+      model,
+      createStream: () => new FakeStream(),
+      events: () =>
+        from([
+          { type: "text_start", index: 0 },
+          { type: "text_delta", index: 0, delta: "nope" },
+          { type: "reset" },
+          { type: "text_start", index: 1 },
+          { type: "text_delta", index: 1, delta: "ok" },
+          { type: "text_end", index: 1, text: "ok" },
+          { type: "done", stopReason: "stop" },
+        ]),
+    });
+    await stream.done;
+    const deltas = stream.events.filter((event) => event.type === "text_delta");
+    expect(deltas.map((event) => event.delta)).toEqual(["ok"]);
+    const done = stream.events.at(-1) as { message: { content: unknown[] } };
+    expect(done.message.content).toEqual([{ type: "text", text: "ok" }]);
+  });
+
+  it("keeps a 200-delta burst, including a 30KB fence, inside the host turn budget", async () => {
+    const textDeltas = 150;
+    const thinkingDeltas = 30;
+    const toolDeltas = 20;
+    const fence = `\`\`\`ts\n${"const x = 1;\n".repeat(2_300)}`;
+    const events: BridgeStreamEvent[] = [{ type: "text_start", index: 0 }];
+    for (let index = 0; index < textDeltas; index += 1) {
+      events.push({ type: "text_delta", index: 0, delta: index === 0 ? fence : "a" });
+    }
+    events.push({ type: "thinking_start", index: 1 });
+    for (let index = 0; index < thinkingDeltas; index += 1) {
+      events.push({ type: "thinking_delta", index: 1, delta: "t" });
+    }
+    events.push({ type: "tool_call_start", index: 2, id: "c1", name: "read" });
+    for (let index = 0; index < toolDeltas; index += 1) {
+      events.push({ type: "tool_call_delta", index: 2, id: "c1", argumentsDelta: "{}" });
+    }
+    events.push({ type: "tool_call_end", index: 2, id: "c1", name: "read", arguments: {} });
+    events.push({ type: "done", stopReason: "stop" });
+
+    const dsh: Array<Record<string, unknown>> = [];
+    for await (const chunk of streamToDsh(from(events))) dsh.push(chunk as unknown as Record<string, unknown>);
+    // Characterization of the current Harness bridge: one host chunk per core
+    // delta. Coalescing DSH waits on this count and on the Pi budget above.
+    expect(dsh.filter((chunk) => chunk.type === "text-delta")).toHaveLength(textDeltas);
+    expect(dsh.filter((chunk) => chunk.type === "reasoning-delta")).toHaveLength(thinkingDeltas);
+    expect(dsh.filter((chunk) => chunk.type === "tool-call-delta")).toHaveLength(toolDeltas + 1);
+
+    let clock = 0;
+    const now = vi.spyOn(performance, "now").mockImplementation(() => {
+      clock += 1;
+      return clock;
+    });
+    const marks = [0];
+    const realTimeout = globalThis.setTimeout;
+    const realImmediate = globalThis.setImmediate;
+    // Block boundaries flush the held text. A real flush timer would also
+    // fire when the event loop is busy, so this test silences that timer and
+    // measures the synchronous budget with a fake clock.
+    const timeout = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: (...args: unknown[]) => void,
+      delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof delay === "number" && delay >= 32) {
+        const handle = realTimeout(() => {}, 0);
+        clearTimeout(handle);
+        return handle;
+      }
+      return realTimeout(callback, delay, ...args);
+    }) as typeof setTimeout);
+    const immediate = vi.spyOn(globalThis, "setImmediate").mockImplementation(((
+      callback: (...args: unknown[]) => void,
+      ...args: unknown[]
+    ) => {
+      marks.push(clock);
+      return realImmediate(callback, ...args);
+    }) as typeof setImmediate);
+    try {
+      const stream = streamToPi({
+        model,
+        createStream: () => new FakeStream(),
+        events: () => from(events),
+      });
+      await stream.done;
+      marks.push(clock);
+      const endAt = stream.events.findIndex((event) => event.type === "toolcall_end");
+      const textUpdates = stream.events.slice(0, endAt).filter((event) => event.type === "text_delta");
+      expect(textUpdates.length).toBeGreaterThan(0);
+      expect(textUpdates.length).toBeLessThanOrEqual(8);
+      expect(String(textUpdates[0]?.delta)).toContain(fence);
+      const gaps = marks.slice(1).map((mark, index) => mark - marks[index]);
+      const widest = Math.max(...gaps);
+      // The budget is checked after the event that crosses it, and resetting
+      // the window reads the clock once more. A fake clock keeps this off the
+      // machine's load average.
+      expect(widest, `clock marks ${marks.join(",")}`).toBeLessThanOrEqual(HOST_TURN_BUDGET_MS + 3);
+    } finally {
+      immediate.mockRestore();
+      timeout.mockRestore();
+      now.mockRestore();
+    }
   });
 
   it("keeps blocks already opened when the core throws mid-turn", async () => {

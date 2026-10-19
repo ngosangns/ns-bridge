@@ -1,0 +1,101 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { DevinCredentials } from "ns-devin-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const child = vi.hoisted(() => ({
+  execFile: vi.fn(),
+  execFileSync: vi.fn(),
+  execSync: vi.fn(),
+  spawn: vi.fn(),
+  spawnSync: vi.fn(),
+}));
+
+vi.mock("node:child_process", async () => {
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  const wrap = (name: keyof typeof child) => {
+    child[name].mockImplementation((...args: unknown[]) => (actual[name] as (...inner: unknown[]) => unknown)(...args));
+  };
+  wrap("execFile");
+  wrap("execFileSync");
+  wrap("execSync");
+  wrap("spawn");
+  wrap("spawnSync");
+  return { ...actual, ...child };
+});
+
+import { DevinAdapter } from "../src/adapter.js";
+import { apply } from "../src/index.js";
+
+const previous = process.env.NS_DEVIN_MODEL_CACHE;
+
+afterEach(() => {
+  if (previous === undefined) delete process.env.NS_DEVIN_MODEL_CACHE;
+  else process.env.NS_DEVIN_MODEL_CACHE = previous;
+});
+
+function hangingCredentials(): () => Promise<DevinCredentials> {
+  return () => new Promise(() => {});
+}
+
+describe("Devin catalog refresh does not block the harness", () => {
+  it("lists and resolves a cached model while discovery is still pending", async () => {
+    process.env.NS_DEVIN_MODEL_CACHE = join(mkdtempSync(join(tmpdir(), "ns-dsh-devin-")), "missing.json");
+    const adapter = new DevinAdapter({
+      provider: "devin",
+      displayName: "Devin",
+      credentials: hangingCredentials(),
+    });
+
+    const listed = await Promise.race([
+      adapter.listModels("devin"),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("listModels waited")), 50)),
+    ]);
+    expect(listed.map((model) => model.id)).toContain("swe-1-6");
+
+    const resolved = await Promise.race([
+      adapter.resolveModel("devin", "swe-1-6"),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("resolveModel waited")), 50)),
+    ]);
+    expect(resolved.id).toBe("swe-1-6");
+    expect(child.execFile).not.toHaveBeenCalled();
+    expect(child.execFileSync).not.toHaveBeenCalled();
+    expect(child.execSync).not.toHaveBeenCalled();
+    expect(child.spawn).not.toHaveBeenCalled();
+    expect(child.spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("does not call the network from apply", () => {
+    const fetchSpy = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      apply(
+        {
+          inject(_names: string[], fn: (scope: { attachments: undefined; effect: () => void }) => void) {
+            fn({ attachments: undefined, effect() {} });
+          },
+          llm: { registerAdapter() {} },
+        } as never,
+        { provider: "devin", displayName: "Devin" },
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(child.execFile).not.toHaveBeenCalled();
+      expect(child.spawn).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("still refreshes once before rejecting an id the cache has never seen", async () => {
+    process.env.NS_DEVIN_MODEL_CACHE = join(mkdtempSync(join(tmpdir(), "ns-dsh-devin-")), "missing.json");
+    const adapter = new DevinAdapter({
+      provider: "devin",
+      displayName: "Devin",
+      credentials: async () => {
+        throw new Error("no session");
+      },
+    });
+    await expect(adapter.resolveModel("devin", "not-a-real-model")).rejects.toMatchObject({ code: "UNKNOWN_MODEL" });
+  });
+});

@@ -81,20 +81,44 @@ export class DevinAdapter extends LlmAdapter {
     return this.refreshPromise;
   }
 
-  async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    await this.refreshCatalog();
-    return getCachedModels().map((model) => ({
+  /** Start a stale-catalog refresh without making the caller wait for it. */
+  private refreshInBackground(): void {
+    if (!isCacheStale()) return;
+    void this.refreshCatalog();
+  }
+
+  private toModelInfo(provider: string, model: ReturnType<typeof getCachedModels>[number]): LlmModelInfo {
+    return {
       provider,
       id: model.id,
       name: model.name,
       inputModalities: model.input.filter((modality) => modality === "text" || modality === "image"),
-    }));
+    };
+  }
+
+  async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    // The Harness awaits this while it builds the model list. Serve the disk
+    // cache (or the seed) immediately and let discovery catch up behind it.
+    this.refreshInBackground();
+    return getCachedModels().map((model) => this.toModelInfo(provider, model));
   }
 
   async resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo> {
+    const cached = getCachedModels().find((candidate) => candidate.id === model);
+    if (cached) {
+      this.refreshInBackground();
+      return this.toResolved(provider, cached);
+    }
+    // The id is not in the seed or the disk cache. One refresh distinguishes
+    // "the account has this model" from a typo. Startup resolves ids that are
+    // already cached, so this wait is a lookup, not host boot.
     await this.refreshCatalog();
     const known = getCachedModels().find((candidate) => candidate.id === model);
     if (!known) throw new LlmError(`Unknown Devin model: ${model}`, "UNKNOWN_MODEL");
+    return this.toResolved(provider, known);
+  }
+
+  private toResolved(provider: string, known: ReturnType<typeof getCachedModels>[number]): LlmResolvedModelInfo {
     return {
       provider,
       id: known.id,

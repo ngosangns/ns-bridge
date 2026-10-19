@@ -4,7 +4,7 @@
 import { assignDevinModel, DEVIN_CHAT_MESSAGE_PATH, type FetchImpl, fetchDevinAuthMetadata } from "./client.js";
 import { ConnectFrameReader, encodeConnectFrame } from "./connect.js";
 import { createDevinHttpError, DevinProtocolError, DevinStreamError, readConnectTrailerError } from "./errors.js";
-import { parseStreamingJsonThrottled, parseToolCallArguments } from "./json.js";
+import { parseToolCallArguments } from "./json.js";
 import {
   GetChatMessageRequestSchema,
   GetChatMessageResponseSchema,
@@ -180,7 +180,6 @@ export async function* streamDevinInProcess(request: DevinStreamRequest): AsyncI
   let openThinking: (OpenBlock & { signature?: string }) | undefined;
   const toolBlocks = new Map<string, { index: number; name: string }>();
   const toolPartialJson = new Map<string, string>();
-  const toolLastParseLen = new Map<string, number>();
   let activeToolCallId: string | undefined;
 
   const markToken = () => {
@@ -327,8 +326,8 @@ export async function* streamDevinInProcess(request: DevinStreamRequest): AsyncI
               : previousJson + call.argumentsJson;
             const delta = accumulated.slice(previousJson.length);
             toolPartialJson.set(toolCallId, accumulated);
-            const throttled = parseStreamingJsonThrottled(accumulated, toolLastParseLen.get(toolCallId) ?? 0);
-            if (throttled) toolLastParseLen.set(toolCallId, throttled.parsedLen);
+            // Do not JSON.parse here. A long `write` body made a per-delta parse
+            // the stall, and the value was discarded — tool_call_end parses once.
             yield { type: "tool_call_delta", index: block.index, id: toolCallId, argumentsDelta: delta };
           }
         }

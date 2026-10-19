@@ -148,6 +148,9 @@ importers:
 
   packages/omp-provider-kiro:
     dependencies:
+      js-tiktoken:
+        specifier: ^1.0.21
+        version: 1.0.21
       ns-kiro-core:
         specifier: workspace:*
         version: link:../kiro-core

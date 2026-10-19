@@ -8,8 +8,11 @@
  *  - Context: OMP passes `systemPrompt?: string[]` and may include
  *    `role: "developer"` messages; Pi providers expect `systemPrompt?: string`
  *    and only user / assistant / toolResult (/ system) roles.
- *  - Model refresh: Pi calls `refreshModels({ credential, signal, allowNetwork })`;
- *    OMP calls `fetchDynamicModels(apiKey)`.
+ *  - Model refresh: Pi calls `refreshModels({ credential, signal, allowNetwork })`.
+ *    OMP calls `fetchDynamicModels(apiKey)` and awaits it while starting, then
+ *    stores a non-null result as the authoritative catalog for 24h. A provider
+ *    that still has to hit the network returns `null` from that hook so startup
+ *    keeps the `models` array already registered.
  *  - apiKey config: Pi resolves `$ENV` and unescapes `$$`; OMP treats the value
  *    as an exact env-var name, `!command`, or a literal.
  *  - Events: Pi 1.0 fires `session_start` on every session (new/resume/switch)
@@ -89,18 +92,27 @@ type PiRefreshModels = (args: {
   allowNetwork: boolean;
 }) => unknown;
 
-/** Build OMP's `fetchDynamicModels(apiKey)` from a Pi `refreshModels` hook. */
+/**
+ * Build OMP's `fetchDynamicModels(apiKey)` from a Pi `refreshModels` hook.
+ *
+ * The call OMP awaits at startup asks for the list already in memory
+ * (`allowNetwork: false`). A `null` result is passed through: OMP treats that
+ * as "no dynamic list" and keeps the registered `models`, instead of caching
+ * an empty or bootstrap list as authoritative for a day. Providers that can
+ * answer from a fresh disk cache should set their own `fetchDynamicModels`.
+ */
 export function toFetchDynamicModels(
   refreshModels: PiRefreshModels,
   timeoutMs: number = DYNAMIC_MODELS_TIMEOUT_MS,
-): (apiKey: string | undefined) => Promise<unknown[]> {
+): (apiKey: string | undefined) => Promise<unknown[] | null> {
   return async (apiKey) => {
     const credential = apiKey ? { type: "api_key", key: apiKey, access: apiKey } : undefined;
     const models = await refreshModels({
       credential,
       signal: AbortSignal.timeout(timeoutMs),
-      allowNetwork: true,
+      allowNetwork: false,
     });
+    if (models === null) return null;
     return Array.isArray(models) ? models : [];
   };
 }

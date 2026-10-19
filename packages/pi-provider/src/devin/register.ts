@@ -244,6 +244,16 @@ function providerConfig(models: PiDevinModel[], apiKey?: string) {
     // When CLI credentials.toml (or env) already has a token, set apiKey so Pi
     // marks the provider configured for --list-models without /login.
     ...(apiKey ? { apiKey } : {}),
+    // OMP awaits fetchDynamicModels at startup and caches a returned list as
+    // authoritative for 24h. Read the disk cache at call time: a stale catalog
+    // answers null so that lock is not taken, and a refresh that has since
+    // landed is what gets stored. `models` above is what the host shows until then.
+    fetchDynamicModels: async () => {
+      if (isCacheStale()) return null;
+      const latest = getCachedModels().map(toPiDevinModel);
+      // An empty list would replace the registered models. Null leaves them.
+      return latest.length > 0 ? latest : null;
+    },
     async refreshModels({
       credential,
       signal,
@@ -253,6 +263,7 @@ function providerConfig(models: PiDevinModel[], apiKey?: string) {
       signal: AbortSignal;
       allowNetwork: boolean;
     }) {
+      // Pi awaits refresh({ allowNetwork: false }) while creating the session.
       if (!allowNetwork) return models;
       const token =
         (credential?.type === "oauth" ? credential.access : undefined) ||
@@ -280,40 +291,66 @@ function providerConfig(models: PiDevinModel[], apiKey?: string) {
   };
 }
 
+/** One GetCliModelConfigs refresh shared by registration and session_start. */
+let devinCatalogRefresh: Promise<void> | undefined;
+
+/** Abort a background discovery without pinning the process open for the whole timeout. */
+function backgroundSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  timer.unref?.();
+  return controller.signal;
+}
+
 export async function registerDevinProvider(pi: ExtensionAPI): Promise<void> {
   let apiKeyConfig = resolveDevinApiKeyConfig();
-  // Serve the cached catalog at startup so --list-models / -p see it without
-  // waiting for a network round trip; session_start refreshes it.
-  // A stale catalog with a credential at hand is refreshed before the first
-  // registration (Pi awaits async extension factories), so a fresh install
-  // lists the account's real models rather than the bootstrap list.
+  // The disk cache (or the bootstrap seed) is what startup shows. Pi awaits
+  // this factory and then session_start, so a stale catalog is refreshed in
+  // the background and the provider is re-registered when the real list arrives.
   let models = getCachedModels().map(toPiDevinModel);
-  if (isCacheStale() && resolveDevinToken()) {
-    try {
-      models = (await refreshDevinModels({ signal: AbortSignal.timeout(10_000) })).models;
-    } catch {
-      // keep the cached catalog
-    }
-  }
+  const modelIds = () => models.map((model) => model.id).join("\n");
+
+  const scheduleCatalogRefresh = () => {
+    if (devinCatalogRefresh || !isCacheStale()) return;
+    const token = resolveDevinToken();
+    if (!token) return;
+    const before = modelIds();
+    devinCatalogRefresh = (async () => {
+      try {
+        const refreshed = await refreshDevinModels({ token, signal: backgroundSignal(10_000) });
+        const nextIds = refreshed.models.map((model) => model.id).join("\n");
+        if (!refreshed.fromCache && refreshed.models.length && nextIds !== before) {
+          apiKeyConfig = resolveDevinApiKeyConfig() ?? apiKeyConfig;
+          models = refreshed.models;
+          pi.registerProvider(
+            DEVIN_PROVIDER_ID,
+            providerConfig(models, apiKeyConfig ?? escapeDevinApiKeyLiteral(token)) as never,
+          );
+        }
+      } catch {
+        // keep the cached catalog
+      } finally {
+        devinCatalogRefresh = undefined;
+      }
+    })();
+  };
+
   pi.registerProvider(DEVIN_PROVIDER_ID, providerConfig(models, apiKeyConfig) as never);
 
-  pi.on("session_start", async (_event, ctx) => {
-    try {
+  // Pi and OMP await this handler. Republish the disk catalog (a refresh that
+  // already finished) and kick one off when it is still stale, without waiting.
+  pi.on("session_start", () => {
+    const latest = getCachedModels().map(toPiDevinModel);
+    const before = modelIds();
+    if (latest.map((model) => model.id).join("\n") !== before) {
+      models = latest;
       apiKeyConfig = resolveDevinApiKeyConfig() ?? apiKeyConfig;
-      const apiKey = (await ctx.modelRegistry.getApiKeyForProvider?.(DEVIN_PROVIDER_ID)) || resolveDevinToken();
-      if (!apiKey) return;
-      const refreshed = await refreshDevinModels({ token: apiKey });
-      if (!refreshed.fromCache && refreshed.models.length) {
-        models = refreshed.models;
-        pi.registerProvider(
-          DEVIN_PROVIDER_ID,
-          providerConfig(models, apiKeyConfig ?? escapeDevinApiKeyLiteral(apiKey)) as never,
-        );
-      }
-    } catch {
-      // keep current models
+      pi.registerProvider(DEVIN_PROVIDER_ID, providerConfig(models, apiKeyConfig) as never);
     }
+    scheduleCatalogRefresh();
   });
+
+  scheduleCatalogRefresh();
 
   pi.registerCommand("devin-status", {
     description: "Show Devin authentication status and quota",

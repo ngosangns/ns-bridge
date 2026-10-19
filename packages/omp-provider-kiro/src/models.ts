@@ -14,13 +14,17 @@ export interface OmpKiroModelConfig {
   contextWindow: number;
   maxTokens: number;
   /**
-   * Wire id Kiro accepts, when it differs from {@link id}. Registration and
-   * dynamic-discovery models carry no per-credential region or profile, but
-   * request time still needs the exact catalog id — a model absent from
-   * kiro-core's bootstrap list would otherwise fall back to guessing the wire
-   * id from the dash-spelled local `id`, which Kiro rejects as `INVALID_MODEL_ID`.
+   * Wire id Kiro accepts, when it differs from {@link id}. Request time needs
+   * this exact catalog id — a model absent from kiro-core's bootstrap list
+   * would otherwise fall back to guessing the wire id from the dash-spelled
+   * local `id`, which Kiro rejects as `INVALID_MODEL_ID`.
    */
   kiroModelId: string;
+  /** Region this row was projected for, when a local session was available. */
+  kiroRegion?: string;
+  /** Profile stamped from that session. Request time falls back to the live credential. */
+  kiroProfileArn?: string;
+  baseUrl?: string;
   /** Catalog schema this model's structured effort/thinking fields derive from. */
   additionalModelRequestFieldsSchema?: Record<string, unknown>;
   /**

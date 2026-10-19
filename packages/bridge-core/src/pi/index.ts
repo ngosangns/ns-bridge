@@ -15,6 +15,7 @@ export {
 export { toBridgeEffort, toOmpThinking, toPiThinkingLevelMap } from "./models.js";
 export {
   applyBridgeUsage,
+  HOST_TURN_BUDGET_MS,
   type PiAssistantMessageLike,
   type PiEventStreamLike,
   type PiModelLike,

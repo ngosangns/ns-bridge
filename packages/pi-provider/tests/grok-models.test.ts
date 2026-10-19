@@ -1,4 +1,24 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+const child = vi.hoisted(() => ({
+  execFile: vi.fn(),
+  execFileSync: vi.fn(),
+  spawn: vi.fn(),
+  spawnSync: vi.fn(),
+}));
+
+vi.mock("node:child_process", async () => {
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  const wrap = (name: keyof typeof child) => {
+    child[name].mockImplementation((...args: unknown[]) => (actual[name] as (...inner: unknown[]) => unknown)(...args));
+  };
+  wrap("execFile");
+  wrap("execFileSync");
+  wrap("spawn");
+  wrap("spawnSync");
+  return { ...actual, ...child };
+});
+
 import { CatalogCache } from "../src/shared/catalog-cache.js";
 import { parseGrokModelsOutput, fallbackModels, toProviderModels } from "../src/grok/models.js";
 import { refreshGrokModels } from "../src/grok/register.js";
@@ -12,6 +32,10 @@ describe("grok models + cache", () => {
   beforeEach(() => {
     now = 1000;
     memFs.clear();
+    child.execFile.mockClear();
+    child.execFileSync.mockClear();
+    child.spawn.mockClear();
+    child.spawnSync.mockClear();
     cache = new CatalogCache({
       cacheDir: "/tmp/ns-pi-grok-cache",
       ttlMs: 10_000,
@@ -67,5 +91,17 @@ Default model: grok-4.5
     const second = refreshGrokModels({ binary: undefined, cache });
     expect(second.fromCache).toBe(true);
     expect(second.source).toBe("cache");
+  });
+
+  it("serves the fallback on a cache miss when the CLI is not allowed", () => {
+    const refreshed = refreshGrokModels({ allowCli: false, cache });
+    expect(refreshed.source).toBe("fallback");
+    expect(refreshed.fromCache).toBe(false);
+    expect(refreshed.models.length).toBeGreaterThan(0);
+    expect(memFs.size).toBe(0);
+    expect(child.execFile).not.toHaveBeenCalled();
+    expect(child.execFileSync).not.toHaveBeenCalled();
+    expect(child.spawn).not.toHaveBeenCalled();
+    expect(child.spawnSync).not.toHaveBeenCalled();
   });
 });
