@@ -5,8 +5,8 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "nod
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getKiroEffortConfig, type KiroEffortConfig } from "./effort.js";
-import { getKiroCliModelRates, type KiroModelRate } from "./kiro-cli.js";
-import { fetchKiroModelCatalog, type KiroCatalogModel } from "./management.js";
+import type { KiroModelRate } from "./kiro-cli.js";
+import type { KiroCatalogModel } from "./management.js";
 import { KIRO_EFFORT_ORDER, type KiroEffort, type KiroModelSpec } from "./types.js";
 
 export { resolveApiRegion } from "./endpoints.js";
@@ -589,6 +589,11 @@ export async function updateKiroModelsCacheInProcess(
   region: string,
   profileArn?: string,
 ): Promise<void> {
+  // The management client and the kiro-cli rate reader stay off the import
+  // graph. Registration only reads the disk cache below; this refresh is the
+  // first point that talks to either.
+  const { fetchKiroModelCatalog } = await import("./management.js");
+  const { getKiroCliModelRates } = await import("./kiro-cli.js");
   const response = await fetchKiroModelCatalog({ accessToken, region }, profileArn);
   // Billing weights come from kiro-cli, the only source that publishes them.
   // Absent when it is not installed, which leaves the catalog rate-less rather

@@ -35,13 +35,17 @@ const CHILD = `
 import { registerHooks } from "node:module";
 import { performance } from "node:perf_hooks";
 const ranks = [];
+function heavy(value) {
+  const text = String(value);
+  return text.includes("cl100k_base") || text.includes("@smithy/");
+}
 registerHooks({
   resolve(specifier, context, next) {
-    if (String(specifier).includes("cl100k_base")) ranks.push(String(specifier));
+    if (heavy(specifier)) ranks.push(String(specifier));
     return next(specifier, context);
   },
   load(url, context, next) {
-    if (String(url).includes("cl100k_base")) ranks.push(String(url));
+    if (heavy(url)) ranks.push(String(url));
     return next(url, context);
   },
 });
@@ -78,7 +82,7 @@ describe("registration import graph", () => {
       samples.push(parsed.times);
       ranks.push(...parsed.ranks);
     }
-    expect(ranks, "cl100k ranks loaded during import").toEqual([]);
+    expect(ranks, "cl100k ranks or Smithy loaded during import").toEqual([]);
     const load = loadavg()[0];
     const cores = availableParallelism();
     for (const name of Object.keys(ENTRIES)) {

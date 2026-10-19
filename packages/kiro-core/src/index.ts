@@ -1,4 +1,6 @@
 // Public surface of the host-neutral Kiro core.
+// Smithy and js-tiktoken are required on first use inside response-stream and
+// tokenizer, so importing this barrel does not evaluate them.
 
 export { KiroBlockBuffer } from "./blocks.js";
 export { parseBracketToolCalls } from "./bracket-tool-parser.js";

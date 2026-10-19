@@ -148,6 +148,9 @@ importers:
 
   packages/omp-provider-kiro:
     dependencies:
+      '@smithy/core':
+        specifier: ^3.34.1
+        version: 3.35.1
       js-tiktoken:
         specifier: ^1.0.21
         version: 1.0.21
@@ -2271,7 +2274,7 @@ snapshots:
       '@aws-sdk/middleware-websocket': 3.972.54
       '@aws-sdk/token-providers': 3.1127.0
       '@aws-sdk/types': 3.974.6
-      '@smithy/core': 3.34.1
+      '@smithy/core': 3.35.1
       '@smithy/fetch-http-handler': 5.8.0
       '@smithy/node-http-handler': 4.12.1
       '@smithy/types': 4.18.0
@@ -2419,8 +2422,8 @@ snapshots:
       '@aws-sdk/core': 3.978.1
       '@aws-sdk/nested-clients': 3.997.46
       '@aws-sdk/types': 3.974.6
-      '@smithy/core': 3.34.1
-      '@smithy/types': 4.18.0
+      '@smithy/core': 3.35.1
+      '@smithy/types': 4.19.0
       tslib: 2.8.1
 
   '@aws-sdk/token-providers@3.1138.0':
@@ -3414,7 +3417,7 @@ snapshots:
 
   '@smithy/node-http-handler@4.12.1':
     dependencies:
-      '@smithy/core': 3.34.1
+      '@smithy/core': 3.35.1
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 

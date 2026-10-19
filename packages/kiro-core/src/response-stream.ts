@@ -1,7 +1,7 @@
 // ABOUTME: Reads Kiro's AWS event-stream response into parsed wire events.
 // ABOUTME: Owns framing and the stall timeouts; block assembly lives elsewhere.
 
-import { UniversalEventStreamMarshaller } from "@smithy/core/event-streams";
+import { createRequire } from "node:module";
 import type { Message } from "@smithy/types";
 import { debugEnabled, debugLog } from "./debug.js";
 import { type KiroErrorData, type KiroWireEvent, parseKiroEvent, parseKiroExceptionFrame } from "./event-parser.js";
@@ -9,10 +9,37 @@ import { type KiroErrorData, type KiroWireEvent, parseKiroEvent, parseKiroExcept
 /** Longest gap between two frames before the response is treated as stalled. */
 export const IDLE_TIMEOUT = 300_000;
 
-const eventStreamMarshaller = new UniversalEventStreamMarshaller({
-  utf8Encoder: (input: Uint8Array) => new TextDecoder().decode(input),
-  utf8Decoder: (input: string) => new TextEncoder().encode(input),
-});
+const require = createRequire(import.meta.url);
+
+/**
+ * Smithy's event-stream package is several hundred modules. A static import
+ * evaluates them while Pi, OMP, and DSH are still starting. The marshaller is
+ * only needed once a response body arrives.
+ */
+interface EventStreamMarshaller {
+  deserialize(
+    body: AsyncIterable<Uint8Array>,
+    deserializer: (event: Record<string, Message>) => Promise<unknown>,
+  ): AsyncIterable<Record<string, unknown>>;
+}
+
+let eventStreamMarshaller: EventStreamMarshaller | undefined;
+
+function getEventStreamMarshaller(): EventStreamMarshaller {
+  if (!eventStreamMarshaller) {
+    const loaded = require("@smithy/core/event-streams") as {
+      UniversalEventStreamMarshaller: new (options: {
+        utf8Encoder: (input: Uint8Array) => string;
+        utf8Decoder: (input: string) => Uint8Array;
+      }) => EventStreamMarshaller;
+    };
+    eventStreamMarshaller = new loaded.UniversalEventStreamMarshaller({
+      utf8Encoder: (input) => new TextDecoder().decode(input),
+      utf8Decoder: (input) => new TextEncoder().encode(input),
+    });
+  }
+  return eventStreamMarshaller;
+}
 
 /**
  * Why the stream stopped. Every field is a retryable condition; all false means
@@ -113,7 +140,7 @@ export function readKiroEventStream(
       },
     };
     const utf8Decoder = new TextDecoder();
-    const eventStream = eventStreamMarshaller.deserialize(bodyIterable, async (event: Record<string, Message>) => {
+    const eventStream = getEventStreamMarshaller().deserialize(bodyIterable, async (event: Record<string, Message>) => {
       const entry = Object.entries(event)[0];
       if (!entry) throw new Error("Received an empty event stream message");
       const [key, msg] = entry;
