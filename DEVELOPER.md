@@ -170,18 +170,37 @@ For each package: Settings → Trusted Publisher → GitHub Actions, with
 | Workflow filename | `publish.yml` |
 | Environment | *(leave empty)* |
 
-or `npm trust github <package> --file publish.yml --repo ngosangns/ns-bridge --allow-publish`.
+or:
+
+```bash
+npm trust github <package> --file publish.yml --repo ngosangns/ns-bridge --allow-publish
+```
+
+`--allow-publish` is required. npm can stage by default, and this workflow
+runs `npm publish`, not `npm stage publish`. Leave the environment empty:
+`publish.yml` does not set one.
 
 npm only allows a trusted publisher on a package that exists, so a brand-new
-package needs its first version published by hand from a logged-in machine
-before the workflow can take over:
+package needs its first version published by hand from a logged-in machine:
 
 ```bash
 pnpm --filter <name> build && cd packages/<dir> && pnpm pack && npm publish ./<name>-<v>.tgz --access public
+npm trust github <name> --file publish.yml --repo ngosangns/ns-bridge --allow-publish
 ```
 
-Until a new package exists on npm with its trusted publisher set, every
-release plan includes it, and the workflow's publish of it fails.
+A trusted publisher that has never published expires 48 hours after it is
+created. Uploading from the laptop does not validate it. The first successful
+`npm publish` from this workflow does, and binds the configuration to the
+repository id. When the first version was uploaded locally, bump a patch and
+push that package's tag the same day so CI publishes it. After that, later
+versions publish from the tag. Do not ask for `npm login`, an OTP, or a token.
+
+`npm trust list <name>` prints the configuration. `npm trust list --json`
+asks for a fresh one-time password, so do not use it.
+
+Until a new package exists on npm, `scripts/release-plan.mjs` leaves it out
+of the plan with a warning, and tagging it fails. A planned package that
+depends on it is refused.
 
 ### Why `pnpm pack` and `npm publish`, not one tool
 
