@@ -3,7 +3,6 @@
 import type { Api, OAuthCredentials } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import {
-  formatSafeError,
   getCachedModels,
   getKiroCliCredentials,
   getKiroCliCredentialsAllowExpired,
@@ -14,9 +13,8 @@ import {
   kiroModels,
   resolveApiRegion,
   resolveKiroAuthSource,
-  updateKiroModelsCache,
 } from "ns-kiro-core";
-import { getKiroApiKey, loginKiro, refreshKiroCredentials, resolveRequestCredentials } from "./auth.js";
+import { getKiroApiKey, loginKiro, refreshKiroCredentials } from "./auth.js";
 import { kiroBaseUrl, toOmpModelConfig } from "./models.js";
 import { streamKiroForOmp } from "./stream.js";
 import { kiroUsageProvider } from "./usage.js";
@@ -68,9 +66,6 @@ function catalogForCredentials(credentials: KiroCredentials): Catalog {
   };
 }
 
-/** One catalog refresh. OMP awaits fetchDynamicModels, so the HTTP work stays here. */
-let catalogRefresh: Promise<void> | undefined;
-
 export default function (pi: ExtensionAPI) {
   let current = localCatalog();
 
@@ -79,37 +74,9 @@ export default function (pi: ExtensionAPI) {
     pi.registerProvider("kiro", providerConfig());
   };
 
-  const scheduleRefresh = (apiKey: string | undefined) => {
-    if (catalogRefresh || !isCacheStale(current.region)) return;
-    if (!apiKey?.trim() && !localKiroSession() && !process.env.KIRO_API_KEY?.trim()) return;
-    const before = `${current.region}\n${current.models.map((model) => model.id).join("\n")}`;
-    catalogRefresh = (async () => {
-      try {
-        const credentials = await resolveRequestCredentials(apiKey);
-        const region = credentials.region;
-        if (isCacheStale(region)) {
-          await updateKiroModelsCache(credentials.accessToken, region, credentials.profileArn);
-        }
-        const models = getCachedModels(region).map(toOmpModelConfig);
-        const after = `${region}\n${models.map((model) => model.id).join("\n")}`;
-        if (after !== before) {
-          publish({
-            region,
-            ...(credentials.profileArn ? { profileArn: credentials.profileArn } : {}),
-            models,
-          });
-        }
-      } catch (error) {
-        console.warn(`[omp-provider-kiro] Failed to refresh the Kiro model catalog: ${formatSafeError(error)}`);
-      } finally {
-        catalogRefresh = undefined;
-      }
-    })();
-  };
-
   // OMP rebinds registerProvider onto the live registry just before this
-  // event, and awaits the handler. Republish a catalog that landed during
-  // extension load. The handler itself does not wait on the network.
+  // event, and awaits the handler. Republish the catalog file. The handler
+  // does not refresh it.
   pi.on("session_start", () => {
     const latest = localCatalog();
     const signature = (catalog: Catalog) =>
@@ -117,20 +84,18 @@ export default function (pi: ExtensionAPI) {
     const before = signature(current);
     const after = signature(latest);
     if (after !== before) publish(latest);
-    scheduleRefresh(undefined);
   });
 
   /**
    * OMP awaits this while starting and then caches a non-null list as the
-   * authoritative catalog for 24h. A stale disk cache returns null so startup
-   * keeps `models`; {@link scheduleRefresh} re-registers when discovery finishes.
+   * authoritative catalog for 24h. A stale or empty disk cache returns null
+   * so the registered models stay. `ns-bridge models refresh` writes the file.
    */
-  async function fetchDynamicKiroModels(apiKey: string | undefined) {
+  async function fetchDynamicKiroModels(_apiKey: string | undefined) {
     // OMP's type wants a list. A null result is what its resolver treats as
     // "keep the models already registered" instead of an authoritative catalog.
     // An empty list would replace those models, so it is null too.
     if (isCacheStale(current.region)) {
-      scheduleRefresh(apiKey);
       return null as unknown as ReturnType<typeof toOmpModelConfig>[];
     }
     const latest = decorate(getCachedModels(current.region).map(toOmpModelConfig));
@@ -141,8 +106,7 @@ export default function (pi: ExtensionAPI) {
   // OMP's first `oauth.modifyModels` synchronously rebuilds every cached
   // provider (`modelRegistry:materializeModifier`) before the session exists.
   // Region and profile are stamped onto the rows instead. Login and token
-  // refresh republish from the credential just stored. A request with no
-  // stamp still uses `resolveRequestCredentials`.
+  // refresh republish the models already on disk.
   function decorate(models: ReturnType<typeof toOmpModelConfig>[]): ReturnType<typeof toOmpModelConfig>[] {
     const baseUrl = kiroBaseUrl(current.region);
     return models.map((model) => ({

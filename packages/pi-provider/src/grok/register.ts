@@ -5,7 +5,6 @@
  * Streaming: ACP/JSONL via adapted pi-grok-sdk (MIT).
  */
 
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +19,7 @@ import {
   CLIENT_VERSION,
   resolveIntegrationMode,
 } from "./config.js";
-import { discoverModels, fallbackModels, parseGrokModelsOutput, toProviderModels } from "./models.js";
+import { discoverModels, fallbackModels, toProviderModels } from "./models.js";
 import { streamGrokAgent } from "./provider.js";
 import { registerSessionScope, scopeKeyFromCtx } from "./session-scope.js";
 import { disposeAllSessionAgents, disposeSessionAgentsForScope } from "./session-agent.js";
@@ -154,41 +153,12 @@ function createProviderConfig(models: ProviderModelConfig[]) {
       if (!latest.fromCache || latest.models.length === 0) return null;
       return latest.models;
     },
-    async refreshModels({ allowNetwork }: { allowNetwork: boolean }) {
-      if (!allowNetwork) return models;
-      return refreshGrokModels({ force: true }).models;
+    async refreshModels() {
+      // Pi may ask for a network refresh while opening a session. `grok models`
+      // runs only from `ns-bridge models refresh`.
+      return models;
     },
   };
-}
-
-type GrokRefresh = ReturnType<typeof refreshGrokModels>;
-
-/** One in-flight `grok models` probe. The child is async so it does not freeze startup. */
-let grokDiscover: Promise<void> | undefined;
-
-function discoverGrokModelsInBackground(binary: string, onModels: (refresh: GrokRefresh) => void): void {
-  if (grokDiscover) return;
-  grokDiscover = new Promise((resolve) => {
-    execFile(binary, ["models"], { timeout: 20_000, encoding: "utf8" }, (error, stdout) => {
-      try {
-        if (error) return;
-        const parsed = parseGrokModelsOutput(String(stdout ?? ""));
-        if (parsed.length === 0) return;
-        const catalog = descriptorsToCatalog(parsed);
-        getDefaultCatalogCache().store(GROK_PROVIDER_ID, catalog, { version: "grok-cli-v1" });
-        onModels({
-          models: catalogToProviderModels(catalog),
-          fromCache: false,
-          source: "live",
-        });
-      } catch {
-        // keep the list already registered
-      } finally {
-        grokDiscover = undefined;
-        resolve();
-      }
-    });
-  });
 }
 
 export function registerGrokProvider(pi: ExtensionAPI): void {
@@ -218,14 +188,13 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
     binaryError = err instanceof Error ? err.message : String(err);
   }
 
-  // `grok models` is a synchronous CLI spawn of up to 20s. Pi awaits this
-  // factory, so registration serves the disk cache or the static fallback and
-  // probes the CLI off that path.
+  // `grok models` can block for 20s. Registration serves the disk cache or the
+  // static fallback. `ns-bridge models refresh` is what runs the CLI.
   let refreshed = refreshGrokModels({ allowCli: false, binary });
   let models = refreshed.models;
   const sameIds = (next: ProviderModelConfig[]) =>
     models.length === next.length && models.every((model, index) => model.id === next[index]?.id);
-  const publish = (next: GrokRefresh, force = false) => {
+  const publish = (next: ReturnType<typeof refreshGrokModels>, force = false) => {
     if (!force && sameIds(next.models)) {
       refreshed = next;
       return;
@@ -242,9 +211,6 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
     } as never);
   };
   publish(refreshed, true);
-  if (!refreshed.fromCache && binary) {
-    discoverGrokModelsInBackground(binary, (next) => publish(next));
-  }
 
   // OMP rebinds registerProvider onto the live registry just before this event.
   // A probe that finished while extensions were loading is republished here,
@@ -298,20 +264,7 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
     }
 
     if (action === "refresh" || action === "refresh-models") {
-      try {
-        binary = resolveGrokBinary();
-        binaryError = undefined;
-      } catch (err) {
-        binaryError = err instanceof Error ? err.message : String(err);
-        notify(binaryError, "error");
-        return;
-      }
-      refreshed = refreshGrokModels({ force: true, binary });
-      models = refreshed.models;
-      const next = createProviderConfig(models);
-      pi.registerProvider(GROK_PROVIDER_ID, next);
-      pi.registerProvider(GROK_SDK_PROVIDER_ID, { ...next, name: "Grok (sdk alias)", api: GROK_SDK_API });
-      notify(`Refreshed ${models.length} model(s) from ${refreshed.source}.`, refreshed.source === "live" ? "info" : "warning");
+      notify("Refresh Grok models with `ns-bridge models refresh grok --apply`.", "info");
       return;
     }
 

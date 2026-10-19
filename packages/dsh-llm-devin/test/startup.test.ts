@@ -29,10 +29,13 @@ import { DevinAdapter } from "../src/adapter.js";
 import { apply } from "../src/index.js";
 
 const previous = process.env.NS_DEVIN_MODEL_CACHE;
+const previousRefresh = process.env.NS_BRIDGE_BACKGROUND_REFRESH;
 
 afterEach(() => {
   if (previous === undefined) delete process.env.NS_DEVIN_MODEL_CACHE;
   else process.env.NS_DEVIN_MODEL_CACHE = previous;
+  if (previousRefresh === undefined) delete process.env.NS_BRIDGE_BACKGROUND_REFRESH;
+  else process.env.NS_BRIDGE_BACKGROUND_REFRESH = previousRefresh;
 });
 
 function hangingCredentials(): () => Promise<DevinCredentials> {
@@ -40,6 +43,20 @@ function hangingCredentials(): () => Promise<DevinCredentials> {
 }
 
 describe("Devin catalog refresh does not block the harness", () => {
+  it("does not refresh the catalog from listModels", async () => {
+    process.env.NS_BRIDGE_BACKGROUND_REFRESH = "1";
+    process.env.NS_DEVIN_MODEL_CACHE = join(mkdtempSync(join(tmpdir(), "ns-dsh-devin-")), "missing.json");
+    const credentials = vi.fn(hangingCredentials());
+    const adapter = new DevinAdapter({
+      provider: "devin",
+      displayName: "Devin",
+      credentials,
+    });
+    await adapter.listModels("devin");
+    await adapter.resolveModel("devin", "swe-1-6");
+    expect(credentials).not.toHaveBeenCalled();
+  });
+
   it("lists and resolves a cached model while discovery is still pending", async () => {
     process.env.NS_DEVIN_MODEL_CACHE = join(mkdtempSync(join(tmpdir(), "ns-dsh-devin-")), "missing.json");
     const adapter = new DevinAdapter({
@@ -87,15 +104,17 @@ describe("Devin catalog refresh does not block the harness", () => {
     }
   });
 
-  it("still refreshes once before rejecting an id the cache has never seen", async () => {
+  it("rejects an unknown id without refreshing the catalog", async () => {
     process.env.NS_DEVIN_MODEL_CACHE = join(mkdtempSync(join(tmpdir(), "ns-dsh-devin-")), "missing.json");
+    const credentials = vi.fn(async () => {
+      throw new Error("no session");
+    });
     const adapter = new DevinAdapter({
       provider: "devin",
       displayName: "Devin",
-      credentials: async () => {
-        throw new Error("no session");
-      },
+      credentials,
     });
     await expect(adapter.resolveModel("devin", "not-a-real-model")).rejects.toMatchObject({ code: "UNKNOWN_MODEL" });
+    expect(credentials).not.toHaveBeenCalled();
   });
 });

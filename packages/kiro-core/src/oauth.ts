@@ -10,7 +10,7 @@
 // reads and refreshes them rather than running its own interactive login.
 
 import { formatSafeError } from "./debug.js";
-import { getKiroEndpoints, resolveApiRegion } from "./endpoints.js";
+import { getKiroEndpoints } from "./endpoints.js";
 import { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro-ide.js";
 
 export const SSO_OIDC_ENDPOINT = "https://oidc.us-east-1.amazonaws.com";
@@ -171,25 +171,9 @@ export function isExpired(credentials: KiroCredentials): boolean {
   return Date.now() >= credentials.expires;
 }
 
-/**
- * Refresh a session and kick off a catalog refresh for its region. The catalog
- * call is deliberately not awaited: a stale catalog degrades model metadata,
- * while a slow one would delay every request that had to reauthenticate.
- */
+/** Refresh a session. The model catalog stays on disk until `ns-bridge models refresh`. */
 export async function refreshKiroToken(credentials: KiroCredentials): Promise<KiroCredentials> {
-  const refreshed = await refreshKiroTokenInternal(credentials);
-  if (!process.env.VITEST) {
-    try {
-      const { updateKiroModelsCache } = await import("./models.js");
-      const region = resolveApiRegion(refreshed.region);
-      updateKiroModelsCache(refreshed.access, region, refreshed.profileArn).catch((error) => {
-        console.warn(`[kiro-core] Failed to refresh Kiro model catalog in ${region}: ${formatSafeError(error)}`);
-      });
-    } catch (error) {
-      console.warn(`[kiro-core] Failed to start Kiro model catalog refresh: ${formatSafeError(error)}`);
-    }
-  }
-  return refreshed;
+  return refreshKiroTokenInternal(credentials);
 }
 
 async function refreshKiroTokenInternal(credentials: KiroCredentials): Promise<KiroCredentials> {

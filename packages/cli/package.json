@@ -1,0 +1,43 @@
+{
+  "name": "@ngosangns/ns-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Install, update, and refresh ns-bridge providers outside Pi, OMP, and DSH. Private until the first hand publish.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ngosangns",
+  "bin": {
+    "ns-bridge": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
+    "directory": "packages/cli"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/main.js",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "prepublishOnly": "pnpm run check && pnpm run build"
+  },
+  "dependencies": {
+    "@ngosangns/ns-pi-provider": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.6",
+    "typescript": "^5.9.2"
+  }
+}

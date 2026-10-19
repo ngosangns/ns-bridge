@@ -47,6 +47,7 @@ const envKeys = [
   "WINDSURF_API_KEY",
   "GROK_BIN",
   "NS_DEVIN_MODEL_CACHE",
+  "NS_BRIDGE_BACKGROUND_REFRESH",
 ] as const;
 const saved: Record<string, string | undefined> = {};
 
@@ -166,8 +167,9 @@ describe("catalog refresh does not block host startup", () => {
     expectNoBlockingSpawn();
   });
 
-  it("registers Grok without waiting for the CLI model probe", async () => {
+  it("registers Grok without spawning the CLI model probe", async () => {
     rememberEnv();
+    process.env.NS_BRIDGE_BACKGROUND_REFRESH = "1";
     const dir = mkdtempSync(join(tmpdir(), "ns-pi-grok-slow-"));
     const marker = join(dir, "ran");
     const binary = join(dir, "grok");
@@ -184,20 +186,9 @@ describe("catalog refresh does not block host startup", () => {
     registerGrokProvider(api as never);
     expect(Date.now() - started).toBeLessThan(400);
     expect(api.registerProvider).toHaveBeenCalledTimes(2);
+    expect(child.execFile).not.toHaveBeenCalled();
     expectNoBlockingSpawn();
     const { existsSync } = await import("node:fs");
     expect(existsSync(marker)).toBe(false);
-    await new Promise<void>((resolve, reject) => {
-      const timer = setInterval(() => {
-        if (!existsSync(marker)) return;
-        clearInterval(timer);
-        clearTimeout(giveUp);
-        resolve();
-      }, 20);
-      const giveUp = setTimeout(() => {
-        clearInterval(timer);
-        reject(new Error("grok models probe never ran"));
-      }, 2000);
-    });
   });
 });

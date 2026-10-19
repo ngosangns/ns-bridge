@@ -35,6 +35,12 @@ export default defineConfig({
           include: ["packages/dsh-llm-grok/test/**/*.test.ts"],
         },
       },
+      {
+        test: {
+          name: "cli",
+          include: ["packages/cli/test/**/*.test.ts"],
+        },
+      },
       "packages/pi-provider",
       "packages/omp-provider",
     ],

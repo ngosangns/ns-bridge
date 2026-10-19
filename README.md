@@ -64,6 +64,21 @@ grok login            # Grok runs through the local grok CLI (or XAI_API_KEY)
 
 A Kiro API key (`ksk_…`) and `KIRO_API_KEY` are accepted directly.
 
+## CLI
+
+`ns-bridge` installs and updates the host packages, and refreshes model catalogs, in its own process. Pi, OMP, and DSH read the catalog files and do not refresh them. Build it from this repo, then:
+
+```bash
+pnpm --filter @ngosangns/ns-bridge build
+pnpm exec ns-bridge help
+pnpm exec ns-bridge install          # preview
+pnpm exec ns-bridge install --apply  # pi + omp; DSH needs --profile
+pnpm exec ns-bridge models list
+pnpm exec ns-bridge models refresh --apply
+```
+
+Mutating commands preview unless you pass `--apply`. DSH needs `--profile <name>`. The `desktop` profile stays with the Electron app. The package is private until its first publish. See [packages/cli](packages/cli).
+
 ## Pi
 
 ```bash

@@ -200,9 +200,6 @@ export function streamKiroForPi(
   });
 }
 
-/** One catalog refresh shared by registration and every session_start. */
-let kiroCatalogRefresh: Promise<void> | undefined;
-
 export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
   // Disk only. `refreshKiroModels` may refresh an expired token before it
   // reads the catalog, and Pi awaits this factory.
@@ -227,21 +224,9 @@ export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
       if (latest.models.length === 0 || isCacheStale(latest.region)) return null;
       return latest.models;
     },
-    async refreshModels({
-      credential,
-      allowNetwork,
-    }: {
-      credential?: { type: string; access?: string; key?: string };
-      signal: AbortSignal;
-      allowNetwork: boolean;
-    }) {
-      // Pi awaits refresh({ allowNetwork: false }) while creating the session.
-      // That path must not resolve or refresh credentials.
-      if (!allowNetwork) return current.models;
-      const token =
-        (credential?.type === "oauth" ? credential.access : undefined) ||
-        (credential?.type === "api_key" ? credential.key : undefined);
-      current = await refreshKiroModels({ token, allowNetwork, force: true });
+    async refreshModels() {
+      // Pi may ask for a network refresh while opening a session. The catalog
+      // file is updated only by `ns-bridge models refresh`.
       return current.models;
     },
     oauth: {
@@ -264,37 +249,14 @@ export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
   };
   publish();
 
-  const scheduleCatalogRefresh = () => {
-    if (kiroCatalogRefresh) return;
-    if (current.models.length === 0 || !isCacheStale(current.region)) return;
-    const before = signature();
-    kiroCatalogRefresh = (async () => {
-      try {
-        const next = await refreshKiroModels();
-        if (!next.models.length) return;
-        current = next;
-        if (signature() !== before) publish();
-      } catch {
-        // keep the current catalog
-      } finally {
-        kiroCatalogRefresh = undefined;
-      }
-    })();
-  };
-
-  // Pi and OMP both await session_start before the session is usable. OMP
-  // also rebinds registerProvider onto the live registry just before that
-  // event, so republishing here is what makes a refresh that finished during
-  // extension load show up. The handler itself must not wait on the network.
+  // Republish the catalog file when a session starts. `ns-bridge models refresh`
+  // is what writes that file.
   pi.on("session_start", () => {
     const before = signature();
     const latest = localKiroCatalog();
     if (latest.models.length) current = { ...latest, fromCache: true };
     if (signature() !== before) publish();
-    scheduleCatalogRefresh();
   });
-
-  scheduleCatalogRefresh();
 }
 
 export default registerKiroProvider;

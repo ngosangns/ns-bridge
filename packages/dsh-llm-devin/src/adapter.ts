@@ -12,17 +12,7 @@ import {
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
 import { streamToDsh } from "ns-bridge-core/dsh";
-import {
-  type DevinCredentials,
-  type DevinEffort,
-  type DevinTool,
-  fetchDevinModels,
-  getCachedModels,
-  isCacheStale,
-  logger,
-  streamDevin,
-  updateDevinModelsCache,
-} from "ns-devin-core";
+import { type DevinCredentials, type DevinEffort, type DevinTool, getCachedModels, streamDevin } from "ns-devin-core";
 import { toLlmError } from "./errors.js";
 import { toDevinMessages } from "./messages.js";
 
@@ -56,37 +46,6 @@ export class DevinAdapter extends LlmAdapter {
     return { id: provider, name: this.options.displayName };
   }
 
-  private refreshPromise: Promise<void> | undefined;
-
-  /**
-   * `GetCliModelConfigs` refreshes the catalog when the disk cache is stale.
-   * A failed refresh leaves the stale (or seed) catalog in place — listing
-   * must never fail just because discovery could not reach the server.
-   */
-  private refreshCatalog(): Promise<void> {
-    this.refreshPromise ??= (async () => {
-      try {
-        if (!isCacheStale()) return;
-        const credentials = await this.options.credentials();
-        const fetched = await fetchDevinModels({ apiKey: credentials.access });
-        if (fetched) updateDevinModelsCache(fetched);
-      } catch (error) {
-        logger.warn("model discovery refresh failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        this.refreshPromise = undefined;
-      }
-    })();
-    return this.refreshPromise;
-  }
-
-  /** Start a stale-catalog refresh without making the caller wait for it. */
-  private refreshInBackground(): void {
-    if (!isCacheStale()) return;
-    void this.refreshCatalog();
-  }
-
   private toModelInfo(provider: string, model: ReturnType<typeof getCachedModels>[number]): LlmModelInfo {
     return {
       provider,
@@ -98,21 +57,11 @@ export class DevinAdapter extends LlmAdapter {
 
   async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     // The Harness awaits this while it builds the model list. Serve the disk
-    // cache (or the seed) immediately and let discovery catch up behind it.
-    this.refreshInBackground();
+    // cache (or the seed). `ns-bridge models refresh` updates that file.
     return getCachedModels().map((model) => this.toModelInfo(provider, model));
   }
 
   async resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo> {
-    const cached = getCachedModels().find((candidate) => candidate.id === model);
-    if (cached) {
-      this.refreshInBackground();
-      return this.toResolved(provider, cached);
-    }
-    // The id is not in the seed or the disk cache. One refresh distinguishes
-    // "the account has this model" from a typo. Startup resolves ids that are
-    // already cached, so this wait is a lookup, not host boot.
-    await this.refreshCatalog();
     const known = getCachedModels().find((candidate) => candidate.id === model);
     if (!known) throw new LlmError(`Unknown Devin model: ${model}`, "UNKNOWN_MODEL");
     return this.toResolved(provider, known);

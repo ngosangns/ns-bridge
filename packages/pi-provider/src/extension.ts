@@ -77,33 +77,8 @@ export async function registerAllProviders(
       }
 
       if (action === "refresh") {
-        const results: string[] = [];
-        const want = (id: string) => target === "all" || target === id;
-        if (want("kiro") && enableKiro) {
-          try {
-            const r = await refreshKiroModels({ force: true });
-            results.push(`kiro: ${r.models.length} model(s)${r.fromCache ? " (cache)" : ""}`);
-          } catch (err) {
-            results.push(`kiro: failed (${err instanceof Error ? err.message : String(err)})`);
-          }
-        }
-        if (want("devin") && enableDevin) {
-          try {
-            const r = await refreshDevinModels({ force: true });
-            results.push(`devin: ${r.models.length} model(s)${r.fromCache ? " (cache)" : ""}`);
-          } catch (err) {
-            results.push(`devin: failed (${err instanceof Error ? err.message : String(err)})`);
-          }
-        }
-        if (want("grok") && enableGrok) {
-          try {
-            const r = refreshGrokModels({ force: true });
-            results.push(`grok: ${r.models.length} model(s) [${r.source}]`);
-          } catch (err) {
-            results.push(`grok: failed (${err instanceof Error ? err.message : String(err)})`);
-          }
-        }
-        ctx.ui.notify(results.join("\n") || "nothing refreshed", "info");
+        const which = target === "all" ? "" : ` ${target}`;
+        ctx.ui.notify(`Refresh model catalogs with \`ns-bridge models refresh${which} --apply\`.`, "info");
         return;
       }
 

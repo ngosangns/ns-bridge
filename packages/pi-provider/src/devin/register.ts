@@ -254,22 +254,10 @@ function providerConfig(models: PiDevinModel[], apiKey?: string) {
       // An empty list would replace the registered models. Null leaves them.
       return latest.length > 0 ? latest : null;
     },
-    async refreshModels({
-      credential,
-      signal,
-      allowNetwork,
-    }: {
-      credential?: { type: string; access?: string; key?: string };
-      signal: AbortSignal;
-      allowNetwork: boolean;
-    }) {
-      // Pi awaits refresh({ allowNetwork: false }) while creating the session.
-      if (!allowNetwork) return models;
-      const token =
-        (credential?.type === "oauth" ? credential.access : undefined) ||
-        (credential?.type === "api_key" ? credential.key : undefined) ||
-        resolveDevinToken();
-      return (await refreshDevinModels({ force: true, signal, token })).models;
+    async refreshModels() {
+      // Pi may ask for a network refresh while opening a session. The catalog
+      // file is updated only by `ns-bridge models refresh`.
+      return models;
     },
     oauth: {
       name: "Devin",
@@ -291,54 +279,16 @@ function providerConfig(models: PiDevinModel[], apiKey?: string) {
   };
 }
 
-/** One GetCliModelConfigs refresh shared by registration and session_start. */
-let devinCatalogRefresh: Promise<void> | undefined;
-
-/** Abort a background discovery without pinning the process open for the whole timeout. */
-function backgroundSignal(ms: number): AbortSignal {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  timer.unref?.();
-  return controller.signal;
-}
-
 export async function registerDevinProvider(pi: ExtensionAPI): Promise<void> {
   let apiKeyConfig = resolveDevinApiKeyConfig();
   // The disk cache (or the bootstrap seed) is what startup shows. Pi awaits
-  // this factory and then session_start, so a stale catalog is refreshed in
-  // the background and the provider is re-registered when the real list arrives.
+  // this factory and then session_start. `ns-bridge models refresh` writes the file.
   let models = getCachedModels().map(toPiDevinModel);
   const modelIds = () => models.map((model) => model.id).join("\n");
 
-  const scheduleCatalogRefresh = () => {
-    if (devinCatalogRefresh || !isCacheStale()) return;
-    const token = resolveDevinToken();
-    if (!token) return;
-    const before = modelIds();
-    devinCatalogRefresh = (async () => {
-      try {
-        const refreshed = await refreshDevinModels({ token, signal: backgroundSignal(10_000) });
-        const nextIds = refreshed.models.map((model) => model.id).join("\n");
-        if (!refreshed.fromCache && refreshed.models.length && nextIds !== before) {
-          apiKeyConfig = resolveDevinApiKeyConfig() ?? apiKeyConfig;
-          models = refreshed.models;
-          pi.registerProvider(
-            DEVIN_PROVIDER_ID,
-            providerConfig(models, apiKeyConfig ?? escapeDevinApiKeyLiteral(token)) as never,
-          );
-        }
-      } catch {
-        // keep the cached catalog
-      } finally {
-        devinCatalogRefresh = undefined;
-      }
-    })();
-  };
-
   pi.registerProvider(DEVIN_PROVIDER_ID, providerConfig(models, apiKeyConfig) as never);
 
-  // Pi and OMP await this handler. Republish the disk catalog (a refresh that
-  // already finished) and kick one off when it is still stale, without waiting.
+  // Republish the catalog file when a session starts.
   pi.on("session_start", () => {
     const latest = getCachedModels().map(toPiDevinModel);
     const before = modelIds();
@@ -347,10 +297,7 @@ export async function registerDevinProvider(pi: ExtensionAPI): Promise<void> {
       apiKeyConfig = resolveDevinApiKeyConfig() ?? apiKeyConfig;
       pi.registerProvider(DEVIN_PROVIDER_ID, providerConfig(models, apiKeyConfig) as never);
     }
-    scheduleCatalogRefresh();
   });
-
-  scheduleCatalogRefresh();
 
   pi.registerCommand("devin-status", {
     description: "Show Devin authentication status and quota",

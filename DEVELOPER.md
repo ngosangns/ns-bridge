@@ -5,7 +5,7 @@ project is and how to install/use it, see [README.md](README.md).
 
 ## Layout
 
-pnpm workspace, nine packages under `packages/` in three layers.
+pnpm workspace. Ten packages under `packages/`. The CLI is private until its first hand publish; a tag does not publish it.
 
 | Layer | Package | Owns |
 | --- | --- | --- |
@@ -17,6 +17,9 @@ pnpm workspace, nine packages under `packages/` in three layers.
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh` |
 | host adapter | [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter` that lists the Pi Grok catalog and streams by spawning the local `grok` CLI |
+| cli | [`@ngosangns/ns-bridge`](packages/cli) (private) | `ns-bridge`: install, update, and uninstall host packages; list and refresh model catalogs outside the host process |
+
+Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh --apply` writes them.
 
 ### Where a change goes
 

@@ -3,7 +3,7 @@
 
 import { createHash } from "node:crypto";
 import { applyCacheEstimate } from "./cache-estimator.js";
-import { debugEnabled, debugLog, formatSafeError, redactSensitiveText } from "./debug.js";
+import { debugEnabled, debugLog, redactSensitiveText } from "./debug.js";
 import { buildKiroAdditionalModelRequestFields, clampKiroEffort, getKiroEffortConfig } from "./effort.js";
 import { getKiroEndpoints, getKiroRegionFromProfileArn } from "./endpoints.js";
 import { extractKiroReasonCode, KiroApiError, parseRetryAfterMs } from "./errors.js";
@@ -15,7 +15,7 @@ import {
   resetKiroProfileArnCache,
   resolveKiroProfileArn,
 } from "./management.js";
-import { isCacheStale, type KiroModel, resolveKiroModel, updateKiroModelsCache } from "./models.js";
+import { type KiroModel, resolveKiroModel } from "./models.js";
 import { kiroAuthHeaders } from "./oauth.js";
 import { buildKiroRequest } from "./request-builder.js";
 import { KiroResponseAssembler } from "./response-assembler.js";
@@ -283,13 +283,6 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
   // a generic `Improperly formed request.`.
   let runtimeRegion = getKiroRegionFromProfileArn(profileArn) ?? region;
   let endpoint = new URL("generateAssistantResponse", getKiroEndpoints(runtimeRegion).runtime).toString();
-
-  // Refresh the catalog in the background when it has gone stale.
-  if (!process.env.VITEST && isCacheStale(runtimeRegion)) {
-    updateKiroModelsCache(accessToken, runtimeRegion, profileArn).catch((error) => {
-      console.warn(`[kiro-core] Failed to refresh Kiro model catalog in ${runtimeRegion}: ${formatSafeError(error)}`);
-    });
-  }
 
   const kiroModelId = resolveKiroModel(model.id, model.kiroModelId);
   const effort = clampKiroEffort(model, request.effort);
