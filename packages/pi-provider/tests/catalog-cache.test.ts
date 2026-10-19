@@ -118,15 +118,28 @@ describe("CatalogCache", () => {
   });
 
   it("lookup reports missing/expired reasons", () => {
-    expect(cache.lookup("none").hit).toBe(false);
-    if (!cache.lookup("none").hit) {
-      expect(cache.lookup("none").reason).toBe("missing");
+    const missing = cache.lookup("none");
+    expect(missing.hit).toBe(false);
+    if (!missing.hit) {
+      expect(missing.reason).toBe("missing");
+      expect(missing.snapshot).toBeUndefined();
     }
     cache.store("x", sampleModels(1), { version: "1" });
     expect(cache.lookup("x").hit).toBe(true);
     now += 999_999;
     const expired = cache.lookup("x");
     expect(expired.hit).toBe(false);
-    if (!expired.hit) expect(expired.reason).toBe("expired");
+    if (!expired.hit) {
+      expect(expired.reason).toBe("expired");
+      expect(expired.snapshot?.models).toHaveLength(1);
+    }
+
+    cache.clear("x");
+    const fromDisk = cache.lookup("x");
+    expect(fromDisk.hit).toBe(false);
+    if (!fromDisk.hit) {
+      expect(fromDisk.reason).toBe("expired");
+      expect(fromDisk.snapshot?.models).toHaveLength(1);
+    }
   });
 });

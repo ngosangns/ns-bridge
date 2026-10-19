@@ -32,14 +32,15 @@ export interface CatalogCacheHit<T> {
   reason: "ttl" | "etag";
 }
 
-export interface CatalogCacheMiss {
+export interface CatalogCacheMiss<T = unknown> {
   hit: false;
-  snapshot?: undefined;
+  /** Set when a readable snapshot is past TTL. Missing, corrupt, and version-mismatch omit it. */
+  snapshot?: CatalogSnapshot<T>;
   reason: "missing" | "expired" | "version-mismatch" | "corrupt";
   etag?: string;
 }
 
-export type CatalogCacheLookup<T> = CatalogCacheHit<T> | CatalogCacheMiss;
+export type CatalogCacheLookup<T> = CatalogCacheHit<T> | CatalogCacheMiss<T>;
 
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
@@ -87,7 +88,7 @@ export class CatalogCache {
       if (this.now() - mem.fetchedAt <= this.ttlMs) {
         return { hit: true, snapshot: mem, reason: "ttl" };
       }
-      return { hit: false, reason: "expired", etag: mem.etag };
+      return { hit: false, reason: "expired", etag: mem.etag, snapshot: mem };
     }
 
     const path = this.pathFor(providerId);
@@ -107,7 +108,7 @@ export class CatalogCache {
       if (this.now() - snapshot.fetchedAt <= this.ttlMs) {
         return { hit: true, snapshot, reason: "ttl" };
       }
-      return { hit: false, reason: "expired", etag: snapshot.etag };
+      return { hit: false, reason: "expired", etag: snapshot.etag, snapshot };
     } catch {
       return { hit: false, reason: "corrupt" };
     }

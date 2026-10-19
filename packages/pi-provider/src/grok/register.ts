@@ -87,16 +87,32 @@ export function refreshGrokModels(options: {
 
   if (!options.force) {
     const lookup = cache.lookup<CatalogModel>(GROK_PROVIDER_ID);
-    if (lookup.hit) {
+    if (lookup.hit && lookup.snapshot.models.length > 0) {
       return {
         models: catalogToProviderModels(lookup.snapshot.models),
         fromCache: true,
         source: "cache",
       };
     }
-  }
-
-  if (options.allowCli === false) {
+    if (options.allowCli === false) {
+      // A file past the 15-minute TTL is still the list the picker should show.
+      // fromCache stays false so OMP does not lock that snapshot, or the
+      // bootstrap below, as its 24-hour catalog.
+      const stale = lookup.snapshot;
+      if (stale && stale.models.length > 0) {
+        return {
+          models: catalogToProviderModels(stale.models),
+          fromCache: false,
+          source: "cache",
+        };
+      }
+      return {
+        models: catalogToProviderModels(descriptorsToCatalog(fallbackModels())),
+        fromCache: false,
+        source: "fallback",
+      };
+    }
+  } else if (options.allowCli === false) {
     return {
       models: catalogToProviderModels(descriptorsToCatalog(fallbackModels())),
       fromCache: false,
@@ -129,10 +145,10 @@ function createProviderConfig(models: ProviderModelConfig[]) {
     api: GROK_API,
     models,
     streamSimple: streamGrokAgent,
-    // OMP awaits this at startup and caches a non-null list for 24h. Re-read
-    // the disk cache so a probe that finished after this config was built is
-    // what gets stored. The static fallback is not stored, so it stays null
-    // and does not become that authoritative list.
+    // OMP awaits this at startup and caches a non-null list for 24h. Only a
+    // TTL hit is returned. An expired disk snapshot is already on `models`
+    // for the picker, and the bootstrap fallback is not stored, so both stay
+    // null here and do not become that authoritative list.
     fetchDynamicModels: async () => {
       const latest = refreshGrokModels({ allowCli: false });
       if (!latest.fromCache || latest.models.length === 0) return null;
@@ -155,14 +171,15 @@ function discoverGrokModelsInBackground(binary: string, onModels: (refresh: Grok
   grokDiscover = new Promise((resolve) => {
     execFile(binary, ["models"], { timeout: 20_000, encoding: "utf8" }, (error, stdout) => {
       try {
-        const parsed = error ? [] : parseGrokModelsOutput(String(stdout ?? ""));
-        const descriptors = parsed.length > 0 ? parsed : fallbackModels();
-        const catalog = descriptorsToCatalog(descriptors);
+        if (error) return;
+        const parsed = parseGrokModelsOutput(String(stdout ?? ""));
+        if (parsed.length === 0) return;
+        const catalog = descriptorsToCatalog(parsed);
         getDefaultCatalogCache().store(GROK_PROVIDER_ID, catalog, { version: "grok-cli-v1" });
         onModels({
           models: catalogToProviderModels(catalog),
           fromCache: false,
-          source: parsed.length > 0 && !error ? "live" : "fallback",
+          source: "live",
         });
       } catch {
         // keep the list already registered

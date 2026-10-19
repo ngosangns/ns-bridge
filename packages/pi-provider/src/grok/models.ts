@@ -51,16 +51,17 @@ export function parseGrokModelsOutput(stdout: string): GrokModelDescriptor[] {
 	return models;
 }
 
+/** Ids `grok models` printed when this list was last checked. A cold cache still shows them. */
+const BOOTSTRAP_MODEL_IDS = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"] as const;
+
 export function fallbackModels(): GrokModelDescriptor[] {
-	return [
-		{
-			id: DEFAULT_MODEL_ID,
-			name: "Grok 4.5",
-			contextWindow: DEFAULT_CONTEXT_WINDOW,
-			maxTokens: DEFAULT_MAX_TOKENS,
-			supportsReasoningEffort: true,
-		},
-	];
+	return BOOTSTRAP_MODEL_IDS.map((id) => ({
+		id,
+		name: id,
+		contextWindow: DEFAULT_CONTEXT_WINDOW,
+		maxTokens: DEFAULT_MAX_TOKENS,
+		supportsReasoningEffort: true,
+	}));
 }
 
 export function discoverModels(binary?: string): {

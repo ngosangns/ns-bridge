@@ -97,8 +97,42 @@ Default model: grok-4.5
     const refreshed = refreshGrokModels({ allowCli: false, cache });
     expect(refreshed.source).toBe("fallback");
     expect(refreshed.fromCache).toBe(false);
-    expect(refreshed.models.length).toBeGreaterThan(0);
+    expect(refreshed.models.map((model) => model.id)).toEqual(
+      expect.arrayContaining(["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5", "grok-4.5-agent"]),
+    );
     expect(memFs.size).toBe(0);
+    expect(child.execFile).not.toHaveBeenCalled();
+    expect(child.execFileSync).not.toHaveBeenCalled();
+    expect(child.spawn).not.toHaveBeenCalled();
+    expect(child.spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("serves an expired disk catalog without spawning or rewriting it", () => {
+    const planted = {
+      version: "grok-cli-v1",
+      fetchedAt: now - 60_000,
+      models: ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"].map((id) => ({
+        id,
+        name: id,
+        api: "grok-cli",
+        provider: "grok",
+        baseUrl: "grok-cli://local",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 500_000,
+        maxTokens: 128_000,
+      })),
+    };
+    memFs.set(cache.pathFor("grok"), JSON.stringify(planted));
+    const before = memFs.size;
+    const refreshed = refreshGrokModels({ allowCli: false, cache });
+    expect(refreshed.source).toBe("cache");
+    expect(refreshed.fromCache).toBe(false);
+    expect(refreshed.models.map((model) => model.id)).toEqual(
+      expect.arrayContaining(["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"]),
+    );
+    expect(memFs.size).toBe(before);
     expect(child.execFile).not.toHaveBeenCalled();
     expect(child.execFileSync).not.toHaveBeenCalled();
     expect(child.spawn).not.toHaveBeenCalled();

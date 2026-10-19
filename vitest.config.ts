@@ -29,6 +29,12 @@ export default defineConfig({
           setupFiles: ["./packages/devin-core/test/setup.ts"],
         },
       },
+      {
+        test: {
+          name: "grok-dsh",
+          include: ["packages/dsh-llm-grok/test/**/*.test.ts"],
+        },
+      },
       "packages/pi-provider",
       "packages/omp-provider",
     ],

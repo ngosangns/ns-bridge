@@ -5,7 +5,7 @@ project is and how to install/use it, see [README.md](README.md).
 
 ## Layout
 
-pnpm workspace, eight packages under `packages/` in three layers.
+pnpm workspace, nine packages under `packages/` in three layers.
 
 | Layer | Package | Owns |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ pnpm workspace, eight packages under `packages/` in three layers.
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter behind an OMP-compat layer; `kiro` opt-in |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh` |
+| host adapter | [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter` that lists the Pi Grok catalog and streams by spawning the local `grok` CLI |
 
 ### Where a change goes
 

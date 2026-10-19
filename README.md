@@ -40,6 +40,7 @@ Harness chunk) lands in one bridge and reaches every vendor.
 | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP adapter | `kiro` for OMP — the recommended Kiro path there | [![npm](https://img.shields.io/npm/v/ns-omp-provider-kiro)](https://www.npmjs.com/package/ns-omp-provider-kiro) |
 | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro) | DSH adapter | `kiro` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-kiro)](https://www.npmjs.com/package/ns-dsh-llm-kiro) |
 | [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | DSH adapter | `devin` as a Harness `LlmAdapter` | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-devin)](https://www.npmjs.com/package/ns-dsh-llm-devin) |
+| [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | DSH adapter | `grok` as a Harness `LlmAdapter` over the local `grok` CLI | [![npm](https://img.shields.io/npm/v/ns-dsh-llm-grok)](https://www.npmjs.com/package/ns-dsh-llm-grok) |
 
 Package names did not change in the merge; existing installs keep working. Each
 package keeps its own version.
@@ -88,7 +89,7 @@ dedicated plugin.
 ## DeepSeek Harness
 
 ```bash
-dsh plugin --profile <profile> add ns-dsh-llm-kiro ns-dsh-llm-devin
+dsh plugin --profile <profile> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok
 ```
 
 Then in that profile's `cordis.patch.yml`:
@@ -103,6 +104,10 @@ Then in that profile's `cordis.patch.yml`:
       name: 'ns-dsh-llm-devin'
       config:
         provider: devin
+    - id: llm-grok
+      name: 'ns-dsh-llm-grok'
+      config:
+        provider: grok
 
 - id: agent-default-model
   config:
