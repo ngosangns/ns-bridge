@@ -31,6 +31,12 @@ export default defineConfig({
       },
       {
         test: {
+          name: "grok",
+          include: ["packages/grok-core/test/**/*.test.ts"],
+        },
+      },
+      {
+        test: {
           name: "grok-dsh",
           include: ["packages/dsh-llm-grok/test/**/*.test.ts"],
         },

@@ -8,13 +8,16 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai/compat";
 import { streamViaAcp } from "./acp-mode.js";
+import { streamViaApi } from "./api-mode.js";
 import { resolveIntegrationMode } from "./config.js";
 import { emptyAssistantMessage } from "./events.js";
+import { streamViaHost } from "./host-mode.js";
 import { streamViaJsonl } from "./jsonl-mode.js";
 
 /**
  * Lazy-friendly entry used by the registered provider.
- * Chooses ACP (persistent Grok agent) or JSONL (one-shot headless) from env.
+ * `api` (default) calls the Responses API with the Grok CLI login. The host runs tools.
+ * `host` spawns one grok process per turn. `acp` keeps a long-lived Grok agent. `jsonl` is one-shot headless.
  */
 export function streamGrokAgent(
 	model: Model<Api>,
@@ -23,10 +26,10 @@ export function streamGrokAgent(
 ): AssistantMessageEventStream {
 	try {
 		const mode = resolveIntegrationMode();
-		if (mode === "jsonl") {
-			return streamViaJsonl(model, context, options);
-		}
-		return streamViaAcp(model, context, options);
+		if (mode === "jsonl") return streamViaJsonl(model, context, options);
+		if (mode === "acp") return streamViaAcp(model, context, options);
+		if (mode === "host") return streamViaHost(model, context, options);
+		return streamViaApi(model, context, options);
 	} catch (err) {
 		// Invalid mode / immediate config failure
 		const stream = createAssistantMessageEventStream();

@@ -86,6 +86,7 @@
   "dependencies": {
     "ns-bridge-core": "workspace:*",
     "ns-devin-core": "workspace:*",
+    "ns-grok-core": "workspace:*",
     "ns-kiro-core": "workspace:*"
   }
 }

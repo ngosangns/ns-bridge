@@ -32,13 +32,13 @@ export function resolveIntegrationMode(
 		env.PI_GROK_SDK_MODE ??
 		env.PI_GROK_AGENT_MODE ??
 		env.PI_GROK_AGENT_CLI_MODE ??
-		"acp"
+		"api"
 	)
 		.trim()
 		.toLowerCase();
-	if (raw === "jsonl" || raw === "acp") return raw;
+	if (raw === "api" || raw === "host" || raw === "jsonl" || raw === "acp") return raw;
 	throw new Error(
-		`Invalid PI_GROK_SDK_MODE='${raw}'. Use 'acp' (default, persistent Grok agent) or 'jsonl' (one-shot streaming-json).`,
+		`Invalid PI_GROK_SDK_MODE='${raw}'. Use 'api' (default, Grok CLI session against the Responses API; the host runs tools), 'host' (one grok process per turn), 'acp' (persistent Grok agent), or 'jsonl' (one-shot streaming-json).`,
 	);
 }
 

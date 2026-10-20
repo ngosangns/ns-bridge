@@ -104,6 +104,12 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.2
         version: 3.18.4
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
+      ns-grok-core:
+        specifier: workspace:*
+        version: link:../grok-core
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.4
@@ -145,6 +151,16 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
+      '@types/node':
+        specifier: ^22.20.4
+        version: 22.20.4
+
+  packages/grok-core:
+    dependencies:
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
+    devDependencies:
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4
@@ -229,6 +245,9 @@ importers:
       ns-devin-core:
         specifier: workspace:*
         version: link:../devin-core
+      ns-grok-core:
+        specifier: workspace:*
+        version: link:../grok-core
       ns-kiro-core:
         specifier: workspace:*
         version: link:../kiro-core

@@ -1,6 +1,6 @@
 // @ts-nocheck — vendored upstream; adapted under MIT (see NOTICE)
 /** Integration modes for talking to the local Grok agent CLI. */
-export type IntegrationMode = "acp" | "jsonl";
+export type IntegrationMode = "api" | "host" | "acp" | "jsonl";
 
 /** Reasoning effort levels accepted by Grok CLI / ACP. */
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

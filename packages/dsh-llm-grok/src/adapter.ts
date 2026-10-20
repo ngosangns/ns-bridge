@@ -1,42 +1,26 @@
 /**
- * Harness adapter over the local `grok` CLI.
+ * Harness adapter over the Grok CLI login session.
  *
- * `listModels` and `resolveModel` read the Pi catalog file and do not spawn.
- * `stream` spawns `grok` with `--max-turns 1` and without `--always-approve`.
+ * `listModels` and `resolveModel` read the Pi catalog file and do not call the
+ * network. `stream` posts one Responses request. The harness owns the tool loop.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createInterface } from "node:readline";
-import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
+import type { AttachmentStore } from "@deepseek-ai/dsh-attachment";
 import {
-  type ContentBlock,
   type GenerateOptions,
   LlmAdapter,
   LlmError,
   type LlmModelInfo,
   type LlmProviderInfo,
   type LlmResolvedModelInfo,
-  offloadedImageText,
   ReasoningEffortId,
   type StreamChunk,
-  textOnlyImageText,
 } from "@deepseek-ai/dsh-llm";
+import { streamToDsh, toBridgeMessagesFromDsh } from "ns-bridge-core/dsh";
+import { toBridgeEffort } from "ns-bridge-core/pi";
+import { streamGrok } from "ns-grok-core";
 import { type GrokListedModel, readGrokCatalog } from "./catalog.js";
-import { buildGrokCliArgs, resolveGrokBinary, resumesGrokSession } from "./cli.js";
-import { createMessagesParseState, finishMessagesParse, grokTurnSucceeded, parseGrokMessagesLine } from "./messages.js";
-import {
-  buildGrokAcpContent,
-  type GrokAcpBlock,
-  type GrokPromptInput,
-  type GrokPromptMemory,
-  grokAcpDocument,
-  planGrokPrompt,
-} from "./prompt.js";
-import { createToolChunkTranslator } from "./tools.js";
+import { toLlmError } from "./errors.js";
 
 export interface GrokAdapterOptions {
   provider: string;
@@ -57,29 +41,7 @@ const EFFORTS = [
   ["max", "Maximum"],
 ] as const;
 
-function errorFinish(message: string): StreamChunk {
-  return { type: "finish", reason: { kind: "error", failure: { message, code: "GROK_CLI" } } };
-}
-
-function abortedFinish(): StreamChunk {
-  return { type: "finish", reason: { kind: "aborted", failure: { message: "Grok CLI aborted", code: "ABORTED" } } };
-}
-
-function waitClose(child: ChildProcess): Promise<number | null> {
-  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
-  return new Promise((resolve) => {
-    child.once("close", (code) => resolve(code));
-  });
-}
-
-interface GrokContinuation extends GrokPromptMemory {
-  readonly grokSessionId: string;
-}
-
 export class GrokAdapter extends LlmAdapter {
-  /** One Grok session per harness chat. The next step resumes it with the new tail only. */
-  private readonly continuations = new Map<string, GrokContinuation>();
-
   constructor(private readonly options: GrokAdapterOptions) {
     super();
   }
@@ -106,103 +68,34 @@ export class GrokAdapter extends LlmAdapter {
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    if (options.signal?.aborted) {
-      yield abortedFinish();
-      return;
-    }
-    let binary: string;
     try {
-      binary = resolveGrokBinary();
+      yield* this.streamInner(options);
     } catch (error) {
-      yield errorFinish(error instanceof Error ? error.message : String(error));
-      return;
+      throw toLlmError(error);
     }
-    const harnessSession = options.sessionId === undefined ? undefined : String(options.sessionId);
-    const resumeChat = harnessSession !== undefined && resumesGrokSession(options.purpose);
-    const remembered = resumeChat ? this.continuations.get(harnessSession) : undefined;
-    let promptFile: { dir: string; file: string };
-    let plan: ReturnType<typeof planGrokPrompt>;
-    try {
-      const input = await this.promptInput(options);
-      plan = planGrokPrompt(input, remembered);
-      promptFile = await this.writeBlocks(buildGrokAcpContent(plan.input));
-    } catch (error) {
-      if (options.signal?.aborted) {
-        yield abortedFinish();
-        return;
-      }
-      yield errorFinish(error instanceof Error ? error.message : String(error));
-      return;
-    }
-    const grokSessionId = plan.mode === "delta" && remembered ? remembered.grokSessionId : randomUUID();
-    const child = spawn(
-      binary,
-      buildGrokCliArgs({
-        promptFile: promptFile.file,
+  }
+
+  private async *streamInner(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    const projected = await toBridgeMessagesFromDsh(options.messages, {
+      attachments: this.options.attachments?.(),
+      signal: options.signal,
+    });
+    const system = [options.system, projected.system].filter((part) => !!part).join("\n\n") || undefined;
+    const tools = options.tools?.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters as Record<string, unknown>,
+    }));
+    yield* streamToDsh(
+      streamGrok({
         model: options.model,
-        reasoningEffort: options.reasoningEffort,
-        ...(plan.mode === "delta" && remembered ? { resume: remembered.grokSessionId } : { sessionId: grokSessionId }),
+        messages: projected.messages,
+        systemPrompt: system,
+        tools,
+        effort: toBridgeEffort(options.reasoningEffort),
+        signal: options.signal,
       }),
-      { stdio: ["ignore", "pipe", "pipe"], env: process.env },
     );
-    let stderr = "";
-    let spawnError: Error | undefined;
-    child.once("error", (error) => {
-      spawnError = error;
-    });
-    child.stderr?.setEncoding("utf8");
-    child.stderr?.on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(-2_000);
-    });
-    const onAbort = () => {
-      child.kill("SIGTERM");
-    };
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-    const state = createMessagesParseState();
-    const tools = createToolChunkTranslator(options.tools);
-    let succeeded = false;
-    try {
-      if (child.stdout) {
-        const lines = createInterface({ input: child.stdout });
-        for await (const line of lines) {
-          if (options.signal?.aborted) break;
-          for (const chunk of parseGrokMessagesLine(line, state)) yield* tools.push(chunk);
-        }
-      }
-      const code = await waitClose(child);
-      if (options.signal?.aborted) {
-        if (!state.finished) yield abortedFinish();
-        return;
-      }
-      if ((spawnError || code !== 0) && !state.finished) {
-        yield errorFinish(stderr.trim() || spawnError?.message || `grok exited ${code ?? "null"}`);
-        return;
-      }
-      for (const chunk of finishMessagesParse(state)) yield* tools.push(chunk);
-      // A tool call hits `--max-turns 1` and the CLI exits 1. The session is still resumable.
-      succeeded = grokTurnSucceeded({
-        code,
-        spawnFailed: spawnError !== undefined,
-        maxTurnsReached: state.maxTurnsReached,
-        producedOutput: state.sawStreamBlocks || state.emittedContent,
-      });
-    } finally {
-      options.signal?.removeEventListener("abort", onAbort);
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
-      await rm(promptFile.dir, { recursive: true, force: true });
-      if (resumeChat && harnessSession) {
-        if (succeeded) {
-          this.continuations.set(harnessSession, {
-            grokSessionId,
-            count: plan.count,
-            fingerprint: plan.fingerprint,
-          });
-        } else if (plan.mode === "delta") {
-          // The resumed session did not accept this tail. The next step sends the transcript again.
-          this.continuations.delete(harnessSession);
-        }
-      }
-    }
   }
 
   private catalog(): GrokListedModel[] {
@@ -216,68 +109,5 @@ export class GrokAdapter extends LlmAdapter {
       name: model.name,
       inputModalities: [...INPUT_MODALITIES],
     };
-  }
-
-  private async writeBlocks(content: readonly GrokAcpBlock[]): Promise<{ dir: string; file: string }> {
-    const dir = await mkdtemp(join(tmpdir(), "ns-dsh-grok-"));
-    const file = join(dir, "prompt.json");
-    try {
-      await writeFile(file, grokAcpDocument(content), { encoding: "utf8", mode: 0o600 });
-    } catch (error) {
-      await rm(dir, { recursive: true, force: true });
-      throw error;
-    }
-    return { dir, file };
-  }
-
-  private async promptInput(options: GenerateOptions): Promise<GrokPromptInput> {
-    const store = this.options.attachments?.();
-    const messages = [];
-    for (const message of options.messages) {
-      const content = [];
-      for (const block of message.content) {
-        if (block.type === "text" || block.type === "reasoning" || block.type === "tool-call") {
-          content.push(block);
-        } else if (block.type === "image") {
-          content.push(await this.imageBlock(block, store, options.signal));
-        }
-      }
-      messages.push({ role: message.role, content });
-    }
-    return { system: options.system, messages };
-  }
-
-  private async imageBlock(
-    block: Extract<ContentBlock, { type: "image" }>,
-    store: AttachmentStore | undefined,
-    signal: AbortSignal | undefined,
-  ): Promise<{ type: "image"; data?: string; mimeType?: string; placeholder: string }> {
-    if (block.offloaded === true) {
-      return { type: "image", placeholder: this.omittedImageText(block.attachment, store, true) };
-    }
-    if (!store) return { type: "image", placeholder: textOnlyImageText(block.attachment) };
-    try {
-      const stored = await store.readImage(block.attachment, signal);
-      return {
-        type: "image",
-        data: Buffer.from(stored.data).toString("base64"),
-        mimeType: block.attachment.mediaType,
-        placeholder: textOnlyImageText(block.attachment),
-      };
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      return { type: "image", placeholder: textOnlyImageText(block.attachment) };
-    }
-  }
-
-  private omittedImageText(ref: ImageAttachmentRef, store: AttachmentStore | undefined, offloaded: boolean): string {
-    if (!offloaded) return textOnlyImageText(ref);
-    let hostPath: string | undefined;
-    try {
-      hostPath = store?.imageHostPath(ref);
-    } catch {
-      hostPath = undefined;
-    }
-    return offloadedImageText(ref, hostPath ? { readonlyPath: hostPath } : undefined);
   }
 }

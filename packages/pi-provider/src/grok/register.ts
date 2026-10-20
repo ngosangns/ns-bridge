@@ -1,15 +1,16 @@
 /**
  * Grok provider registration for Pi (provider id: "grok").
- * Auth: local Grok CLI / ~/.grok/auth.json / XAI_API_KEY (CLI owns refresh).
+ * Auth: Grok CLI login in ~/.grok/auth.json. The Responses client refreshes that session.
+ * A console API key is not a session and is not read.
  * Models: `grok models` CLI discovery with TTL disk cache + static fallback.
- * Streaming: ACP/JSONL via adapted pi-grok-sdk (MIT).
+ * Streaming: Responses API by default (Grok CLI login, the host runs tools). host, ACP, and JSONL remain opt-in.
  */
 
-import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
 
 import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { grokAuthCandidates } from "ns-grok-core";
 
 import { ensureCacheCost, getDefaultCatalogCache, type CatalogModel } from "../shared/index.js";
 import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "./binary.js";
@@ -21,6 +22,7 @@ import {
 } from "./config.js";
 import { discoverModels, fallbackModels, toProviderModels } from "./models.js";
 import { registerPiGrokActivity, runningInsideOmp } from "./pi-activity.js";
+import { forgetAllHostSessions, forgetHostSession } from "./host-session.js";
 import { streamGrokAgent } from "./provider.js";
 import { registerSessionScope, scopeKeyFromCtx } from "./session-scope.js";
 import { disposeAllSessionAgents, disposeSessionAgentsForScope } from "./session-agent.js";
@@ -67,13 +69,23 @@ function catalogToProviderModels(models: CatalogModel[]): ProviderModelConfig[] 
   }));
 }
 
-export function grokAuthPresent(): boolean {
-  if (process.env.XAI_API_KEY?.trim() || process.env.GROK_API_KEY?.trim()) return true;
-  const paths = [
-    join(homedir(), ".grok", "auth.json"),
-    join("/workspace/.provider-creds/grok", "auth.json"),
-  ];
-  return paths.some((p) => existsSync(p));
+function sessionFileHasAccessToken(path: string): boolean {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    return Object.values(parsed).some((value) => {
+      if (!value || typeof value !== "object") return false;
+      const key = (value as { key?: unknown }).key;
+      return typeof key === "string" && key.trim().length > 0;
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** True when a Grok CLI login session is on disk. An API key does not count. */
+export function grokAuthPresent(env: NodeJS.ProcessEnv = process.env, home = homedir()): boolean {
+  return grokAuthCandidates(env, home).some((path) => sessionFileHasAccessToken(path));
 }
 
 export function refreshGrokModels(options: {
@@ -141,7 +153,7 @@ function createProviderConfig(models: ProviderModelConfig[]) {
   return {
     name: "Grok",
     baseUrl: "grok-cli://local",
-    apiKey: process.env.XAI_API_KEY ? "$XAI_API_KEY" : "grok-cli",
+    apiKey: "grok-cli",
     api: GROK_API,
     models,
     streamSimple: streamGrokAgent,
@@ -168,13 +180,16 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
   // Multi-session hosts share one Node process; disposing every agent on any
   // session_shutdown / scope change used to kill other open chats' agents.
   pi.on("session_shutdown", async (_event, ctx) => {
-    disposeSessionAgentsForScope(scopeKeyFromCtx(ctx));
+    const scope = scopeKeyFromCtx(ctx);
+    disposeSessionAgentsForScope(scope);
+    forgetHostSession(scope);
   });
   if (!exitHookInstalled) {
     exitHookInstalled = true;
     process.once("exit", () => {
       try {
         disposeAllSessionAgents();
+        forgetAllHostSessions();
       } catch {
         // ignore
       }

@@ -2,8 +2,8 @@
  * Grok adapter plugin for the DeepSeek Harness LLM seam.
  *
  * The model list is the catalog Pi stores for the local `grok` CLI. Streaming
- * spawns that CLI for one turn and maps Anthropic Messages NDJSON onto harness
- * chunks. Tool approval stays with the harness.
+ * calls the CLI chat proxy with that login session. Tool approval stays with
+ * the harness.
  *
  * ```yaml
  * - id: llm-grok
