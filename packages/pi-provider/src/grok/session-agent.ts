@@ -7,14 +7,15 @@
  * own history instead of replaying the full transcript every turn.
  */
 
-import { resolveGrokBinary } from "./binary.js";
 import {
 	createLiveAcpSession,
 	promptAcpSession,
 	type LiveAcpSession,
-} from "./acp-client.js";
+	type ReasoningEffort,
+	resolveGrokBinary,
+} from "ns-grok-core/agent";
+import { CLIENT_NAME, CLIENT_VERSION } from "./config.js";
 import { getSessionCwd, getSessionScopeKey } from "./session-scope.js";
-import type { ReasoningEffort } from "./types.js";
 
 export interface SessionAgentKeyParts {
 	scopeKey: string;
@@ -140,6 +141,8 @@ export async function withSessionAgent<T>(
 			alwaysApprove: true,
 			cwd,
 			signal: params.signal,
+			// The core is host-neutral, so the Pi identity is announced from here.
+			clientInfo: { name: CLIENT_NAME, version: CLIENT_VERSION },
 		});
 		entry = { key, scopeKey, session, busy: false, queue: [] };
 		pool.set(key, entry);

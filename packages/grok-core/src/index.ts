@@ -8,6 +8,7 @@ export {
   GROK_CATALOG_PROVIDER_ID,
   GROK_DEFAULT_CONTEXT_WINDOW,
   GROK_DEFAULT_MAX_TOKENS,
+  GROK_DEFAULT_MODEL_ID,
   type GrokCatalogSnapshot,
   type GrokModelSpec,
   grokBootstrapModels,

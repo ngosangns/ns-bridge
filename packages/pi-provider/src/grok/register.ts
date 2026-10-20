@@ -13,7 +13,7 @@ import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-codin
 import { grokAuthCandidates } from "ns-grok-core";
 
 import { ensureCacheCost, getDefaultCatalogCache, type CatalogModel } from "../shared/index.js";
-import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "./binary.js";
+import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "ns-grok-core/agent";
 import {
   API as GROK_SDK_API,
   CLIENT_NAME,
@@ -26,7 +26,7 @@ import { forgetAllHostSessions, forgetHostSession } from "./host-session.js";
 import { streamGrokAgent } from "./provider.js";
 import { registerSessionScope, scopeKeyFromCtx } from "./session-scope.js";
 import { disposeAllSessionAgents, disposeSessionAgentsForScope } from "./session-agent.js";
-import type { GrokModelDescriptor } from "./types.js";
+import type { GrokModelDescriptor } from "ns-grok-core/agent";
 
 /** One process-exit hook for the whole module (not per ExtensionAPI instance). */
 let exitHookInstalled = false;

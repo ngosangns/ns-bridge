@@ -9,7 +9,7 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai/compat";
-import { resolveGrokBinary } from "./binary.js";
+import { resolveGrokBinary } from "ns-grok-core/agent";
 import { INACTIVITY_TIMEOUT_MS, mapReasoningEffort } from "./config.js";
 import {
 	emptyAssistantMessage,
@@ -20,7 +20,7 @@ import {
 import { resolveCliModelId } from "./models.js";
 import { buildFullPrompt } from "./prompt.js";
 import { getSessionCwd } from "./session-scope.js";
-import type { ReasoningEffort } from "./types.js";
+import type { ReasoningEffort } from "ns-grok-core/agent";
 
 function buildJsonlArgs(
 	prompt: string,

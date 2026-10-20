@@ -1,6 +1,6 @@
 // @ts-nocheck — translate Grok CLI tool calls into host tool calls.
 import { resolveCliModelId } from "./models.js";
-import type { ReasoningEffort } from "./types.js";
+import type { ReasoningEffort } from "ns-grok-core/agent";
 
 /**
  * Permission rules, not `--disallowed-tools`. Deny leaves the `tool_use` in the

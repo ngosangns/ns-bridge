@@ -9,8 +9,8 @@ vi.mock("../src/grok/session-agent.js", async (importOriginal) => {
 	};
 });
 
-vi.mock("../src/grok/binary.js", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("../src/grok/binary.js")>();
+vi.mock("ns-grok-core/agent", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("ns-grok-core/agent")>();
 	return {
 		...actual,
 		resolveGrokBinary: () => {

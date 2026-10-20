@@ -10,7 +10,7 @@ import type {
 	ThinkingContent,
 } from "@earendil-works/pi-ai/compat";
 import { API } from "./config.js";
-import type { AcpPromptMeta } from "./types.js";
+import type { AcpPromptMeta } from "ns-grok-core/agent";
 
 export function emptyAssistantMessage(model: Model<Api>): AssistantMessage {
 	return {

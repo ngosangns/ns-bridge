@@ -1,13 +1,14 @@
 // @ts-nocheck — vendored upstream; adapted under MIT (see NOTICE)
-import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS } from "ns-grok-core";
-import type { IntegrationMode, ReasoningEffort } from "./types.js";
+import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS, GROK_DEFAULT_MODEL_ID } from "ns-grok-core";
+import type { IntegrationMode, ReasoningEffort } from "ns-grok-core/agent";
 
 /** Pi provider id (registered as grok-sdk/<model>). */
 export const PROVIDER = "grok-sdk";
 export const API = "grok-sdk";
 /** Legacy provider id from pi-grok-agent-cli — still accepted for aliases. */
 export const LEGACY_PROVIDER = "grok-agent-cli";
-export const DEFAULT_MODEL_ID = "grok-4.5";
+/** The core owns which id is the CLI's default. */
+export const DEFAULT_MODEL_ID = GROK_DEFAULT_MODEL_ID;
 export const CLIENT_NAME = "pi-grok-sdk";
 export const CLIENT_VERSION = "0.2.1";
 

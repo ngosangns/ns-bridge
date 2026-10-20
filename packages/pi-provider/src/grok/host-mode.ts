@@ -13,7 +13,7 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai/compat";
-import { resolveGrokBinary } from "./binary.js";
+import { resolveGrokBinary } from "ns-grok-core/agent";
 import { INACTIVITY_TIMEOUT_MS, mapReasoningEffort } from "./config.js";
 import { emptyAssistantMessage, PiContentEmitter, StreamingUpdatePump } from "./events.js";
 import { createHostParseState, grokTurnSucceeded, hostStopReason, parseHostMessagesLine } from "./host-messages.js";

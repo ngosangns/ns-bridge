@@ -9,9 +9,10 @@ import type { Api, Context, Model } from "@earendil-works/pi-ai/compat";
 const child = vi.hoisted(() => ({ spawn: vi.fn() }));
 
 vi.mock("node:child_process", () => ({ spawn: child.spawn }));
-vi.mock("../src/grok/binary.js", () => ({
-	resolveGrokBinary: () => "/usr/bin/grok",
-}));
+vi.mock("ns-grok-core/agent", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("ns-grok-core/agent")>();
+	return { ...actual, resolveGrokBinary: () => "/usr/bin/grok" };
+});
 
 import { resolveIntegrationMode } from "../src/grok/config.js";
 import { createHostParseState, grokTurnSucceeded, hostStopReason, parseHostMessagesLine } from "../src/grok/host-messages.js";

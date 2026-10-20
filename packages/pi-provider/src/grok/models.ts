@@ -1,56 +1,18 @@
 // @ts-nocheck — vendored upstream; adapted under MIT (see NOTICE)
-import { execFileSync } from "node:child_process";
+/**
+ * The Pi half of Grok model handling: the CLI's list becomes Pi provider models.
+ *
+ * Discovery, id mapping, and the bootstrap list are the core's
+ * (`ns-grok-core/agent` and `ns-grok-core`); only the Pi provider-model shape is
+ * built here.
+ */
+
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { grokBootstrapModels } from "ns-grok-core";
-import { resolveGrokBinary } from "./binary.js";
-import {
-	DEFAULT_CONTEXT_WINDOW,
-	DEFAULT_MAX_TOKENS,
-	DEFAULT_MODEL_ID,
-	THINKING_LEVEL_MAP,
-} from "./config.js";
-import type { GrokModelDescriptor } from "./types.js";
+import { discoverGrokModels, type GrokModelDescriptor, resolveCliModelId } from "ns-grok-core/agent";
+import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, DEFAULT_MODEL_ID, THINKING_LEVEL_MAP } from "./config.js";
 
-export function parseGrokModelsOutput(stdout: string): GrokModelDescriptor[] {
-	const models: GrokModelDescriptor[] = [];
-	const seen = new Set<string>();
-
-	// Lines like: "  * grok-4.5 (default)" or "  * grok-4.5"
-	const bullet = /^\s*[*•-]\s+(\S+)/;
-	// "Default model: grok-4.5"
-	const defaultLine = /default model:\s*(\S+)/i;
-
-	for (const line of stdout.split(/\r?\n/)) {
-		const m = line.match(bullet);
-		if (m) {
-			const id = m[1].replace(/[(),]+$/g, "");
-			if (!seen.has(id)) {
-				seen.add(id);
-				models.push({
-					id,
-					name: id,
-					contextWindow: DEFAULT_CONTEXT_WINDOW,
-					maxTokens: DEFAULT_MAX_TOKENS,
-					supportsReasoningEffort: true,
-				});
-			}
-			continue;
-		}
-		const d = line.match(defaultLine);
-		if (d && !seen.has(d[1])) {
-			seen.add(d[1]);
-			models.unshift({
-				id: d[1],
-				name: d[1],
-				contextWindow: DEFAULT_CONTEXT_WINDOW,
-				maxTokens: DEFAULT_MAX_TOKENS,
-				supportsReasoningEffort: true,
-			});
-		}
-	}
-
-	return models;
-}
+export { parseGrokModelsOutput, resolveCliModelId } from "ns-grok-core/agent";
 
 /**
  * Ids `grok models` printed when this list was last checked. The list itself is
@@ -66,42 +28,15 @@ export function fallbackModels(): GrokModelDescriptor[] {
 	}));
 }
 
+/** Ask the CLI for its models, falling back to the bootstrap descriptors. */
 export function discoverModels(binary?: string): {
 	models: GrokModelDescriptor[];
 	source: "live" | "fallback";
 	error?: string;
 } {
-	try {
-		const bin = binary ?? resolveGrokBinary();
-		const stdout = execFileSync(bin, ["models"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: 20_000,
-		});
-		const parsed = parseGrokModelsOutput(stdout);
-		if (parsed.length === 0) {
-			return { models: fallbackModels(), source: "fallback", error: "empty model list from CLI" };
-		}
-		return { models: parsed, source: "live" };
-	} catch (err) {
-		return {
-			models: fallbackModels(),
-			source: "fallback",
-			error: err instanceof Error ? err.message : String(err),
-		};
-	}
-}
-
-/**
- * Map pi model IDs to CLI `--model` IDs.
- * Supports the pre-0.2 alias `grok-4.5-agent` and a generic `*-agent` suffix strip.
- */
-export function resolveCliModelId(modelId: string): string {
-	if (modelId === "grok-4.5-agent") return DEFAULT_MODEL_ID;
-	if (modelId.endsWith("-agent") && modelId.length > 6) {
-		return modelId.slice(0, -"-agent".length);
-	}
-	return modelId;
+	const discovered = discoverGrokModels(binary);
+	if (discovered.source === "live") return discovered;
+	return { ...discovered, models: fallbackModels() };
 }
 
 function toProviderModel(d: GrokModelDescriptor): ProviderModelConfig {

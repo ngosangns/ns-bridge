@@ -19,6 +19,12 @@ export const GROK_DEFAULT_MAX_TOKENS = 128_000;
 /** The provider id whose catalog file this contract describes. */
 export const GROK_CATALOG_PROVIDER_ID = "grok";
 
+/**
+ * The model a host falls back to when a request names none. It is the id
+ * `grok models` marks as default.
+ */
+export const GROK_DEFAULT_MODEL_ID = "grok-4.5";
+
 /** File name the catalog cache writes inside a host's cache directory. */
 export const GROK_CATALOG_FILE = `${GROK_CATALOG_PROVIDER_ID}.models.json`;
 

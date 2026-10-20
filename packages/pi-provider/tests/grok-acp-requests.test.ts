@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { AcpJsonRpcClient } from "../src/grok/acp-client.js";
+import { AcpJsonRpcClient } from "ns-grok-core/agent";
 
 function fakeProc() {
 	const proc = new EventEmitter() as never as {
