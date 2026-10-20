@@ -9,8 +9,8 @@ name: Publish
 #   2. commit and push to main;
 #   3. push one tag, scope dropped:
 #        git tag ns-bridge@<version> && git push origin ns-bridge@<version>
-#   0.1.5 (tag ns-bridge@0.1.5) is already on npm. Do not republish
-#   0.1.0, 0.1.1, 0.1.2, 0.1.3, or 0.1.4.
+#   0.1.7 (tag ns-bridge@0.1.7) is already on npm. Do not republish
+#   0.1.0 through 0.1.6.
 #
 # scripts/release-plan.mjs refuses a tag that is not that package at a version
 # npm does not have yet. A package npm has never seen cannot be created by
