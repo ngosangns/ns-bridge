@@ -41,23 +41,10 @@ Pi-specific translation (context in, `AssistantMessageEventStream` out) is
 |----------|-----------------|------------|--------|
 | **kiro** | [`ns-kiro-core`](../kiro-core): kiro-cli / Kiro IDE session, `KIRO_API_KEY` | `~/.ns-kiro-provider-models-cache.json` | AWS event-stream, via `ns-bridge-core/pi` |
 | **devin** | [`ns-devin-core`](../devin-core): `/login devin` (PKCE), `credentials.toml`, env | `ns-devin-provider/models.json` under `$XDG_DATA_HOME` or `~/.local/share` | Connect/protobuf with capacity retry, via `ns-bridge-core/pi` |
-| **grok** | in this package: Grok CLI / `~/.grok/auth.json` / `XAI_API_KEY` | `~/.pi/agent/cache/ns-pi-provider/grok.models.json` | ACP or JSONL via local CLI |
+| **grok** | [`ns-grok-core`](../grok-core): Grok CLI login in `~/.grok/auth.json` | `~/.pi/agent/cache/ns-pi-provider/grok.models.json` | Responses API over SSE, via `ns-bridge-core/pi`. The host runs the tools |
 
-### Grok tool activity
-
-Grok runs as its own coding agent (the local `grok agent stdio` ACP process): it reads,
-edits, writes and runs commands itself with its built-in tools — Pi/OMP never execute
-them. In OMP a finished tool is the matching card: `edit` (including writes
-and deletes), `read` (files, directories, and fetched pages), `bash`, `grep`,
-`glob`, and `web_search`. The call is stamped so OMP does not run it again, and
-its arguments include a marker OMP's validator rejects if that stamp is missed.
-In Pi the same finished tools are one `grok_activity` card (Pi's own tool box).
-That tool only redisplays the text and does not read, write, or run a command.
-A tool Pi does not know how to draw stays one line (`` - Edit `src/a.ts` (+3 −1) ``,
-failures as `✗ … failed`). Set `PI_GROK_SDK_SHOW_TOOLS=0` to
-hide them. Cold-start prompts also carry a short bridge note telling Grok that the
-host's tool names are not callable and to act with its own tools
-(`PI_GROK_SDK_BRIDGE_NOTE=0` to drop it).
+Grok does not spawn the CLI to answer. `grok models` runs only when
+`ns-bridge models refresh grok --apply` rewrites the catalog file.
 
 Shared modules under `src/shared/` provide HTTP helpers, credential env resolution, and `CatalogCache` (TTL + optional ETag, in-memory + `~/.pi/agent/cache/ns-pi-provider`).
 

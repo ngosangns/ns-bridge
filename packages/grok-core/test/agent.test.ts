@@ -1,8 +1,7 @@
-// ABOUTME: Tests the Grok agent CLI protocol helpers that moved out of pi-provider.
-// ABOUTME: Covers the model-list parser, the id mapping, and the ACP arg builder.
+// ABOUTME: Tests the Grok model-list parser and the id mapping.
+// ABOUTME: The CLI protocol itself is not exercised here; these are pure functions.
 
 import { describe, expect, it } from "vitest";
-import { buildAcpArgs, DEFAULT_ACP_CLIENT_INFO } from "../src/agent/acp-client.js";
 import { parseGrokModelsOutput, resolveCliModelId } from "../src/agent/models.js";
 import { GROK_DEFAULT_MODEL_ID } from "../src/catalog.js";
 
@@ -42,38 +41,5 @@ describe("resolveCliModelId", () => {
 
   it("leaves a plain id alone", () => {
     expect(resolveCliModelId("grok-4.7")).toBe("grok-4.7");
-  });
-});
-
-describe("buildAcpArgs", () => {
-  it("always ends in stdio and approves by default", () => {
-    expect(buildAcpArgs({})).toEqual(["agent", "--no-leader", "--always-approve", "stdio"]);
-  });
-
-  it("passes the model and effort through", () => {
-    expect(buildAcpArgs({ modelId: "grok-4.7", reasoningEffort: "high" })).toEqual([
-      "agent",
-      "--no-leader",
-      "--always-approve",
-      "--model",
-      "grok-4.7",
-      "--reasoning-effort",
-      "high",
-      "stdio",
-    ]);
-  });
-
-  it("omits an effort of none, which the CLI treats as the default", () => {
-    expect(buildAcpArgs({ reasoningEffort: "none" })).not.toContain("--reasoning-effort");
-  });
-
-  it("can withhold approval", () => {
-    expect(buildAcpArgs({ alwaysApprove: false })).toEqual(["agent", "--no-leader", "stdio"]);
-  });
-});
-
-describe("DEFAULT_ACP_CLIENT_INFO", () => {
-  it("names the core rather than any one host", () => {
-    expect(DEFAULT_ACP_CLIENT_INFO.name).toBe("ns-grok-core");
   });
 });

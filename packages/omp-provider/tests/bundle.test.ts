@@ -73,7 +73,7 @@ describe("dist/index.js on a fake OMP API", () => {
     expect(pi.providers.get("grok")!.apiKey).toBe("grok-cli");
 
     expect(pi.events).not.toContain("session_info_changed");
-    expect(pi.events).toEqual(expect.arrayContaining(["session_start", "session_switch", "session_branch", "session_shutdown"]));
+    expect(pi.events).toEqual(expect.arrayContaining(["session_start", "session_switch", "session_branch"]));
     expect(pi.commands).toEqual(expect.arrayContaining(["ns-pi", "grok", "devin-status"]));
   });
 

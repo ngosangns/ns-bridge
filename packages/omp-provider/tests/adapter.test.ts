@@ -8,7 +8,6 @@ import {
   toPiContext,
   wrapExtensionApi,
 } from "../src/adapter.js";
-import { createGrokNativeEditHost, GROK_NATIVE_EDIT } from "../src/grok-native-edit.js";
 
 const tools = [{ name: "read", description: "Read", parameters: { type: "object" } }];
 
@@ -102,28 +101,6 @@ describe("adaptProviderConfig", () => {
     expect(streamSimple.mock.calls.at(-1)?.[2]).toBe(options);
   });
 
-  it("copies grok stream options and attaches the native-edit host", () => {
-    const streamSimple = vi.fn();
-    const emit = () => undefined;
-    const options = { apiKey: "k", onDetachedToolUpdate: emit };
-    for (const api of ["grok-cli", "grok-sdk"]) {
-      const adapted = adaptProviderConfig({ api, streamSimple }, {});
-      const wrapped = adapted.streamSimple as (m: unknown, c: unknown, o?: unknown) => unknown;
-      wrapped({ id: "grok" }, { messages: [] }, options);
-      const passed = streamSimple.mock.calls.at(-1)?.[2] as Record<PropertyKey, unknown>;
-      expect(passed).not.toBe(options);
-      expect(passed.apiKey).toBe("k");
-      expect(passed.onDetachedToolUpdate).toBe(emit);
-      expect(passed[GROK_NATIVE_EDIT]).toEqual(
-        expect.objectContaining({
-          prepare: expect.any(Function),
-          stampResolved: expect.any(Function),
-          settle: expect.any(Function),
-        }),
-      );
-    }
-  });
-
   it("returns [] from fetchDynamicModels when refresh yields nothing", async () => {
     await expect(toFetchDynamicModels(() => undefined)(undefined)).resolves.toEqual([]);
   });
@@ -136,39 +113,6 @@ describe("adaptProviderConfig", () => {
     const own = async () => [];
     const adapted = adaptProviderConfig({ fetchDynamicModels: own, refreshModels: async () => [] }, {});
     expect(adapted.fetchDynamicModels).toBe(own);
-  });
-});
-
-describe("createGrokNativeEditHost", () => {
-  it("stamps the loaded symbol and emits only tool_execution_end", async () => {
-    const symbol = Symbol("kCursorExecResolved");
-    const events: unknown[] = [];
-    const host = createGrokNativeEditHost({
-      emit: (event) => events.push(event),
-      loadSymbol: async () => symbol,
-    });
-    expect(await host.prepare()).toBe(true);
-    const block: Record<symbol, boolean> = {};
-    expect(host.stampResolved(block)).toBe(true);
-    expect(block[symbol]).toBe(true);
-    const result = { content: [{ type: "text", text: "Edited a.txt" }], details: { diff: "-1|a\n+1|b", path: "a.txt" } };
-    host.settle({ toolCallId: "e1", toolName: "edit", args: { path: "a.txt", op: "update" }, result, isError: false });
-    expect(events).toEqual([
-      { type: "tool_execution_end", toolCallId: "e1", toolName: "edit", result, isError: false },
-    ]);
-  });
-
-  it("stays off when the sink or the symbol is missing", async () => {
-    const noSink = createGrokNativeEditHost({ loadSymbol: async () => Symbol("x") });
-    expect(await noSink.prepare()).toBe(false);
-    expect(noSink.stampResolved({})).toBe(false);
-
-    const noSymbol = createGrokNativeEditHost({
-      emit: () => undefined,
-      loadSymbol: async () => undefined,
-    });
-    expect(await noSymbol.prepare()).toBe(false);
-    expect(noSymbol.stampResolved({})).toBe(false);
   });
 });
 

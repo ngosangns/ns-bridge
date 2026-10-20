@@ -3,7 +3,7 @@
  * Auth: Grok CLI login in ~/.grok/auth.json. The Responses client refreshes that session.
  * A console API key is not a session and is not read.
  * Models: `grok models` CLI discovery with TTL disk cache + static fallback.
- * Streaming: Responses API by default (Grok CLI login, the host runs tools). host, ACP, and JSONL remain opt-in.
+ * Streaming: the Responses API. The Grok CLI login is the session, and the host runs the tools.
  */
 
 import { readFileSync } from "node:fs";
@@ -14,22 +14,10 @@ import { grokAuthCandidates } from "ns-grok-core";
 
 import { ensureCacheCost, getDefaultCatalogCache, type CatalogModel } from "../shared/index.js";
 import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "ns-grok-core/agent";
-import {
-  API as GROK_SDK_API,
-  CLIENT_NAME,
-  CLIENT_VERSION,
-  resolveIntegrationMode,
-} from "./config.js";
+import { API as GROK_SDK_API, CLIENT_NAME, CLIENT_VERSION } from "./config.js";
 import { discoverModels, fallbackModels, toProviderModels } from "./models.js";
-import { registerPiGrokActivity, runningInsideOmp } from "./pi-activity.js";
-import { forgetAllHostSessions, forgetHostSession } from "./host-session.js";
 import { streamGrokAgent } from "./provider.js";
-import { registerSessionScope, scopeKeyFromCtx } from "./session-scope.js";
-import { disposeAllSessionAgents, disposeSessionAgentsForScope } from "./session-agent.js";
 import type { GrokModelDescriptor } from "ns-grok-core/agent";
-
-/** One process-exit hook for the whole module (not per ExtensionAPI instance). */
-let exitHookInstalled = false;
 
 /** Unified provider id requested by ns-pi-provider. */
 export const GROK_PROVIDER_ID = "grok";
@@ -175,27 +163,6 @@ function createProviderConfig(models: ProviderModelConfig[]) {
 }
 
 export async function registerGrokProvider(pi: ExtensionAPI): Promise<void> {
-  registerSessionScope(pi);
-  // Tear down only this session's ACP pool entry (pi-grok-sdk 45fde95).
-  // Multi-session hosts share one Node process; disposing every agent on any
-  // session_shutdown / scope change used to kill other open chats' agents.
-  pi.on("session_shutdown", async (_event, ctx) => {
-    const scope = scopeKeyFromCtx(ctx);
-    disposeSessionAgentsForScope(scope);
-    forgetHostSession(scope);
-  });
-  if (!exitHookInstalled) {
-    exitHookInstalled = true;
-    process.once("exit", () => {
-      try {
-        disposeAllSessionAgents();
-        forgetAllHostSessions();
-      } catch {
-        // ignore
-      }
-    });
-  }
-
   let binary: string | undefined;
   let binaryError: string | undefined;
 
@@ -254,12 +221,6 @@ export async function registerGrokProvider(pi: ExtensionAPI): Promise<void> {
     };
 
     if (action === "status") {
-      let mode: string;
-      try {
-        mode = resolveIntegrationMode();
-      } catch (err) {
-        mode = err instanceof Error ? err.message : String(err);
-      }
       const version = binary ? await getGrokVersion(binary) : "unknown";
       const authed = binary ? await probeGrokAuth(binary) : grokAuthPresent();
       notify(
@@ -269,13 +230,12 @@ export async function registerGrokProvider(pi: ExtensionAPI): Promise<void> {
           `binary: ${binary ?? "(missing)"}`,
           `version: ${version}`,
           `auth: ${authed ? "ok" : "missing/unknown"}`,
-          `mode: ${mode}`,
           `models: ${models.length} (${refreshed.source})`,
           binaryError ? `binary error: ${binaryError}` : "",
         ]
           .filter(Boolean)
           .join("\n"),
-        binary && authed ? "info" : "warning",
+        authed ? "info" : "warning",
       );
       return;
     }
@@ -294,19 +254,9 @@ export async function registerGrokProvider(pi: ExtensionAPI): Promise<void> {
   };
 
   pi.registerCommand("grok", {
-    description: "Grok CLI provider: /grok status | models | refresh",
+    description: "Grok provider: /grok status | models | refresh",
     handler: commandHandler,
   });
-
-  // Pi draws finished Grok tools as its own tool cards. OMP already stamps
-  // those calls and must not also register this display tool.
-  if (!runningInsideOmp()) {
-    try {
-      registerPiGrokActivity(pi);
-    } catch {
-      // The markdown lines remain when the card cannot be registered.
-    }
-  }
 }
 
 export default registerGrokProvider;

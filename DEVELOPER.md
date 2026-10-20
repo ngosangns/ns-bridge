@@ -15,8 +15,8 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | shared | [`ns-bridge-core`](packages/bridge-core) | The neutral vocabulary (`Bridge*` messages, tools, stream events, usage, effort) and one bridge per host family: `./pi` (Pi and OMP) and `./dsh` (DeepSeek Harness, including the `createDshLlmAdapter` factory every Harness adapter is built from) |
 | vendor core | [`ns-kiro-core`](packages/kiro-core) | The Kiro protocol in this process: AWS event-stream, request building, response assembly, the retry ladder, tokenizer, login, local credential stores (kiro-cli, Kiro IDE) and their selection, the model-catalog cache, profile caches, error vocabulary, and host login/model helpers (`host-auth.ts`, `host-model.ts`) |
 | vendor core | [`ns-devin-core`](packages/devin-core) | The Devin protocol in this process: Cascade over Connect/protobuf, PKCE login, credentials files, the model catalog cache, usage, error vocabulary, and request/result conversion |
-| vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./agent` — the Grok agent CLI protocol (binary discovery, model discovery, ACP over stdio) |
-| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro` + `devin` over the cores via `ns-bridge-core/pi`; `grok` over `ns-grok-core` and `ns-grok-core/agent`. The Pi-side Grok glue is prompt shaping, tool activity, the session pool, and the four integration modes |
+| vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./agent` — locating the Grok CLI and reading its model list |
+| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, and `grok` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter behind an OMP-compat layer; `kiro` opt-in |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
@@ -51,14 +51,15 @@ host's stream.
 | `packages/kiro-core/src` | Kiro: `generateAssistantResponse` over AWS event-stream, the retry ladder, catalog, usage, token refresh, API-key login |
 | `packages/devin-core/src` | Devin: Cascade over Connect/protobuf, model discovery, usage, PKCE login |
 | `packages/grok-core/src` | Grok: the Responses API over SSE, usage, the CLI login session and its refresh |
-| `packages/grok-core/src/agent` | Grok: the agent CLI protocol — binary discovery, model discovery, ACP over stdio |
+| `packages/grok-core/src/agent` | Grok: locating the CLI binary and reading `grok models` |
 | `packages/core-utils/src` | Retry headers, backoff, abort-aware delay, atomic JSON cache |
 | `packages/bridge-core/src/types.ts` | The vocabulary every engine emits and every host bridge consumes |
 | `packages/bridge-core/src/pi`, `packages/bridge-core/src/dsh` | Host translation; `dsh/adapter.ts` is the shared Harness adapter factory |
 
-The Pi-side Grok glue — prompt shaping, tool activity, the session pool, and the
-`api` / `host` / `acp` / `jsonl` mode selection — stays in
-`packages/pi-provider/src/grok`. The protocol it drives is in the core.
+Grok has one streaming path, the Responses API, and it never spawns the CLI.
+`packages/pi-provider/src/grok` only turns the CLI's model list into Pi's
+provider models and registers the provider. The `host`, `acp`, and `jsonl`
+modes, which each spawned a `grok` process per turn, are gone.
 
 `KIRO_RUNTIME_ENDPOINT` / `KIRO_MANAGEMENT_ENDPOINT` (`{region}` substituted)
 redirect Kiro, for example to a test server. `refreshDevinToken` is a
