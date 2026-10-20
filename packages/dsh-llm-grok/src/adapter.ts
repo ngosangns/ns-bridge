@@ -14,7 +14,7 @@ import {
   type DshLlmAdapterSpec,
 } from "ns-bridge-core/dsh";
 import { streamGrok } from "ns-grok-core";
-import { type GrokListedModel, readGrokCatalog } from "./catalog.js";
+import { type GrokListedModel, readGrokCatalogFile } from "./catalog.js";
 import { toLlmError } from "./errors.js";
 
 export interface GrokAdapterOptions {
@@ -46,7 +46,7 @@ export function createGrokAdapter(options: GrokAdapterOptions) {
   const spec: DshLlmAdapterSpec<void> = {
     provider: options.provider,
     displayName: options.displayName,
-    catalog: () => readGrokCatalog().map(toAdapterModel),
+    catalog: () => readGrokCatalogFile().map(toAdapterModel),
     // Grok authenticates from the local CLI session inside the core, so there is
     // no per-request credential to resolve here.
     credentials: async () => undefined,

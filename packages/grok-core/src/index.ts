@@ -1,6 +1,20 @@
 // Public surface of the host-neutral Grok core. Host adapters translate its events.
 
 export { grokAuthCandidates, loadGrokAccess, pickGrokAccount, resetGrokAuthCacheForTests } from "./auth.js";
+export {
+  GROK_BOOTSTRAP_MODEL_IDS,
+  GROK_CATALOG_CACHE_DIR_ENV,
+  GROK_CATALOG_FILE,
+  GROK_CATALOG_PROVIDER_ID,
+  GROK_DEFAULT_CONTEXT_WINDOW,
+  GROK_DEFAULT_MAX_TOKENS,
+  type GrokCatalogSnapshot,
+  type GrokModelSpec,
+  grokBootstrapModels,
+  grokCatalogPath,
+  grokModelsFromCatalogJson,
+  readGrokCatalog,
+} from "./catalog.js";
 export { GROK_LOGIN_MESSAGE, GrokApiError, GrokAuthError } from "./errors.js";
 export {
   FALLBACK_GROK_CLIENT_VERSION,

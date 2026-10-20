@@ -21,7 +21,7 @@ import z from "@deepseek-ai/schemastery";
 import { createGrokAdapter } from "./adapter.js";
 
 export { createGrokAdapter, type GrokAdapterOptions } from "./adapter.js";
-export { modelsFromCatalogJson, readGrokCatalog } from "./catalog.js";
+export { modelsFromCatalogJson, readGrokCatalogFile } from "./catalog.js";
 
 export const name = "llm-grok";
 

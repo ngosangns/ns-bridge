@@ -1,79 +1,56 @@
 /**
  * Grok model list for the harness picker.
  *
- * Pi writes `~/.pi/agent/cache/ns-pi-provider/grok.models.json`. A file past
- * the 15-minute TTL is still the list to show. A missing, empty, or corrupt
- * file uses the same four ids the CLI last printed.
+ * The catalog contract — bootstrap ids, defaults, and the file shape — lives in
+ * `ns-grok-core`, so this adapter and the Pi provider cannot disagree about a
+ * model. Only the directory is host-specific: `ns-bridge models refresh grok
+ * --apply` writes the file under the Pi cache root, and the harness reads it
+ * from there. A machine that never refreshed falls back to the bootstrap list.
  */
 
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  GROK_BOOTSTRAP_MODEL_IDS,
+  GROK_CATALOG_CACHE_DIR_ENV,
+  GROK_DEFAULT_CONTEXT_WINDOW,
+  GROK_DEFAULT_MAX_TOKENS,
+  type GrokModelSpec,
+  grokModelsFromCatalogJson,
+  readGrokCatalog,
+} from "ns-grok-core";
 
-export const GROK_BOOTSTRAP_IDS = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"] as const;
+/** Re-exported so a consumer of this adapter sees the same ids the core publishes. */
+export const GROK_BOOTSTRAP_IDS = GROK_BOOTSTRAP_MODEL_IDS;
 
-const DEFAULT_CONTEXT_WINDOW = 500_000;
-const DEFAULT_MAX_TOKENS = 128_000;
+export type GrokListedModel = GrokModelSpec;
 
-export interface GrokListedModel {
-  id: string;
-  name: string;
-  contextWindow: number;
-  maxTokens: number;
-  reasoning: boolean;
-  input: Array<"text" | "image">;
+/**
+ * The cache root `ns-bridge models refresh` writes into. It is the Pi provider's
+ * directory because that is the one the CLI owns; the harness only reads it.
+ * `NS_GROK_CATALOG_CACHE_DIR` points a deployment at a different one.
+ */
+export function grokCatalogCacheDir(home = homedir(), env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[GROK_CATALOG_CACHE_DIR_ENV]?.trim();
+  if (override) return override;
+  return join(home, ".pi", "agent", "cache", "ns-pi-provider");
 }
 
-function bootstrapModels(): GrokListedModel[] {
-  return GROK_BOOTSTRAP_IDS.map((id) => ({
-    id,
-    name: id,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    maxTokens: DEFAULT_MAX_TOKENS,
-    reasoning: true,
-    input: ["text"],
-  }));
-}
-
-export function grokModelsCachePath(home = homedir()): string {
-  return join(home, ".pi", "agent", "cache", "ns-pi-provider", "grok.models.json");
-}
-
-/** Parse a catalog file. `fetchedAt` is ignored, so an expired snapshot still lists. */
+/** Parse a catalog file body. Kept as a named export for the adapter's tests. */
 export function modelsFromCatalogJson(raw: string | undefined): GrokListedModel[] {
-  if (!raw?.trim()) return bootstrapModels();
-  try {
-    const parsed = JSON.parse(raw) as { models?: unknown };
-    if (!Array.isArray(parsed?.models)) return bootstrapModels();
-    const models: GrokListedModel[] = [];
-    for (const entry of parsed.models) {
-      if (!entry || typeof entry !== "object") continue;
-      const row = entry as Record<string, unknown>;
-      if (typeof row.id !== "string" || row.id.length === 0) continue;
-      const input = Array.isArray(row.input)
-        ? row.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
-        : (["text"] as Array<"text" | "image">);
-      models.push({
-        id: row.id,
-        name: typeof row.name === "string" && row.name.length > 0 ? row.name : row.id,
-        contextWindow: typeof row.contextWindow === "number" ? row.contextWindow : DEFAULT_CONTEXT_WINDOW,
-        maxTokens: typeof row.maxTokens === "number" ? row.maxTokens : DEFAULT_MAX_TOKENS,
-        reasoning: row.reasoning !== false,
-        input: input.length > 0 ? input : ["text"],
-      });
-    }
-    return models.length > 0 ? models : bootstrapModels();
-  } catch {
-    return bootstrapModels();
-  }
+  return grokModelsFromCatalogJson(raw);
 }
 
-export function readGrokCatalog(options?: { home?: string; readFile?: (path: string) => string }): GrokListedModel[] {
-  const path = grokModelsCachePath(options?.home);
-  try {
-    const read = options?.readFile ?? ((file: string) => readFileSync(file, "utf8"));
-    return modelsFromCatalogJson(read(path));
-  } catch {
-    return modelsFromCatalogJson(undefined);
-  }
+/** Read the catalog file, falling back to the bootstrap list. */
+export function readGrokCatalogFile(options?: {
+  home?: string;
+  env?: NodeJS.ProcessEnv;
+  readFile?: (path: string) => string;
+}): GrokListedModel[] {
+  return readGrokCatalog({
+    cacheDir: grokCatalogCacheDir(options?.home, options?.env),
+    ...(options?.readFile ? { readFile: options.readFile } : {}),
+  });
 }
+
+export { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS };

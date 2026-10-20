@@ -1,5 +1,6 @@
+import { GROK_CATALOG_CACHE_DIR_ENV } from "ns-grok-core";
 import { describe, expect, it } from "vitest";
-import { GROK_BOOTSTRAP_IDS, modelsFromCatalogJson, readGrokCatalog } from "../src/catalog.js";
+import { GROK_BOOTSTRAP_IDS, grokCatalogCacheDir, modelsFromCatalogJson, readGrokCatalogFile } from "../src/catalog.js";
 
 describe("grok catalog", () => {
   it("lists an expired snapshot", () => {
@@ -15,12 +16,19 @@ describe("grok catalog", () => {
     expect(modelsFromCatalogJson(undefined).map((model) => model.id)).toEqual([...GROK_BOOTSTRAP_IDS]);
     expect(modelsFromCatalogJson('{"models":[]}').map((model) => model.id)).toEqual([...GROK_BOOTSTRAP_IDS]);
     expect(modelsFromCatalogJson("not-json").map((model) => model.id)).toEqual([...GROK_BOOTSTRAP_IDS]);
-    const missing = readGrokCatalog({
+    const missing = readGrokCatalogFile({
       home: "/tmp/ns-dsh-grok-missing",
       readFile: () => {
         throw new Error("ENOENT");
       },
     });
     expect(missing.map((model) => model.id)).toEqual([...GROK_BOOTSTRAP_IDS]);
+  });
+
+  // The harness reads the Pi cache root by default, but a deployment that keeps
+  // its cache elsewhere must not need a code change to say so.
+  it("honours the cache-directory override", () => {
+    expect(grokCatalogCacheDir("/home/x", { [GROK_CATALOG_CACHE_DIR_ENV]: "/elsewhere" })).toBe("/elsewhere");
+    expect(grokCatalogCacheDir("/home/x", {})).toBe("/home/x/.pi/agent/cache/ns-pi-provider");
   });
 });

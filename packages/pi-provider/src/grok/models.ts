@@ -1,6 +1,7 @@
 // @ts-nocheck — vendored upstream; adapted under MIT (see NOTICE)
 import { execFileSync } from "node:child_process";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { grokBootstrapModels } from "ns-grok-core";
 import { resolveGrokBinary } from "./binary.js";
 import {
 	DEFAULT_CONTEXT_WINDOW,
@@ -51,16 +52,17 @@ export function parseGrokModelsOutput(stdout: string): GrokModelDescriptor[] {
 	return models;
 }
 
-/** Ids `grok models` printed when this list was last checked. A cold cache still shows them. */
-const BOOTSTRAP_MODEL_IDS = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"] as const;
-
+/**
+ * Ids `grok models` printed when this list was last checked. The list itself is
+ * the core's, so a host that never refreshed and a host that did cannot drift.
+ */
 export function fallbackModels(): GrokModelDescriptor[] {
-	return BOOTSTRAP_MODEL_IDS.map((id) => ({
-		id,
-		name: id,
-		contextWindow: DEFAULT_CONTEXT_WINDOW,
-		maxTokens: DEFAULT_MAX_TOKENS,
-		supportsReasoningEffort: true,
+	return grokBootstrapModels().map((model) => ({
+		id: model.id,
+		name: model.name,
+		contextWindow: model.contextWindow,
+		maxTokens: model.maxTokens,
+		supportsReasoningEffort: model.reasoning,
 	}));
 }
 

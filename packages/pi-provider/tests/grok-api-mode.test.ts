@@ -5,7 +5,10 @@ const child = vi.hoisted(() => ({ spawn: vi.fn() }));
 const core = vi.hoisted(() => ({ streamGrok: vi.fn() }));
 
 vi.mock("node:child_process", () => ({ spawn: child.spawn }));
-vi.mock("ns-grok-core", () => core);
+vi.mock("ns-grok-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ns-grok-core")>();
+  return { ...actual, streamGrok: core.streamGrok };
+});
 
 import { streamGrokAgent } from "../src/grok/provider.js";
 

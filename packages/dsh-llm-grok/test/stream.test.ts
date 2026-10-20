@@ -6,23 +6,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const core = vi.hoisted(() => ({ streamGrok: vi.fn() }));
 
-vi.mock("ns-grok-core", () => ({
-  streamGrok: core.streamGrok,
-  GrokAuthError: class GrokAuthError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "GrokAuthError";
-    }
-  },
-  GrokApiError: class GrokApiError extends Error {
-    readonly status?: number;
-    constructor(message: string, status?: number) {
-      super(message);
-      this.name = "GrokApiError";
-      this.status = status;
-    }
-  },
-}));
+vi.mock("ns-grok-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ns-grok-core")>();
+  return {
+    ...actual,
+    streamGrok: core.streamGrok,
+    GrokAuthError: class GrokAuthError extends Error {
+      constructor(message: string) {
+        super(message);
+        this.name = "GrokAuthError";
+      }
+    },
+    GrokApiError: class GrokApiError extends Error {
+      readonly status?: number;
+      constructor(message: string, status?: number) {
+        super(message);
+        this.name = "GrokApiError";
+        this.status = status;
+      }
+    },
+  };
+});
 
 import { GrokAuthError } from "ns-grok-core";
 import { createGrokAdapter } from "../src/adapter.js";

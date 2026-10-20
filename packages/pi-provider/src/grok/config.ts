@@ -1,4 +1,5 @@
 // @ts-nocheck — vendored upstream; adapted under MIT (see NOTICE)
+import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS } from "ns-grok-core";
 import type { IntegrationMode, ReasoningEffort } from "./types.js";
 
 /** Pi provider id (registered as grok-sdk/<model>). */
@@ -21,8 +22,10 @@ export const THINKING_LEVEL_MAP = {
 	max: "max",
 } as const;
 
-export const DEFAULT_CONTEXT_WINDOW = 500_000;
-export const DEFAULT_MAX_TOKENS = 128_000;
+// The catalog defaults are the core's, so the Pi catalog and the Harness
+// catalog cannot disagree about a model the file does not describe.
+export const DEFAULT_CONTEXT_WINDOW = GROK_DEFAULT_CONTEXT_WINDOW;
+export const DEFAULT_MAX_TOKENS = GROK_DEFAULT_MAX_TOKENS;
 export const INACTIVITY_TIMEOUT_MS = 180_000;
 
 export function resolveIntegrationMode(
