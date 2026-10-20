@@ -1,9 +1,9 @@
 // ABOUTME: Parses cli-chat-proxy Server-Sent Events into neutral stream events.
 // ABOUTME: Tool calls are reported, never executed. Thinking is the summary text the host card shows.
 
-import type { BridgeStreamEvent } from "ns-bridge-core";
 import { GrokApiError } from "./errors.js";
-import { type GrokWireUsage, toBridgeUsage } from "./usage.js";
+import type { GrokStreamEvent } from "./types.js";
+import { type GrokWireUsage, toGrokUsage } from "./usage.js";
 
 interface WireItem {
   id?: string;
@@ -123,7 +123,7 @@ function lookup(state: ResponsesReduceState, event: WireEvent): OpenBlock | unde
   return undefined;
 }
 
-function ensureStart(state: ResponsesReduceState): BridgeStreamEvent[] {
+function ensureStart(state: ResponsesReduceState): GrokStreamEvent[] {
   if (state.started) return [];
   state.started = true;
   return [{ type: "start" }];
@@ -134,7 +134,7 @@ function openBlock(
   kind: OpenBlock["kind"],
   event: WireEvent,
   extra: { id?: string; name?: string } = {},
-): { block: OpenBlock; events: BridgeStreamEvent[] } {
+): { block: OpenBlock; events: GrokStreamEvent[] } {
   const existing = lookup(state, event);
   if (existing && existing.kind === kind) return { block: existing, events: ensureStart(state) };
   const item = event.item;
@@ -163,7 +163,7 @@ function openBlock(
   return { block, events };
 }
 
-function closeBlock(block: OpenBlock, full?: string): BridgeStreamEvent[] {
+function closeBlock(block: OpenBlock, full?: string): GrokStreamEvent[] {
   if (block.closed) return [];
   block.closed = true;
   const text = block.text || full || "";
@@ -182,9 +182,9 @@ function closeBlock(block: OpenBlock, full?: string): BridgeStreamEvent[] {
   ];
 }
 
-function closeOpen(state: ResponsesReduceState): BridgeStreamEvent[] {
+function closeOpen(state: ResponsesReduceState): GrokStreamEvent[] {
   const seen = new Set<OpenBlock>();
-  const events: BridgeStreamEvent[] = [];
+  const events: GrokStreamEvent[] = [];
   const blocks = [...state.blocks.values()].sort((left, right) => left.index - right.index);
   for (const block of blocks) {
     if (seen.has(block)) continue;
@@ -203,7 +203,7 @@ function applyStop(state: ResponsesReduceState, response: WireResponse | undefin
   if (response?.status === "incomplete" && reason === "max_output_tokens") state.stopReason = "length";
 }
 
-function settle(state: ResponsesReduceState, response: WireResponse | undefined): BridgeStreamEvent[] {
+function settle(state: ResponsesReduceState, response: WireResponse | undefined): GrokStreamEvent[] {
   if (state.settled) return [];
   state.settled = true;
   if (response?.id) state.responseId = response.id;
@@ -213,7 +213,7 @@ function settle(state: ResponsesReduceState, response: WireResponse | undefined)
   if (response?.usage) state.usage = response.usage;
   applyStop(state, response);
   const events = [...ensureStart(state), ...closeOpen(state)];
-  if (state.usage) events.push({ type: "usage", usage: toBridgeUsage(state.usage) });
+  if (state.usage) events.push({ type: "usage", usage: toGrokUsage(state.usage) });
   events.push({
     type: "done",
     stopReason: state.stopReason,
@@ -232,7 +232,7 @@ function fillFromItem(block: OpenBlock, item: WireItem | undefined): void {
 }
 
 /** Fold one proxy event into zero or more neutral events. Throws on a terminal proxy error. */
-export function reduceResponsesEvent(state: ResponsesReduceState, event: WireEvent): BridgeStreamEvent[] {
+export function reduceResponsesEvent(state: ResponsesReduceState, event: WireEvent): GrokStreamEvent[] {
   if (state.settled) return [];
   const type = event.type;
   if (type === "error" || type === "response.failed")
@@ -336,8 +336,8 @@ export function reduceResponsesEvent(state: ResponsesReduceState, event: WireEve
   return [];
 }
 
-function absorbOutput(state: ResponsesReduceState, output: readonly WireItem[]): BridgeStreamEvent[] {
-  const events: BridgeStreamEvent[] = [];
+function absorbOutput(state: ResponsesReduceState, output: readonly WireItem[]): GrokStreamEvent[] {
+  const events: GrokStreamEvent[] = [];
   for (let index = 0; index < output.length; index += 1) {
     const item = output[index];
     if (!item) continue;
@@ -382,7 +382,7 @@ function absorbOutput(state: ResponsesReduceState, output: readonly WireItem[]):
   return events;
 }
 
-export function finishResponses(state: ResponsesReduceState): BridgeStreamEvent[] {
+export function finishResponses(state: ResponsesReduceState): GrokStreamEvent[] {
   return settle(state, undefined);
 }
 

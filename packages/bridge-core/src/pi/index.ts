@@ -2,6 +2,7 @@
 // share an extension surface and an assistant-message event protocol, so one
 // bridge serves both. Nothing here imports either host; shapes are structural.
 
+export { toBridgeEffort } from "../effort.js";
 export {
   type PiContextLike,
   type PiMessageLike,
@@ -12,7 +13,7 @@ export {
   toBridgeMessages,
   toBridgeTools,
 } from "./context.js";
-export { toBridgeEffort, toOmpThinking, toPiThinkingLevelMap } from "./models.js";
+export { toOmpThinking, toPiThinkingLevelMap } from "./models.js";
 export {
   applyBridgeUsage,
   HOST_TURN_BUDGET_MS,

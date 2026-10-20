@@ -16,8 +16,8 @@ import {
   ReasoningEffortId,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
+import { toBridgeEffort } from "ns-bridge-core";
 import { streamToDsh, toBridgeMessagesFromDsh } from "ns-bridge-core/dsh";
-import { toBridgeEffort } from "ns-bridge-core/pi";
 import { streamGrok } from "ns-grok-core";
 import { type GrokListedModel, readGrokCatalog } from "./catalog.js";
 import { toLlmError } from "./errors.js";

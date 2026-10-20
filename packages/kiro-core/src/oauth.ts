@@ -11,6 +11,7 @@
 
 import { formatSafeError } from "./debug.js";
 import { getKiroEndpoints } from "./endpoints.js";
+import { getKiroCliCredentials, getKiroCliCredentialsAllowExpired } from "./kiro-cli.js";
 import { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro-ide.js";
 
 export const SSO_OIDC_ENDPOINT = "https://oidc.us-east-1.amazonaws.com";
@@ -381,6 +382,28 @@ async function refreshKiroTokenDirectInProcess(credentials: KiroCredentials): Pr
     startUrl: credentials.startUrl,
     isEnterprise: credentials.isEnterprise,
   };
+}
+
+/**
+ * The preferred store's session, including an expired access token. No network.
+ *
+ * Registration reads the region off this so it can open that region's disk
+ * cache. Refreshing stays on the request path ({@link resolveKiroCredentials}),
+ * because a host awaits registration and must not block on a token call.
+ */
+export function readKiroSession(): KiroCredentials | undefined {
+  try {
+    const preferIde = resolveKiroAuthSource() === "ide";
+    const preferred = preferIde
+      ? (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired())
+      : (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired());
+    if (preferred) return preferred;
+    return preferIde
+      ? (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired())
+      : (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired());
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -34,17 +34,6 @@ describe("devin catalog (devin-core) for Pi", () => {
 });
 
 describe("devin CLI credentials.toml auth", () => {
-  it("parseDevinCredentialsToml reads windsurf_api_key", async () => {
-    const { parseDevinCredentialsToml } = await import("../src/devin/register.js");
-    expect(
-      parseDevinCredentialsToml(`
-api_server_url = "https://server.codeium.com"
-windsurf_api_key = "devin-session-token$abc123"
-devin_webapp_host = "https://app.devin.ai"
-`),
-    ).toBe("devin-session-token$abc123");
-  });
-
   it("resolveDevinToken reads credentials.toml without env", async () => {
     const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
     const { join } = await import("node:path");

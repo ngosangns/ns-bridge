@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -184,5 +184,90 @@ describe("ns-bridge", () => {
     expect(io.stdout).toEqual(["kiro: 1 model(s)"]);
     expect(io.stderr).toEqual(["devin: catalog down"]);
     expect(refreshers.grok).not.toHaveBeenCalled();
+  });
+
+  it("previews a provider disable and does not write", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const io = capture();
+    const selection = join(dir, "providers.json");
+    const code = await run(["providers", "disable", "omp", "grok"], {
+      ...io,
+      providerPaths: { selection, piSettings: join(dir, "missing.json"), dshHome: dir },
+    });
+    expect(code).toBe(0);
+    expect(io.stdout[0]).toBe("# dry-run (pass --apply to run)");
+    expect(io.stdout[1]).toContain("grok off");
+    expect(() => readFileSync(selection, "utf8")).toThrow();
+  });
+
+  it("writes the provider selection for omp and reports pi status from it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const selection = join(dir, "providers.json");
+    const piSettings = join(dir, "settings.json");
+    writeFileSync(piSettings, JSON.stringify({ packages: ["npm:@ngosangns/ns-pi-provider"] }));
+    const paths = { selection, piSettings, dshHome: dir };
+    const io = capture();
+    expect(await run(["providers", "disable", "omp", "devin", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+    expect(JSON.parse(readFileSync(selection, "utf8"))).toMatchObject({ devin: false, grok: true });
+    const status = capture();
+    expect(await run(["providers", "status", "pi"], { ...status, providerPaths: paths })).toBe(0);
+    expect(status.stdout.join("\n")).toContain("pi devin off");
+    expect(status.stdout.join("\n")).toContain("pi grok on");
+    expect(status.stdout.join("\n")).toContain("pi kiro on");
+  });
+
+  it("sets disabled on a dsh plugin and clears it again", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const patchDir = join(dir, "profiles", "headless");
+    mkdirSync(patchDir, { recursive: true });
+    const patch = join(patchDir, "cordis.patch.yml");
+    writeFileSync(
+      patch,
+      [
+        "- insert:",
+        "    - id: llm-grok",
+        "      name: ns-dsh-llm-grok",
+        "      config:",
+        "        provider: grok",
+        "",
+      ].join("\n"),
+    );
+    const paths = { selection: join(dir, "providers.json"), piSettings: join(dir, "settings.json"), dshHome: dir };
+    const off = capture();
+    expect(
+      await run(["providers", "disable", "dsh", "grok", "--profile", "headless", "--apply"], {
+        ...off,
+        providerPaths: paths,
+      }),
+    ).toBe(0);
+    expect(readFileSync(patch, "utf8")).toContain("disabled: true");
+    const on = capture();
+    expect(
+      await run(["providers", "enable", "dsh", "grok", "--profile", "headless", "--apply"], {
+        ...on,
+        providerPaths: paths,
+      }),
+    ).toBe(0);
+    expect(readFileSync(patch, "utf8")).not.toContain("disabled:");
+  });
+
+  it("adds and removes an omp agent from task.disabledAgents", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const config = join(dir, "config.yml");
+    writeFileSync(config, "modelRoles:\n  default: grok/grok-4.7\n");
+    const off = capture();
+    expect(await run(["agents", "disable", "omp", "scout", "--apply"], { ...off, ompConfig: config })).toBe(0);
+    expect(readFileSync(config, "utf8")).toContain("disabledAgents:\n    - scout");
+    expect(readFileSync(config, "utf8")).toContain("modelRoles:");
+    const on = capture();
+    expect(await run(["agents", "enable", "omp", "scout", "--apply"], { ...on, ompConfig: config })).toBe(0);
+    expect(readFileSync(config, "utf8")).not.toContain("disabledAgents");
+    expect(readFileSync(config, "utf8")).toContain("modelRoles:");
+  });
+
+  it("refuses agent toggles for hosts without a list", async () => {
+    const io = capture();
+    expect(await run(["agents", "disable", "pi", "scout"], io)).toBe(1);
+    expect(io.stderr.join("\n")).toContain("only omp");
   });
 });

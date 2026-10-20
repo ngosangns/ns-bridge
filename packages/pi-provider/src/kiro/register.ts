@@ -26,11 +26,7 @@ import { streamToPi, toBridgeContext, toBridgeEffort, toPiThinkingLevelMap } fro
 import {
   formatSafeError,
   getCachedModels,
-  getKiroCliCredentials,
-  getKiroCliCredentialsAllowExpired,
   getKiroEndpoints,
-  getKiroIdeCredentials,
-  getKiroIdeCredentialsAllowExpired,
   getKiroRegionFromEndpoint,
   isCacheStale,
   type KiroCredentials,
@@ -39,7 +35,7 @@ import {
   loginKiroFromSession,
   refreshKiroToken,
   resolveApiRegion,
-  resolveKiroAuthSource,
+  readKiroSession,
   resolveKiroCredentials,
   resolveKiroRequestCredentials,
   streamKiro,
@@ -85,28 +81,6 @@ function hasEnvKey(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.KIRO_API_KEY?.trim());
 }
 
-/**
- * The preferred store's session, including an expired access token.
- *
- * Registration only needs the region so it can read that region's disk cache.
- * Refreshing the token here is a network call, and Pi awaits the extension
- * factory plus `session_start`, so the refresh stays on the request path
- * ({@link resolveKiroCredentials}).
- */
-function localKiroSession(): KiroCredentials | undefined {
-  try {
-    const preferIde = resolveKiroAuthSource() === "ide";
-    const preferred = preferIde
-      ? (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired())
-      : (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired());
-    if (preferred) return preferred;
-    return preferIde
-      ? (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired())
-      : (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired());
-  } catch {
-    return undefined;
-  }
-}
 
 async function storedSession(): Promise<KiroCredentials | undefined> {
   try {
@@ -118,7 +92,7 @@ async function storedSession(): Promise<KiroCredentials | undefined> {
 
 /** Disk catalog for the local session. Empty when this machine has no Kiro credential at all. */
 function localKiroCatalog(): { models: PiKiroModelConfig[]; region: string } {
-  const session = localKiroSession();
+  const session = readKiroSession();
   const token = session?.access || (hasEnvKey() ? process.env.KIRO_API_KEY?.trim() : undefined);
   if (!token) return { models: [], region: DEFAULT_REGION };
   const region = resolveApiRegion(session?.region);

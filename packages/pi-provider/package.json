@@ -37,6 +37,7 @@
     "./devin": "./src/devin.ts",
     "./grok": "./src/grok.ts",
     "./shared": "./src/shared/index.ts",
+    "./selection": "./src/selection.ts",
     "./package.json": "./package.json"
   },
   "files": [

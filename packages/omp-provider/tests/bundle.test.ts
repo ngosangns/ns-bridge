@@ -34,6 +34,9 @@ beforeAll(async () => {
   const home = mkdtempSync(join(tmpdir(), "ns-omp-bundle-"));
   process.env.HOME = home;
   process.env.USERPROFILE = home;
+  process.env.NS_BRIDGE_PROVIDERS = join(home, "providers.json");
+  process.env.OMP_PROFILE = "";
+  process.env.PI_PROFILE = "";
   process.env.GROK_BIN = join(home, "no-such-grok");
   for (const key of [
     "XAI_API_KEY",
@@ -54,11 +57,11 @@ beforeAll(async () => {
 });
 
 describe("dist/index.js on a fake OMP API", () => {
-  it("registers devin, grok (+ grok-sdk alias) in OMP shape; kiro is opt-in", async () => {
+  it("registers kiro, devin, and grok (+ grok-sdk alias) in OMP shape", async () => {
     const pi = new FakeOmpApi();
     await extension(pi);
 
-    expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "grok-sdk"]);
+    expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "grok-sdk", "kiro"]);
     for (const [name, config] of pi.providers) {
       expect(config, name).not.toHaveProperty("refreshModels");
       expect(typeof config.fetchDynamicModels, name).toBe("function");

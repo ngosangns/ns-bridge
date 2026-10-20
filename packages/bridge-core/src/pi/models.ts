@@ -26,10 +26,3 @@ export function toOmpThinking(
   if (!efforts?.length) return undefined;
   return { mode: "effort", efforts: [...efforts], ...(options.supportsDisplay ? { supportsDisplay: true } : {}) };
 }
-
-const EFFORTS: ReadonlySet<string> = new Set(BRIDGE_EFFORT_ORDER);
-
-/** Narrow a host's reasoning option to a neutral effort; anything else (incl. `off`) means none. */
-export function toBridgeEffort(reasoning: unknown): BridgeEffort | undefined {
-  return typeof reasoning === "string" && EFFORTS.has(reasoning) ? (reasoning as BridgeEffort) : undefined;
-}

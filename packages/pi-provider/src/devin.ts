@@ -6,7 +6,6 @@ export {
   escapeDevinApiKeyLiteral,
   formatDevinUsage,
   type PiDevinModel,
-  parseDevinCredentialsToml,
   refreshDevinModels,
   registerDevinProvider,
   resolveDevinApiKeyConfig,

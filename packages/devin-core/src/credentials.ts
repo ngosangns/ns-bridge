@@ -26,18 +26,32 @@ export function devinCredentialsPath(): string {
   return join(dataHome, "devin", "credentials.toml");
 }
 
-/** Parse the flat `key = "value"` TOML the CLI writes. Quoted strings only. */
-function parseCredentialsToml(text: string): Record<string, string> {
+/** Token field names a credentials file may use, most specific first. */
+const TOKEN_FIELDS = ["windsurf_api_key", "session_token", "access_token", "api_key", "token"] as const;
+
+/** Parse the flat `key = "value"` TOML the CLI writes. Double or single quotes. */
+export function parseCredentialsToml(text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("[")) continue;
-    const match = /^([\w.-]+)\s*=\s*"(.*)"\s*$/.exec(trimmed);
-    if (!match) continue;
-    // The CLI writes plain strings; decode the two escapes it can emit.
-    out[match[1]] = match[2].replace(/\\(["\\])/g, "$1");
+    const match = /^([\w.-]+)\s*=\s*(?:"(.*)"|'(.*)')\s*$/.exec(trimmed);
+    const key = match?.[1];
+    const value = match?.[2] ?? match?.[3];
+    if (!key || value === undefined) continue;
+    out[key] = value.replace(/\\(["\\])/g, "$1");
   }
   return out;
+}
+
+/** The first token field the file carries, or undefined. */
+export function devinTokenFromToml(text: string): string | undefined {
+  const fields = parseCredentialsToml(text);
+  for (const name of TOKEN_FIELDS) {
+    const value = fields[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 /**
@@ -52,7 +66,7 @@ export function resolveDevinCredentials(): DevinStoredCredentials | undefined {
     return undefined;
   }
   const fields = parseCredentialsToml(text);
-  const apiKey = fields.windsurf_api_key?.trim() || fields.api_key?.trim();
+  const apiKey = TOKEN_FIELDS.map((name) => fields[name]?.trim()).find((value) => value);
   if (!apiKey) return undefined;
   const trimUrl = (value: string | undefined): string | undefined => {
     const trimmed = value?.trim().replace(/\/+$/, "");

@@ -1,19 +1,19 @@
 // ABOUTME: One Responses call against cli-chat-proxy using the Grok CLI login session.
 // ABOUTME: The host owns the transcript, the tool schemas, and the tool loop. This client only speaks HTTP.
 
-import type { BridgeEffort, BridgeMessage, BridgeStreamEvent, BridgeTool } from "ns-bridge-core";
 import { loadGrokAccess } from "./auth.js";
 import { GrokApiError } from "./errors.js";
 import { grokProxyBase, grokResponseHeaders, resolveGrokClientVersion } from "./headers.js";
 import { buildResponsesBody, grokWireModelId } from "./request.js";
 import { createResponsesState, finishResponses, parseSseJson, reduceResponsesEvent, type WireEvent } from "./sse.js";
+import type { GrokEffort, GrokMessage, GrokStreamEvent, GrokTool } from "./types.js";
 
 export interface StreamGrokOptions {
   model: string;
-  messages: readonly BridgeMessage[];
+  messages: readonly GrokMessage[];
   systemPrompt?: string;
-  tools?: readonly BridgeTool[];
-  effort?: BridgeEffort;
+  tools?: readonly GrokTool[];
+  effort?: GrokEffort;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   /** Skip the auth file. Tests pass a token; production leaves this unset. */
@@ -66,7 +66,7 @@ async function* eventsFromWire(
   events: AsyncIterable<WireEvent> | Iterable<WireEvent>,
   requestedModel: string,
   signal?: AbortSignal,
-): AsyncGenerator<BridgeStreamEvent> {
+): AsyncGenerator<GrokStreamEvent> {
   const state = createResponsesState(requestedModel);
   for await (const event of events) {
     if (signal?.aborted) throw aborted();
@@ -77,7 +77,7 @@ async function* eventsFromWire(
 }
 
 /** Stream one model turn. Does not spawn `grok` and does not run a tool. */
-export async function* streamGrok(options: StreamGrokOptions): AsyncGenerator<BridgeStreamEvent> {
+export async function* streamGrok(options: StreamGrokOptions): AsyncGenerator<GrokStreamEvent> {
   if (options.signal?.aborted) throw aborted();
   const fetchImpl = options.fetchImpl ?? fetch;
   const access = options.accessToken

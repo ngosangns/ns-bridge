@@ -1,14 +1,14 @@
 // ABOUTME: Builds one OpenAI Responses request from the host transcript.
 // ABOUTME: The host is the harness, so thinking is not replayed and no Grok tool is added.
 
-import type { BridgeEffort, BridgeMessage, BridgeTool, BridgeUserContent } from "ns-bridge-core";
+import type { GrokEffort, GrokMessage, GrokTool, GrokUserContent } from "./types.js";
 
 /** Catalog ids ending in `-agent` are a host alias. The proxy wants the base id. */
 export function grokWireModelId(modelId: string): string {
   return modelId.endsWith("-agent") ? modelId.slice(0, -"-agent".length) : modelId;
 }
 
-function userParts(content: readonly BridgeUserContent[]): unknown[] {
+function userParts(content: readonly GrokUserContent[]): unknown[] {
   const parts: unknown[] = [];
   for (const part of content) {
     if (part.type === "text") {
@@ -20,7 +20,7 @@ function userParts(content: readonly BridgeUserContent[]): unknown[] {
   return parts;
 }
 
-function outputText(content: readonly BridgeUserContent[]): string {
+function outputText(content: readonly GrokUserContent[]): string {
   return content
     .map((part) => (part.type === "text" ? part.text : `data:${part.mimeType};base64,${part.data}`))
     .filter((part) => part.length > 0)
@@ -28,7 +28,7 @@ function outputText(content: readonly BridgeUserContent[]): string {
 }
 
 /** Responses `input` items. Assistant thinking is omitted: the summary is not replayable content. */
-export function toResponsesInput(messages: readonly BridgeMessage[]): unknown[] {
+export function toResponsesInput(messages: readonly GrokMessage[]): unknown[] {
   const items: unknown[] = [];
   for (const message of messages) {
     if (message.role === "user") {
@@ -63,7 +63,7 @@ export function toResponsesInput(messages: readonly BridgeMessage[]): unknown[] 
   return items;
 }
 
-function toolItem(tool: BridgeTool): Record<string, unknown> {
+function toolItem(tool: GrokTool): Record<string, unknown> {
   return {
     type: "function",
     name: tool.name,
@@ -76,9 +76,9 @@ function toolItem(tool: BridgeTool): Record<string, unknown> {
 export function buildResponsesBody(input: {
   model: string;
   systemPrompt?: string;
-  messages: readonly BridgeMessage[];
-  tools?: readonly BridgeTool[];
-  effort?: BridgeEffort;
+  messages: readonly GrokMessage[];
+  tools?: readonly GrokTool[];
+  effort?: GrokEffort;
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: grokWireModelId(input.model),

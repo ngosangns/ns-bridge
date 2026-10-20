@@ -4,15 +4,11 @@ import type { Api, OAuthCredentials } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import {
   getCachedModels,
-  getKiroCliCredentials,
-  getKiroCliCredentialsAllowExpired,
-  getKiroIdeCredentials,
-  getKiroIdeCredentialsAllowExpired,
   isCacheStale,
   type KiroCredentials,
   kiroModels,
+  readKiroSession,
   resolveApiRegion,
-  resolveKiroAuthSource,
 } from "ns-kiro-core";
 import { getKiroApiKey, loginKiro, refreshKiroCredentials } from "./auth.js";
 import { kiroBaseUrl, toOmpModelConfig } from "./models.js";
@@ -26,22 +22,6 @@ export { kiroUsageProvider, toUsageReport } from "./usage.js";
 
 const DEFAULT_REGION = "us-east-1";
 
-/** Preferred store, including an expired access token. No network. */
-function localKiroSession(): KiroCredentials | undefined {
-  try {
-    const preferIde = resolveKiroAuthSource() === "ide";
-    const preferred = preferIde
-      ? (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired())
-      : (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired());
-    if (preferred) return preferred;
-    return preferIde
-      ? (getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired())
-      : (getKiroIdeCredentials() ?? getKiroIdeCredentialsAllowExpired());
-  } catch {
-    return undefined;
-  }
-}
-
 type Catalog = {
   region: string;
   profileArn?: string;
@@ -49,7 +29,7 @@ type Catalog = {
 };
 
 function localCatalog(): Catalog {
-  const session = localKiroSession();
+  const session = readKiroSession();
   const region = resolveApiRegion(session?.region ?? DEFAULT_REGION);
   const signedIn = Boolean(session || process.env.KIRO_API_KEY?.trim());
   const models = (signedIn ? getCachedModels(region) : kiroModels).map(toOmpModelConfig);

@@ -118,6 +118,7 @@ export {
   type KiroCredentials,
   kiroAuthHeaders,
   loginKiroWithApiKey,
+  readKiroSession,
   refreshKiroToken,
   resolveKiroAuthSource,
   resolveKiroCredentials,

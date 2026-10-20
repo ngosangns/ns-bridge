@@ -7,8 +7,10 @@
  */
 
 import { spawn } from "node:child_process";
+import { ompConfigPath, planAgents } from "./agents.js";
 import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatalogs, type Vendor } from "./catalog.js";
 import { formatCommand, type HostAction, parseHosts, planHostCommands } from "./hosts.js";
+import { formatProviderPlan, type ProviderPaths, planProviders, providerPaths } from "./providers.js";
 import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.js";
 
 export interface CommandResult {
@@ -26,6 +28,8 @@ export interface RunOptions {
   refreshers?: ModelRefresh;
   paths?: CatalogPaths;
   now?: number;
+  providerPaths?: ProviderPaths;
+  ompConfig?: string;
 }
 
 const HELP = `ns-bridge — install, update, and refresh providers outside Pi, OMP, and DSH.
@@ -37,6 +41,10 @@ Usage:
   ns-bridge install [pi|omp|dsh|all] [--apply] [--profile <name>]
   ns-bridge update [pi|omp|dsh|all] [--apply] [--profile <name>]
   ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
+  ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
+  ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--apply] [--profile <name>]
+  ns-bridge agents status omp [name]
+  ns-bridge agents enable|disable omp <name> [--apply]
   ns-bridge models list [kiro|devin|grok|all]
   ns-bridge models refresh [kiro|devin|grok|all] [--apply]
   ns-bridge status
@@ -52,6 +60,11 @@ Hosts:
   dsh  dsh plugin --profile <name> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok
        dsh plugin --profile <name> update …
        dsh plugin --profile <name> remove …
+
+providers enable/disable writes the host's own switch:
+  pi, omp   ~/.ns-bridge/providers.json (the extension reads it at launch)
+  dsh       disabled: true on the plugin id in the profile's cordis.patch.yml
+agents enable/disable edits omp's task.disabledAgents. Pi and dsh have no such list.
 
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
 install/update without --profile skips DSH and still previews Pi and OMP.
@@ -144,6 +157,9 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
     }
     return runHost(command, target, parsed, log, err, options);
   }
+  if (command === "providers" || command === "agents") {
+    return runToggle(command, parsed, log, err, options);
+  }
   err(`unknown command ${command}`);
   err("run ns-bridge help");
   return 1;
@@ -223,6 +239,65 @@ async function runHost(
     }
   }
   if (plan.skipDsh) log("# dsh skipped: pass --profile <name>");
+  return 0;
+}
+
+async function runToggle(
+  command: "providers" | "agents",
+  parsed: Parsed,
+  log: (line: string) => void,
+  err: (line: string) => void,
+  options: RunOptions,
+): Promise<number> {
+  const action = parsed.positionals[1];
+  const host = parsed.positionals[2];
+  const name = parsed.positionals[3];
+  if (action !== "enable" && action !== "disable" && action !== "status") {
+    err(`usage: ns-bridge ${command} enable|disable|status …`);
+    return 1;
+  }
+  if (parsed.positionals.length > 4) {
+    err(`unexpected argument ${parsed.positionals[4]}`);
+    return 1;
+  }
+  if (command === "agents") {
+    const plan = planAgents(action, host, name, options.ompConfig ?? ompConfigPath());
+    if (plan.error) {
+      err(plan.error);
+      return 1;
+    }
+    if (!parsed.apply && action !== "status") {
+      log("# dry-run (pass --apply to run)");
+      for (const step of plan.steps) log(step.line);
+      return 0;
+    }
+    return applySteps(plan.steps, log, err);
+  }
+  const plan = planProviders(action, host, name, parsed.profile, options.providerPaths ?? providerPaths());
+  if (plan.error) {
+    err(plan.error);
+    return 1;
+  }
+  if (!parsed.apply && action !== "status") {
+    for (const line of formatProviderPlan(plan, false)) log(line);
+    return 0;
+  }
+  return applySteps(plan.steps, log, err);
+}
+
+function applySteps(
+  steps: readonly { apply: () => string | { error: string } }[],
+  log: (line: string) => void,
+  err: (line: string) => void,
+): number {
+  for (const step of steps) {
+    const result = step.apply();
+    if (typeof result !== "string") {
+      err(result.error);
+      return 1;
+    }
+    log(result);
+  }
   return 0;
 }
 

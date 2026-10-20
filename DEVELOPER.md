@@ -35,6 +35,7 @@ Pi, OMP, and DSH read the catalog files while they run. They do not refresh thos
 - Dependencies point down only: adapters → cores + bridge. The cores emit the
   bridge vocabulary *structurally* and do not import `ns-bridge-core`;
   `ns-bridge-core` imports no core at runtime (only its tests do).
+  `toBridgeEffort` lives at the package root because both host bridges use it.
 
 ### In-process engines
 
@@ -55,9 +56,10 @@ no-request shortcut: Devin issues no refresh token.
 
 ### The `kiro` provider id in OMP
 
-`ns-omp-provider-kiro` owns `kiro` in OMP. `ns-omp-provider` keeps its `kiro`
-behind `NS_OMP_PROVIDER_ENABLE=kiro` / `NS_OMP_PROVIDERS` so the two never
-register the same id. Both run `ns-kiro-core`.
+`ns-omp-provider-kiro` owns `kiro` in OMP while that plugin is installed.
+`ns-omp-provider` registers `kiro` too, but skips it in that case unless
+`~/.ns-bridge/providers.json` or `NS_OMP_PROVIDERS` / `NS_OMP_PROVIDER_ENABLE`
+names it. Both run `ns-kiro-core`.
 
 ### Inside ns-kiro-core
 

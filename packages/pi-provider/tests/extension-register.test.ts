@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { registerAllProviders } from "../src/extension.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveProviderSelection } from "../src/selection.js";
 
 function mockPi() {
   const providers = new Map<string, unknown>();
@@ -51,6 +55,17 @@ describe("extension registration", () => {
   it("can disable individual providers", async () => {
     const { api, providers } = mockPi();
     await registerAllProviders(api as never, { kiro: false, grok: false });
+    expect(providers.has("kiro")).toBe(false);
+    expect(providers.has("grok")).toBe(false);
+    expect(providers.has("devin")).toBe(true);
+  });
+
+  it("skips providers the selection file turns off", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-pi-selection-"));
+    const file = join(dir, "providers.json");
+    writeFileSync(file, JSON.stringify({ kiro: false, devin: true, grok: false }));
+    const { api, providers } = mockPi();
+    await registerAllProviders(api as never, resolveProviderSelection({ NS_BRIDGE_PROVIDERS: file }));
     expect(providers.has("kiro")).toBe(false);
     expect(providers.has("grok")).toBe(false);
     expect(providers.has("devin")).toBe(true);

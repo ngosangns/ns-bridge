@@ -17,6 +17,8 @@ process. Pi, OMP, and DSH read those files.
 ns-bridge install          # preview
 ns-bridge install --apply  # pi + omp; DSH needs --profile
 ns-bridge models list
+ns-bridge providers disable omp grok --apply
+ns-bridge agents disable omp scout --apply
 ns-bridge models refresh --apply
 ```
 

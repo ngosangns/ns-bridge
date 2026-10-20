@@ -9,6 +9,7 @@ import { registerKiroProvider, refreshKiroModels, kiroCatalogStatus, KIRO_PROVID
 import { registerDevinProvider, refreshDevinModels, devinCatalogStatus, DEVIN_PROVIDER_ID } from "./devin/register.js";
 import { registerGrokProvider, refreshGrokModels, GROK_PROVIDER_ID } from "./grok/register.js";
 import { getDefaultCatalogCache } from "./shared/index.js";
+import { resolveProviderSelection } from "./selection.js";
 
 export interface NsPiProviderOptions {
   /** Skip individual providers when false. Default: all enabled. */
@@ -88,7 +89,7 @@ export async function registerAllProviders(
 }
 
 export default async function nsPiProviderExtension(pi: ExtensionAPI): Promise<void> {
-  await registerAllProviders(pi);
+  await registerAllProviders(pi, resolveProviderSelection());
 }
 
 export {

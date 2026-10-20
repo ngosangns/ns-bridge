@@ -11,4 +11,22 @@ export {
 export { buildResponsesBody, grokWireModelId, toResponsesInput } from "./request.js";
 export { createResponsesState, finishResponses, parseSseJson, reduceResponsesEvent } from "./sse.js";
 export { type StreamGrokOptions, streamGrok } from "./stream.js";
-export { toBridgeUsage } from "./usage.js";
+export type {
+  GrokAssistantContent,
+  GrokAssistantMessage,
+  GrokCost,
+  GrokEffort,
+  GrokImageContent,
+  GrokMessage,
+  GrokStopReason,
+  GrokStreamEvent,
+  GrokTextContent,
+  GrokThinkingContent,
+  GrokTool,
+  GrokToolCallContent,
+  GrokToolResultMessage,
+  GrokUsage,
+  GrokUserContent,
+  GrokUserMessage,
+} from "./types.js";
+export { toGrokUsage } from "./usage.js";

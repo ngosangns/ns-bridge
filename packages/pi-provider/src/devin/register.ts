@@ -31,6 +31,7 @@ import {
   type DevinModelSpec,
   type DevinProviderUsage,
   devinCredentialsPath,
+  devinTokenFromToml,
   devinModels,
   fetchDevinModels,
   fetchDevinUsage,
@@ -72,14 +73,6 @@ export function defaultDevinCredentialPaths(): string[] {
   return [devinCredentialsPath()];
 }
 
-const DEVIN_TOML_TOKEN_RE =
-  /(?:windsurf_api_key|session_token|access_token|api_key|token)\s*=\s*(?:"([^"]+)"|'([^']+)')/i;
-
-/** Parse a Devin credentials.toml (or TOML-ish) file for a session/API token. */
-export function parseDevinCredentialsToml(text: string): string | undefined {
-  const match = text.match(DEVIN_TOML_TOKEN_RE);
-  return match?.[1] || match?.[2] || undefined;
-}
 
 export type ResolveDevinTokenOptions = {
   /** Override credential file paths (tests); default is devin-core's store. */
@@ -100,7 +93,7 @@ export function resolveDevinToken(
   for (const path of options.paths) {
     if (!existsSync(path)) continue;
     try {
-      const token = parseDevinCredentialsToml(readFileSync(path, "utf8"));
+      const token = devinTokenFromToml(readFileSync(path, "utf8"));
       if (token) return token;
     } catch {
       // ignore unreadable / corrupt

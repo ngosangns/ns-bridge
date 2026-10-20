@@ -29,6 +29,8 @@ export {
 export {
   type DevinStoredCredentials,
   devinCredentialsPath,
+  devinTokenFromToml,
+  parseCredentialsToml,
   resolveDevinCredentials,
   resolveDevinSession,
   saveDevinCredentials,

@@ -28,11 +28,11 @@
   },
   "dependencies": {
     "@smithy/core": "^3.34.1",
-    "js-tiktoken": "^1.0.21",
-    "ns-bridge-core": "workspace:^"
+    "js-tiktoken": "^1.0.21"
   },
   "devDependencies": {
     "@smithy/types": "^4.18.0",
-    "@types/node": "^22.20.4"
+    "@types/node": "^22.20.4",
+    "ns-bridge-core": "workspace:*"
   }
 }

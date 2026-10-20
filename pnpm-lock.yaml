@@ -62,14 +62,13 @@ importers:
         version: 5.9.3
 
   packages/devin-core:
-    dependencies:
-      ns-bridge-core:
-        specifier: workspace:^
-        version: link:../bridge-core
     devDependencies:
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
 
   packages/dsh-llm-devin:
     dependencies:
@@ -156,14 +155,13 @@ importers:
         version: 22.20.4
 
   packages/grok-core:
-    dependencies:
-      ns-bridge-core:
-        specifier: workspace:*
-        version: link:../bridge-core
     devDependencies:
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
 
   packages/kiro-core:
     dependencies:
@@ -173,9 +171,6 @@ importers:
       js-tiktoken:
         specifier: ^1.0.21
         version: 1.0.21
-      ns-bridge-core:
-        specifier: workspace:^
-        version: link:../bridge-core
     devDependencies:
       '@smithy/types':
         specifier: ^4.18.0
@@ -183,6 +178,9 @@ importers:
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
 
   packages/omp-provider:
     dependencies:
