@@ -27,10 +27,37 @@ export interface MessagesParseState {
   /** Text, reasoning, or a tool call was emitted from a whole assistant message. */
   emittedContent: boolean;
   finished: boolean;
+  /**
+   * `--max-turns 1` ends a tool call with exit code 1 and `error_max_turns`.
+   * The assistant message is already complete, and that Grok session can be resumed.
+   */
+  maxTurnsReached: boolean;
 }
 
 export function createMessagesParseState(): MessagesParseState {
-  return { blocks: new Map(), sawStreamBlocks: false, emittedContent: false, finished: false };
+  return {
+    blocks: new Map(),
+    sawStreamBlocks: false,
+    emittedContent: false,
+    finished: false,
+    maxTurnsReached: false,
+  };
+}
+
+/**
+ * A coding step is resumable when the CLI exits 0, or when it exits after the
+ * one allowed turn already produced an assistant message. A spawn failure, or
+ * max-turns with no message, is not.
+ */
+export function grokTurnSucceeded(input: {
+  code: number | null;
+  spawnFailed: boolean;
+  maxTurnsReached: boolean;
+  producedOutput: boolean;
+}): boolean {
+  if (input.spawnFailed) return false;
+  if (input.code === 0) return true;
+  return input.maxTurnsReached && input.producedOutput;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -214,7 +241,13 @@ function applyDelta(block: OpenBlock, delta: Record<string, unknown>): StreamChu
 /** Parse one NDJSON line. Non-JSON lines are ignored. */
 export function parseGrokMessagesLine(line: string, state: MessagesParseState): StreamChunk[] {
   const trimmed = line.trim();
-  if (!trimmed || state.finished) return [];
+  if (!trimmed) return [];
+  // `message_stop` finishes the assistant message before the CLI's result line.
+  // That later line is the only signal that `--max-turns 1` stopped on a tool call.
+  if (state.finished) {
+    noteMaxTurns(trimmed, state);
+    return [];
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);
@@ -224,6 +257,17 @@ export function parseGrokMessagesLine(line: string, state: MessagesParseState): 
   const event = asRecord(parsed);
   if (!event || typeof event.type !== "string") return [];
   return parseGrokMessagesEvent(event, state);
+}
+
+function noteMaxTurns(line: string, state: MessagesParseState): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return;
+  }
+  const event = asRecord(parsed);
+  if (event?.type === "result" && event.subtype === "error_max_turns") state.maxTurnsReached = true;
 }
 
 function parseGrokMessagesEvent(event: Record<string, unknown>, state: MessagesParseState): StreamChunk[] {
@@ -240,8 +284,10 @@ function parseGrokMessagesEvent(event: Record<string, unknown>, state: MessagesP
   if (event.type === "assistant") return emitAssistantMessage(asRecord(event.message), state);
 
   if (event.type === "result") {
+    if (event.subtype === "error_max_turns") state.maxTurnsReached = true;
     rememberUsage(state, asRecord(event.usage));
-    rememberStop(state, event.stop_reason);
+    // `max_turn_requests` would replace the `tool_use` stop the harness needs.
+    if (event.subtype !== "error_max_turns") rememberStop(state, event.stop_reason);
     if (event.is_error === true && !state.emittedContent && !state.sawStreamBlocks) {
       const message = typeof event.result === "string" && event.result.trim() ? event.result : "Grok CLI failed";
       state.finished = true;

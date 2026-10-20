@@ -6,6 +6,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,9 +26,16 @@ import {
   textOnlyImageText,
 } from "@deepseek-ai/dsh-llm";
 import { type GrokListedModel, readGrokCatalog } from "./catalog.js";
-import { buildGrokCliArgs, resolveGrokBinary } from "./cli.js";
-import { createMessagesParseState, finishMessagesParse, parseGrokMessagesLine } from "./messages.js";
-import { buildGrokAcpContent, type GrokAcpBlock, grokAcpDocument } from "./prompt.js";
+import { buildGrokCliArgs, resolveGrokBinary, resumesGrokSession } from "./cli.js";
+import { createMessagesParseState, finishMessagesParse, grokTurnSucceeded, parseGrokMessagesLine } from "./messages.js";
+import {
+  buildGrokAcpContent,
+  type GrokAcpBlock,
+  type GrokPromptInput,
+  type GrokPromptMemory,
+  grokAcpDocument,
+  planGrokPrompt,
+} from "./prompt.js";
 import { createToolChunkTranslator } from "./tools.js";
 
 export interface GrokAdapterOptions {
@@ -64,7 +72,14 @@ function waitClose(child: ChildProcess): Promise<number | null> {
   });
 }
 
+interface GrokContinuation extends GrokPromptMemory {
+  readonly grokSessionId: string;
+}
+
 export class GrokAdapter extends LlmAdapter {
+  /** One Grok session per harness chat. The next step resumes it with the new tail only. */
+  private readonly continuations = new Map<string, GrokContinuation>();
+
   constructor(private readonly options: GrokAdapterOptions) {
     super();
   }
@@ -102,9 +117,15 @@ export class GrokAdapter extends LlmAdapter {
       yield errorFinish(error instanceof Error ? error.message : String(error));
       return;
     }
+    const harnessSession = options.sessionId === undefined ? undefined : String(options.sessionId);
+    const resumeChat = harnessSession !== undefined && resumesGrokSession(options.purpose);
+    const remembered = resumeChat ? this.continuations.get(harnessSession) : undefined;
     let promptFile: { dir: string; file: string };
+    let plan: ReturnType<typeof planGrokPrompt>;
     try {
-      promptFile = await this.writePromptFile(options);
+      const input = await this.promptInput(options);
+      plan = planGrokPrompt(input, remembered);
+      promptFile = await this.writeBlocks(buildGrokAcpContent(plan.input));
     } catch (error) {
       if (options.signal?.aborted) {
         yield abortedFinish();
@@ -113,12 +134,14 @@ export class GrokAdapter extends LlmAdapter {
       yield errorFinish(error instanceof Error ? error.message : String(error));
       return;
     }
+    const grokSessionId = plan.mode === "delta" && remembered ? remembered.grokSessionId : randomUUID();
     const child = spawn(
       binary,
       buildGrokCliArgs({
         promptFile: promptFile.file,
         model: options.model,
         reasoningEffort: options.reasoningEffort,
+        ...(plan.mode === "delta" && remembered ? { resume: remembered.grokSessionId } : { sessionId: grokSessionId }),
       }),
       { stdio: ["ignore", "pipe", "pipe"], env: process.env },
     );
@@ -137,6 +160,7 @@ export class GrokAdapter extends LlmAdapter {
     options.signal?.addEventListener("abort", onAbort, { once: true });
     const state = createMessagesParseState();
     const tools = createToolChunkTranslator(options.tools);
+    let succeeded = false;
     try {
       if (child.stdout) {
         const lines = createInterface({ input: child.stdout });
@@ -155,10 +179,29 @@ export class GrokAdapter extends LlmAdapter {
         return;
       }
       for (const chunk of finishMessagesParse(state)) yield* tools.push(chunk);
+      // A tool call hits `--max-turns 1` and the CLI exits 1. The session is still resumable.
+      succeeded = grokTurnSucceeded({
+        code,
+        spawnFailed: spawnError !== undefined,
+        maxTurnsReached: state.maxTurnsReached,
+        producedOutput: state.sawStreamBlocks || state.emittedContent,
+      });
     } finally {
       options.signal?.removeEventListener("abort", onAbort);
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
       await rm(promptFile.dir, { recursive: true, force: true });
+      if (resumeChat && harnessSession) {
+        if (succeeded) {
+          this.continuations.set(harnessSession, {
+            grokSessionId,
+            count: plan.count,
+            fingerprint: plan.fingerprint,
+          });
+        } else if (plan.mode === "delta") {
+          // The resumed session did not accept this tail. The next step sends the transcript again.
+          this.continuations.delete(harnessSession);
+        }
+      }
     }
   }
 
@@ -175,8 +218,7 @@ export class GrokAdapter extends LlmAdapter {
     };
   }
 
-  private async writePromptFile(options: GenerateOptions): Promise<{ dir: string; file: string }> {
-    const content = await this.acpContent(options);
+  private async writeBlocks(content: readonly GrokAcpBlock[]): Promise<{ dir: string; file: string }> {
     const dir = await mkdtemp(join(tmpdir(), "ns-dsh-grok-"));
     const file = join(dir, "prompt.json");
     try {
@@ -188,7 +230,7 @@ export class GrokAdapter extends LlmAdapter {
     return { dir, file };
   }
 
-  private async acpContent(options: GenerateOptions): Promise<GrokAcpBlock[]> {
+  private async promptInput(options: GenerateOptions): Promise<GrokPromptInput> {
     const store = this.options.attachments?.();
     const messages = [];
     for (const message of options.messages) {
@@ -202,7 +244,7 @@ export class GrokAdapter extends LlmAdapter {
       }
       messages.push({ role: message.role, content });
     }
-    return buildGrokAcpContent({ system: options.system, messages });
+    return { system: options.system, messages };
   }
 
   private async imageBlock(

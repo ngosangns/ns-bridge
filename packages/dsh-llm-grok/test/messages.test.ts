@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildGrokCliArgs, resolveGrokBinary } from "../src/cli.js";
-import { createMessagesParseState, parseGrokMessagesLine } from "../src/messages.js";
-import { buildGrokAcpContent } from "../src/prompt.js";
+import { buildGrokCliArgs, resolveGrokBinary, resumesGrokSession } from "../src/cli.js";
+import { createMessagesParseState, grokTurnSucceeded, parseGrokMessagesLine } from "../src/messages.js";
+import {
+  buildGrokAcpContent,
+  GROK_INLINE_USER_QUERY_BYTES,
+  grokUserQueryByteLength,
+  planGrokPrompt,
+} from "../src/prompt.js";
 
 const LINES = [
   '{"type":"message_start","message":{"usage":{"input_tokens":3,"output_tokens":1}}}',
@@ -112,7 +117,101 @@ describe("grok CLI stream mapping", () => {
     ]);
     expect(args).not.toContain("--single");
     expect(args).not.toContain("--always-approve");
+    expect(args).not.toContain("--resume");
     expect(args.join(" ")).not.toContain("base64");
+  });
+
+  it("resumes a chat and leaves compaction off that session", () => {
+    const id = "03910d0e-5f6c-4474-85c3-6116a4503e17";
+    const resumed = buildGrokCliArgs({ promptFile: "/tmp/prompt.json", model: "grok-4.7", resume: id });
+    expect(resumed).toContain("--resume");
+    expect(resumed).toContain(id);
+    expect(resumed).not.toContain("--session-id");
+    const created = buildGrokCliArgs({ promptFile: "/tmp/prompt.json", model: "grok-4.7", sessionId: id });
+    expect(created).toContain("--session-id");
+    expect(created).not.toContain("--resume");
+    expect(resumesGrokSession(undefined)).toBe(true);
+    expect(resumesGrokSession("compaction")).toBe(false);
+    expect(resumesGrokSession("session-title")).toBe(false);
+  });
+
+  it("keeps a max-turns tool call resumable after message_stop", () => {
+    const state = createMessagesParseState();
+    const chunks = [
+      ...LINES,
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"again"}]}}',
+      '{"type":"result","subtype":"error_max_turns","is_error":true,"stop_reason":"max_turn_requests"}',
+    ].flatMap((line) => parseGrokMessagesLine(line, state));
+    expect(chunks.at(-1)).toEqual({ type: "finish", reason: { kind: "tool-calls" } });
+    expect(state.maxTurnsReached).toBe(true);
+    expect(state.finished).toBe(true);
+    expect(
+      grokTurnSucceeded({
+        code: 1,
+        spawnFailed: false,
+        maxTurnsReached: state.maxTurnsReached,
+        producedOutput: state.sawStreamBlocks,
+      }),
+    ).toBe(true);
+    expect(grokTurnSucceeded({ code: 1, spawnFailed: false, maxTurnsReached: false, producedOutput: true })).toBe(
+      false,
+    );
+    expect(grokTurnSucceeded({ code: 1, spawnFailed: false, maxTurnsReached: true, producedOutput: false })).toBe(
+      false,
+    );
+    expect(grokTurnSucceeded({ code: 0, spawnFailed: true, maxTurnsReached: false, producedOutput: true })).toBe(false);
+  });
+
+  it("sends only the new tool result when the grok session already has the prefix", () => {
+    const first = planGrokPrompt({
+      system: "Be brief",
+      messages: [{ role: "user", content: [{ type: "text", text: "make a dropdown" }] }],
+    });
+    expect(first.mode).toBe("full");
+    const next = planGrokPrompt(
+      {
+        system: "Be brief",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "make a dropdown" }] },
+          {
+            role: "assistant",
+            content: [{ type: "tool-call", name: "read", arguments: '{"file_path":"SidebarView.swift"}' }],
+          },
+          { role: "tool", content: [{ type: "text", text: "struct SidebarView" }] },
+        ],
+      },
+      { count: first.count, fingerprint: first.fingerprint },
+    );
+    expect(next.mode).toBe("delta");
+    const joined = next.input.messages
+      .flatMap((message) => message.content ?? [])
+      .map((block) => block.text ?? "")
+      .join("\n");
+    const rendered = buildGrokAcpContent(next.input)
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("\n");
+    expect(joined).toBe("struct SidebarView");
+    expect(rendered).toContain("struct SidebarView");
+    expect(rendered).not.toContain("make a dropdown");
+    expect(rendered).not.toContain("Be brief");
+    expect(rendered).not.toContain("SidebarView.swift");
+  });
+
+  it("sends the transcript again when an earlier message changes", () => {
+    const first = planGrokPrompt({
+      messages: [{ role: "user", content: [{ type: "text", text: "one" }] }],
+    });
+    const changed = planGrokPrompt(
+      {
+        messages: [
+          { role: "user", content: [{ type: "text", text: "replaced" }] },
+          { role: "tool", content: [{ type: "text", text: "result" }] },
+        ],
+      },
+      { count: first.count, fingerprint: first.fingerprint },
+    );
+    expect(changed.mode).toBe("full");
+    expect(changed.input.messages).toHaveLength(2);
   });
 
   it("puts system text, tool calls, and images into ACP in order", () => {
@@ -138,6 +237,95 @@ describe("grok CLI stream mapping", () => {
       { type: "text", text: 'Assistant:\nbash {"cmd":"ls"}' },
       { type: "text", text: "Tool:\nfile.txt" },
     ]);
+  });
+
+  it("keeps assistant reasoning off the prompt so the host thinking card owns it", () => {
+    const content = buildGrokAcpContent({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "make a dropdown" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "I will read SidebarView and then edit it." },
+            { type: "text", text: "Mình đọc sidebar." },
+          ],
+        },
+      ],
+    });
+    const joined = content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+    expect(joined).toContain("Mình đọc sidebar.");
+    expect(joined).not.toContain("SidebarView");
+  });
+
+  it("drops a read of the Grok prompt file so the next turn does not grow", () => {
+    const path =
+      "/Users/ngosangns/.grok/sessions/%2FUsers%2Fngosangns%2F.dsh%2Fprofiles%2Fdesktop/abc/prompts/prompt_0.txt";
+    const content = buildGrokAcpContent({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "workspace dropdown" }] },
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", name: "read", arguments: JSON.stringify({ file_path: path }) }],
+        },
+        {
+          role: "tool",
+          content: [{ type: "text", text: `<path>${path}</path>\n<content>\n${"line\n".repeat(5000)}</content>` }],
+        },
+      ],
+    });
+    const tool = content.find((block) => block.type === "text" && block.text.startsWith("Tool:"));
+    expect(tool).toMatchObject({ type: "text" });
+    if (tool?.type !== "text") return;
+    expect(tool.text).toContain("Do not read that file");
+    expect(tool.text).not.toContain("<content>");
+    expect(content.some((block) => block.type === "text" && block.text.includes("workspace dropdown"))).toBe(true);
+    expect(grokUserQueryByteLength(content)).toBeLessThan(GROK_INLINE_USER_QUERY_BYTES);
+  });
+
+  it("drops older turns so the newest tool result stays whole", () => {
+    const content = buildGrokAcpContent({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "keep this user request intact" }] },
+        { role: "tool", content: [{ type: "text", text: `OLD ${"x".repeat(120_000)}` }] },
+        { role: "tool", content: [{ type: "text", text: "newest tool result" }] },
+      ],
+    });
+    const joined = content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+    expect(joined).toContain("keep this user request intact");
+    expect(joined).toContain("newest tool result");
+    expect(joined).not.toContain("OLD ");
+    expect(joined).toContain("Earlier turns were omitted");
+    expect(grokUserQueryByteLength(content)).toBeLessThanOrEqual(GROK_INLINE_USER_QUERY_BYTES);
+  });
+
+  it("keeps the newest file body when stubbing every tool would still exceed the limit", () => {
+    const newest = `${"y".repeat(1_500)}UNIQUE-FULL-RESULT${"z".repeat(1_500)}`;
+    const messages = [{ role: "user", content: [{ type: "text", text: "workspace dropdown" }] }];
+    for (let i = 0; i < 80; i++) {
+      messages.push({ role: "assistant", content: [{ type: "text", text: `step ${i} ${"A".repeat(1_000)}` }] });
+      messages.push({ role: "tool", content: [{ type: "text", text: `old-result-${i} ${"B".repeat(5_000)}` }] });
+    }
+    messages.push({ role: "tool", content: [{ type: "text", text: newest }] });
+    const content = buildGrokAcpContent({ messages });
+    const joined = content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+    expect(joined).toContain("workspace dropdown");
+    expect(joined).toContain(newest);
+    expect(joined).not.toContain("step 0 ");
+    expect(grokUserQueryByteLength(content)).toBeLessThanOrEqual(GROK_INLINE_USER_QUERY_BYTES);
+  });
+
+  it("trims a tool result only when that result alone exceeds the inline limit", () => {
+    const content = buildGrokAcpContent({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "keep this user request intact" }] },
+        { role: "tool", content: [{ type: "text", text: `ONLY ${"x".repeat(120_000)}` }] },
+      ],
+    });
+    const joined = content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+    expect(joined).toContain("keep this user request intact");
+    expect(joined).toContain("older tool output omitted");
+    expect(joined).not.toContain("x".repeat(120_000));
+    expect(grokUserQueryByteLength(content)).toBeLessThanOrEqual(GROK_INLINE_USER_QUERY_BYTES);
   });
 
   it("uses an explicit binary path", () => {

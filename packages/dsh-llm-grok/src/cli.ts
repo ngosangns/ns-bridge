@@ -17,7 +17,23 @@ export function resolveCliModelId(modelId: string): string {
   return modelId;
 }
 
-export function buildGrokCliArgs(options: { promptFile: string; model: string; reasoningEffort?: string }): string[] {
+/**
+ * Compaction and title requests are separate calls. They must not append to the
+ * coding session that later steps resume.
+ */
+export function resumesGrokSession(purpose: string | undefined): boolean {
+  return purpose !== "compaction" && purpose !== "session-title";
+}
+
+export function buildGrokCliArgs(options: {
+  promptFile: string;
+  model: string;
+  reasoningEffort?: string;
+  /** UUID of a new Grok session. Ignored when `resume` is set. */
+  sessionId?: string;
+  /** UUID returned by an earlier `--session-id` for this harness chat. */
+  resume?: string;
+}): string[] {
   const args = [
     "--prompt-file",
     options.promptFile,
@@ -35,6 +51,8 @@ export function buildGrokCliArgs(options: { promptFile: string; model: string; r
   if (effort && effort !== "none" && effort !== "off") {
     args.push("--reasoning-effort", effort);
   }
+  if (options.resume) args.push("--resume", options.resume);
+  else if (options.sessionId) args.push("--session-id", options.sessionId);
   return args;
 }
 
