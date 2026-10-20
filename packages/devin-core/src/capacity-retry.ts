@@ -1,6 +1,7 @@
 // ABOUTME: Optional capacity backoff around streamDevin, for hosts with no retry loop of their own.
 // ABOUTME: Retries only while nothing but `start` has been produced, so no content is ever replayed.
 
+import { abortableDelay, exponentialBackoff } from "ns-core-utils";
 import { isDevinCapacityError } from "./errors.js";
 import { type DevinStreamRequest, streamDevin } from "./stream.js";
 import type { DevinStreamEvent } from "./types.js";
@@ -23,21 +24,6 @@ export const DEFAULT_DEVIN_CAPACITY_RETRY: DevinCapacityRetryPolicy = {
   baseDelayMs: 5_000,
   maxDelayMs: 30_000,
 };
-
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(signal.reason);
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason);
-      },
-      { once: true },
-    );
-  });
-}
 
 /**
  * {@link streamDevin} with exponential backoff on capacity errors. The core's
@@ -73,7 +59,7 @@ export async function* streamDevinWithCapacityRetry(
       return;
     } catch (error) {
       if (committed || attempt >= policy.maxRetries || !isDevinCapacityError(error)) throw error;
-      await abortableDelay(Math.min(policy.baseDelayMs * 2 ** attempt, policy.maxDelayMs), request.signal);
+      await abortableDelay(exponentialBackoff(attempt, policy.baseDelayMs, policy.maxDelayMs), request.signal);
     }
   }
 }

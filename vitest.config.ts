@@ -14,6 +14,12 @@ export default defineConfig({
       },
       {
         test: {
+          name: "core-utils",
+          include: ["packages/core-utils/test/**/*.test.ts"],
+        },
+      },
+      {
+        test: {
           name: "kiro",
           include: ["packages/{kiro-core,omp-provider-kiro,dsh-llm-kiro}/test/**/*.test.ts"],
           setupFiles: ["./packages/kiro-core/test/setup.ts"],

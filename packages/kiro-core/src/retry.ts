@@ -1,7 +1,12 @@
 // ABOUTME: Stream recovery helpers and Kiro-specific error classification.
 // ABOUTME: Keeps provider-local retry logic limited to auth refresh and stream quirks.
 
-import { kiroModels } from "./models.js";
+// Retry-header units and backoff arithmetic are shared with the other vendor
+// cores; re-exported here so this module stays the one place Kiro's retry
+// policy is read from.
+import { exponentialBackoff, parseRetryAfterMs } from "ns-core-utils";
+
+export { exponentialBackoff, parseRetryAfterMs };
 
 // kiro-cli uses 5-minute read/operation timeouts (DEFAULT_TIMEOUT_DURATION)
 // and 5-minute stalled stream grace period. 90s matches the TUI's
@@ -10,24 +15,11 @@ export const FIRST_TOKEN_TIMEOUT = 90_000;
 /** Maximum wait for the runtime endpoint to return HTTP response headers. */
 export const REQUEST_HEADER_TIMEOUT = 90_000;
 
-export function firstTokenTimeoutForModel(modelId: string): number {
-  // Allow test overrides via retryConfig.firstTokenTimeoutMs
-  if (retryConfig.firstTokenTimeoutMs !== FIRST_TOKEN_TIMEOUT) {
-    return retryConfig.firstTokenTimeoutMs;
-  }
-  const model = kiroModels.find((m) => m.id === modelId);
-  return model?.firstTokenTimeout ?? FIRST_TOKEN_TIMEOUT;
-}
-
 // Mutable config for values that tests need to override
 export const retryConfig = {
   firstTokenTimeoutMs: FIRST_TOKEN_TIMEOUT,
   requestHeaderTimeoutMs: REQUEST_HEADER_TIMEOUT,
 };
-
-export function exponentialBackoff(attempt: number, baseMs: number, maxMs: number): number {
-  return Math.min(baseMs * 2 ** attempt, maxMs);
-}
 
 export const MAX_RETRY_DELAY = 10_000;
 /** Fallback used when a request-window response carries no valid server hint. */
@@ -46,47 +38,6 @@ export function extractKiroReason(errorText: string): string | undefined {
   }
 }
 
-/**
- * Read a server-advertised wait in milliseconds.
- *
- * `retry-after-ms` is milliseconds, numeric `retry-after` and
- * `x-ratelimit-reset-after` are seconds, and an HTTP-date `retry-after` is
- * relative to `nowMs`. Each header is an independent candidate, so an invalid
- * earlier value does not hide a valid later one. A past HTTP date means retry
- * now.
- */
-export function parseRetryAfterMs(headers: Headers | undefined, nowMs: number = Date.now()): number | undefined {
-  const get = headers?.get?.bind(headers);
-  if (!get) return undefined;
-
-  const milliseconds = nonNegativeNumber(get("retry-after-ms"));
-  if (milliseconds !== undefined) return Math.round(milliseconds);
-
-  const retryAfter = get("retry-after");
-  if (retryAfter !== null && retryAfter.trim() !== "") {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds)) {
-      // Numeric Retry-After is delay-seconds, never a date. In particular,
-      // do not let Date.parse reinterpret a negative delay as a year.
-      if (seconds >= 0) {
-        const delayMs = seconds * 1000;
-        if (Number.isFinite(delayMs)) return Math.round(delayMs);
-      }
-    } else {
-      const dateMs = Date.parse(retryAfter);
-      if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - nowMs);
-    }
-  }
-
-  const resetAfterSeconds = nonNegativeNumber(get("x-ratelimit-reset-after"));
-  if (resetAfterSeconds !== undefined) {
-    const delayMs = resetAfterSeconds * 1000;
-    if (Number.isFinite(delayMs)) return Math.round(delayMs);
-  }
-
-  return undefined;
-}
-
 export function resolveRequestRateRetryDelay(
   headers: Headers | undefined,
   nowMs: number = Date.now(),
@@ -98,12 +49,6 @@ export function resolveRequestRateRetryDelay(
     ...(advertisedDelayMs !== undefined ? { advertisedDelayMs } : {}),
     capped: requestedDelayMs > MAX_RETRY_DELAY,
   };
-}
-
-function nonNegativeNumber(value: string | null): number | undefined {
-  if (value === null || value.trim() === "") return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 /**

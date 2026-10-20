@@ -24,7 +24,6 @@ import {
   capacityRetryConfig,
   exponentialBackoff,
   extractKiroReason,
-  firstTokenTimeoutForModel,
   isCapacityError,
   isNonRetryableBodyError,
   isTooBigError,
@@ -576,7 +575,7 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
     assembler.beginAttempt();
 
     const { frames, outcome } = readKiroEventStream(response.body as ReadableStream<Uint8Array>, {
-      firstTokenTimeoutMs: model.firstTokenTimeout ?? firstTokenTimeoutForModel(model.id),
+      firstTokenTimeoutMs: model.firstTokenTimeout ?? retryConfig.firstTokenTimeoutMs,
       signal,
     });
 

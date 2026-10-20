@@ -5,6 +5,10 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// Shared with the other vendor cores: a retry delay must reject the moment the
+// caller aborts, and that behaviour should not be reimplemented per vendor.
+export { abortableDelay } from "ns-core-utils";
+
 const CAPACITY_LOG_DIR = join(homedir(), ".ns-kiro-provider", "logs");
 const CAPACITY_LOG_FILE = join(CAPACITY_LOG_DIR, "capacity-retries.log");
 
@@ -29,23 +33,6 @@ export function logCapacityEvent(message: string): void {
       // best-effort logging, don't break the provider
     }
   })();
-}
-
-/** Delay that rejects early if the abort signal fires. */
-export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(signal.reason);
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      reject(signal?.reason);
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
 }
 
 export interface ResponseHeaderDeadline {

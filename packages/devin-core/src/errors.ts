@@ -181,16 +181,6 @@ export function readConnectTrailerError(text: string): ConnectTrailerError | nul
   return trailer;
 }
 
-/** Retry-After header (seconds or HTTP-date) → milliseconds, when parseable. */
-export function parseRetryAfterMs(headers: Record<string, string>): number | undefined {
-  const raw = headers["retry-after"];
-  if (!raw) return undefined;
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const date = Date.parse(raw);
-  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
-}
-
 /** Statuses that mean the token is wrong, revoked, or missing — never retry. */
 export function isDevinAuthError(error: unknown): boolean {
   if (error instanceof DevinApiError) return error.status === 401 || error.status === 403;

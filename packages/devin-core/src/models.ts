@@ -1,9 +1,10 @@
 // ABOUTME: The bootstrap model catalog plus the on-disk cache discovery
 // ABOUTME: refreshes — hosts list models before a session token exists.
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { readJsonFile, writeJsonFileAtomic } from "ns-core-utils";
 import type { DevinModelSpec } from "./types.js";
 import { DEVIN_DEFAULT_BASE_URL } from "./wire.js";
 
@@ -69,13 +70,13 @@ function loadCacheFile(): DevinModelCache | undefined {
     const mtimeMs = statSync(devinModelCachePath()).mtimeMs;
     if (mtimeMs !== cacheMtimeMs) {
       cacheMtimeMs = mtimeMs;
-      const parsed: unknown = JSON.parse(readFileSync(devinModelCachePath(), "utf8"));
+      const parsed = readJsonFile<DevinModelCache>(devinModelCachePath());
       cacheFile =
         typeof parsed === "object" &&
         parsed !== null &&
-        Array.isArray((parsed as DevinModelCache).models) &&
-        typeof (parsed as DevinModelCache).fetchedAt === "number"
-          ? (parsed as DevinModelCache)
+        Array.isArray(parsed.models) &&
+        typeof parsed.fetchedAt === "number"
+          ? parsed
           : undefined;
     }
   } catch {
@@ -105,8 +106,8 @@ export function isCacheStale(now = Date.now()): boolean {
 export function updateDevinModelsCache(models: DevinModelSpec[], now = Date.now()): DevinModelSpec[] {
   cacheFile = { fetchedAt: now, models };
   try {
-    mkdirSync(dirname(devinModelCachePath()), { recursive: true });
-    writeFileSync(devinModelCachePath(), JSON.stringify(cacheFile), "utf8");
+    // Atomic: a crash mid-write must not leave a torn catalog for the next host.
+    writeJsonFileAtomic(devinModelCachePath(), cacheFile);
     cacheMtimeMs = statSync(devinModelCachePath()).mtimeMs;
   } catch {
     // A read-only home dir must not break the request that fetched this

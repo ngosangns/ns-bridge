@@ -51,7 +51,6 @@ export {
   isDevinCapacityError,
   isDevinContextOverflowError,
   isDevinRateLimitError,
-  parseRetryAfterMs,
   readConnectTrailerError,
 } from "./errors.js";
 export {

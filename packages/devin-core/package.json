@@ -26,6 +26,9 @@
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "prepublishOnly": "pnpm run check && pnpm run build"
   },
+  "dependencies": {
+    "ns-core-utils": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^22.20.4",
     "ns-bridge-core": "workspace:*"
