@@ -47,6 +47,7 @@ export {
   DevinApiError,
   DevinProtocolError,
   DevinStreamError,
+  devinRateLimitResetMs,
   isDevinAuthError,
   isDevinCapacityError,
   isDevinContextOverflowError,

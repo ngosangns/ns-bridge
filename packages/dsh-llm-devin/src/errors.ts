@@ -3,6 +3,7 @@
 import { LlmError } from "@deepseek-ai/dsh-llm";
 import {
   DevinApiError,
+  devinRateLimitResetMs,
   isDevinAuthError,
   isDevinCapacityError,
   isDevinContextOverflowError,
@@ -28,7 +29,15 @@ export function toLlmError(error: unknown): LlmError {
   const options = { cause, ...(status !== undefined ? { status } : {}) };
 
   if (isDevinContextOverflowError(error)) return new LlmError(message, "CONTEXT_OVERFLOW", options);
-  if (isDevinRateLimitError(error)) return new LlmError(message, "RATE_LIMIT", options);
+  if (isDevinRateLimitError(error)) {
+    // The Harness waits exactly this long when it fits its backoff ceiling and
+    // otherwise stops retrying, instead of spending every retry inside the window.
+    const providerRetryAfterMs = devinRateLimitResetMs(error);
+    return new LlmError(message, "RATE_LIMIT", {
+      ...options,
+      ...(providerRetryAfterMs !== undefined ? { providerRetryAfterMs } : {}),
+    });
+  }
   if (isDevinCapacityError(error)) return new LlmError(message, "OVERLOADED", options);
   if (isDevinAuthError(error) || message.includes("credentials not set") || message.includes("No Devin session")) {
     return new LlmError(message, "AUTH", options);

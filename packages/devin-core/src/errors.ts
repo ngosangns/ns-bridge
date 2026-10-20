@@ -197,6 +197,25 @@ export function isDevinRateLimitError(error: unknown): boolean {
   return false;
 }
 
+const RESET_UNIT_MS: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000 };
+
+/**
+ * How long a Devin rate limit says to wait, when it says.
+ *
+ * The free-tier rejection reads "Your limit will reset in 33 minutes (at
+ * 15:41 UTC)". A host that does not know this retries on its own short
+ * backoff, burning every attempt inside the window and failing anyway.
+ * Reporting the wait lets it fail fast (or wait exactly that long) instead.
+ */
+export function devinRateLimitResetMs(error: unknown): number | undefined {
+  if (!isDevinRateLimitError(error)) return undefined;
+  const message = error instanceof Error ? error.message : "";
+  const match = /reset in (\d+(?:\.\d+)?)\s*(second|minute|hour)s?\b/i.exec(message);
+  if (!match) return undefined;
+  const ms = Number(match[1]) * (RESET_UNIT_MS[(match[2] ?? "").toLowerCase()] ?? 0);
+  return Number.isFinite(ms) && ms > 0 ? Math.round(ms) : undefined;
+}
+
 /** Connect codes that mark a transient overloaded backend worth retrying. */
 export function isDevinCapacityError(error: unknown): boolean {
   if (error instanceof DevinApiError) return error.status === 502 || error.status === 503 || error.status === 529;

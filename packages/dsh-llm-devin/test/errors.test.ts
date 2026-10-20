@@ -26,4 +26,19 @@ describe("toLlmError", () => {
     expect(toLlmError(abort).code).toBe("ABORTED");
     expect(toLlmError(new Error("No Devin session found")).code).toBe("AUTH");
   });
+
+  it("reports how long a rate limit says to wait, so the Harness does not retry inside it", () => {
+    const limited = new DevinStreamError(
+      "Devin stream error resource_exhausted: Reached free model rate limit. Upgrade to Max for higher limits, or switch to a different model. Your limit will reset in 33 minutes (at 15:41 UTC).",
+      "resource_exhausted",
+    );
+    const error = toLlmError(limited);
+    expect(error.code).toBe("RATE_LIMIT");
+    expect(error.failure.providerRetryAfterMs).toBe(33 * 60_000);
+    expect(
+      toLlmError(new DevinStreamError("x: limit will reset in 5 seconds", "resource_exhausted")).failure
+        .providerRetryAfterMs,
+    ).toBe(5_000);
+    expect(toLlmError(new DevinStreamError("x", "resource_exhausted")).failure.providerRetryAfterMs).toBeUndefined();
+  });
 });
