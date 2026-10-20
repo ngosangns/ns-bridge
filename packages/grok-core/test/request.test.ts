@@ -111,4 +111,24 @@ describe("Responses request body", () => {
     expect(body.tools).toBeUndefined();
     expect(body.instructions).toBeUndefined();
   });
+
+  it("sends the conversation's prompt cache key so xAI routes every turn to one cache", () => {
+    const body = buildResponsesBody({
+      model: "grok-4.7",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      promptCacheKey: " session-abc ",
+    });
+    expect(body.prompt_cache_key).toBe("session-abc");
+  });
+
+  it("omits the prompt cache key when the host has no conversation id", () => {
+    for (const promptCacheKey of [undefined, "", "   "]) {
+      const body = buildResponsesBody({
+        model: "grok-4.7",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        promptCacheKey,
+      });
+      expect(body).not.toHaveProperty("prompt_cache_key");
+    }
+  });
 });

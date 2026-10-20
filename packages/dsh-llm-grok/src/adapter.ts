@@ -68,6 +68,9 @@ export function createGrokAdapter(options: GrokAdapterOptions) {
         tools,
         effort: toBridgeEffort(request.reasoningEffort),
         contextWindow: request.contextWindow,
+        // The Harness session id is stable across every turn, compaction and
+        // title call of one session, which is exactly the cache-routing key xAI wants.
+        ...(request.sessionId ? { promptCacheKey: String(request.sessionId) } : {}),
         signal: request.signal,
       });
     },

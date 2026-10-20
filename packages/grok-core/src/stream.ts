@@ -16,6 +16,12 @@ export interface StreamGrokOptions {
   effort?: GrokEffort;
   /** Model context window. Input that would exceed it is trimmed before the request. */
   contextWindow?: number;
+  /**
+   * The host's id for this conversation. Sent as `prompt_cache_key` and
+   * `x-grok-conv-id` so xAI routes each turn to the server that already holds
+   * the conversation's prefix in its prompt cache.
+   */
+  promptCacheKey?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   /** Skip the auth file. Tests pass a token; production leaves this unset. */
@@ -94,6 +100,7 @@ export async function* streamGrok(options: StreamGrokOptions): AsyncGenerator<Gr
     tools: options.tools,
     effort: options.effort,
     contextWindow: options.contextWindow,
+    promptCacheKey: options.promptCacheKey,
   });
   const response = await fetchImpl(`${base}/responses`, {
     method: "POST",
@@ -101,6 +108,7 @@ export async function* streamGrok(options: StreamGrokOptions): AsyncGenerator<Gr
       accessToken: access.accessToken,
       clientVersion,
       modelId: options.model,
+      conversationId: options.promptCacheKey,
     }),
     body: JSON.stringify(body),
     signal: options.signal,

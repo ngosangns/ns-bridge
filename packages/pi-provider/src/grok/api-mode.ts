@@ -28,6 +28,7 @@ export function streamViaApi(
 				systemPrompt: neutral.systemPrompt,
 				tools: neutral.tools,
 				effort: toBridgeEffort(options?.reasoning),
+				...(options?.sessionId ? { promptCacheKey: options.sessionId } : {}),
 				signal: options?.signal,
 			});
 		},

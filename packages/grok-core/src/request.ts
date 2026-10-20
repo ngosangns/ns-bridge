@@ -120,6 +120,12 @@ export function buildResponsesBody(input: {
   effort?: GrokEffort;
   /** Model context window. Items that would push the body past it are dropped. */
   contextWindow?: number;
+  /**
+   * Stable id of the conversation this request continues. xAI keeps prompt
+   * cache entries per server, and this key routes every turn of one
+   * conversation to the same one, so the unchanged prefix is not prefilled again.
+   */
+  promptCacheKey?: string;
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: input.model,
@@ -130,5 +136,7 @@ export function buildResponsesBody(input: {
   if (instructions) body.instructions = instructions;
   if (input.tools && input.tools.length > 0) body.tools = input.tools.map(toolItem);
   if (input.effort) body.reasoning = { effort: input.effort, summary: "auto" };
+  const cacheKey = input.promptCacheKey?.trim();
+  if (cacheKey) body.prompt_cache_key = cacheKey;
   return fitResponsesBody(body, input.contextWindow);
 }

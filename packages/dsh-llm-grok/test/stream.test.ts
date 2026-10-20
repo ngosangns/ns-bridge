@@ -118,6 +118,26 @@ describe("Grok adapter responses stream", () => {
       },
     });
     expect(chunks.at(-1)).toEqual({ type: "finish", reason: { kind: "tool-calls" } });
+    expect(recorded).not.toHaveProperty("promptCacheKey");
+  });
+
+  it("keys Grok's prompt cache on the Harness session id", async () => {
+    core.streamGrok.mockImplementation(async function* (request: StreamGrokOptions) {
+      recorded = request;
+      yield { type: "text_start", index: 0 };
+      yield { type: "text_delta", index: 0, delta: "ok" };
+      yield { type: "text_end", index: 0, text: "ok" };
+      yield { type: "done", stopReason: "stop" };
+    });
+    for await (const _ of adapter().stream({
+      provider: "grok",
+      model: "grok-4.7",
+      messages: [user],
+      sessionId: "session-42",
+    } as unknown as GenerateOptions)) {
+      // drain
+    }
+    expect(recorded?.promptCacheKey).toBe("session-42");
   });
 
   it("asks the user to log in when the CLI session is missing", async () => {

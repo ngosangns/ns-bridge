@@ -37,7 +37,10 @@ export function grokResponseHeaders(input: {
   accessToken: string;
   clientVersion: string;
   modelId: string;
+  /** Routes the request to the server holding this conversation's prompt cache. */
+  conversationId?: string;
 }): Record<string, string> {
+  const conversationId = input.conversationId?.trim();
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${input.accessToken}`,
@@ -47,5 +50,6 @@ export function grokResponseHeaders(input: {
     "x-grok-client-mode": "xai-grok-cli",
     "User-Agent": `grok-cli/${input.clientVersion}`,
     "x-grok-model-override": input.modelId,
+    ...(conversationId ? { "x-grok-conv-id": conversationId } : {}),
   };
 }

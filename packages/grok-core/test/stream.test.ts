@@ -104,6 +104,35 @@ describe("streamGrok", () => {
     expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "toolUse" });
   });
 
+  it("routes the request by conversation: prompt_cache_key in the body and x-grok-conv-id on the wire", async () => {
+    const seen: Array<{ headers: Headers; body: Record<string, unknown> }> = [];
+    const fetchImpl = async (_input: string | URL | Request, init?: RequestInit) => {
+      seen.push({ headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
+      return new Response(sse([{ type: "response.completed", response: { id: "r", status: "completed" } }]), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const base = {
+      model: "grok-4.7",
+      accessToken: "t",
+      clientVersion: "1.2.3",
+      proxyBaseUrl: "https://proxy.test/v1",
+      fetchImpl: fetchImpl as typeof fetch,
+      messages: [{ role: "user" as const, content: [{ type: "text" as const, text: "hi" }] }],
+    };
+    for await (const _ of streamGrok({ ...base, promptCacheKey: "session-1" })) {
+      // drain
+    }
+    for await (const _ of streamGrok(base)) {
+      // drain
+    }
+    expect(seen[0]?.body.prompt_cache_key).toBe("session-1");
+    expect(seen[0]?.headers.get("x-grok-conv-id")).toBe("session-1");
+    expect(seen[1]?.body).not.toHaveProperty("prompt_cache_key");
+    expect(seen[1]?.headers.has("x-grok-conv-id")).toBe(false);
+  });
+
   it("surfaces the proxy status without calling a console API key", async () => {
     const fetchImpl = async () => new Response("Your Grok CLI version (none) is outdated", { status: 426 });
     await expect(
