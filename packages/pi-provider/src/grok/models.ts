@@ -9,7 +9,12 @@
 
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { grokBootstrapModels } from "ns-grok-core";
-import { discoverGrokModels, type GrokModelDescriptor, resolveCliModelId } from "ns-grok-core/agent";
+import {
+	discoverGrokModels,
+	type GrokModelDescriptor,
+	grokContextWindowsFromCache,
+	resolveCliModelId,
+} from "ns-grok-core/agent";
 import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, DEFAULT_MODEL_ID, THINKING_LEVEL_MAP } from "./config.js";
 
 export { parseGrokModelsOutput, resolveCliModelId } from "ns-grok-core/agent";
@@ -28,13 +33,22 @@ export function fallbackModels(): GrokModelDescriptor[] {
 	}));
 }
 
-/** Ask the CLI for its models, falling back to the bootstrap descriptors. */
-export async function discoverModels(binary?: string): Promise<{
+/**
+ * Ask the CLI for its models, falling back to the bootstrap descriptors.
+ *
+ * `contextCache` is the CLI's model cache. It carries the context window each
+ * model is using, which `grok models` itself does not print, so a host that
+ * compacts has a real limit instead of the shared default.
+ */
+export async function discoverModels(
+	binary?: string,
+	contextCache?: string,
+): Promise<{
 	models: GrokModelDescriptor[];
 	source: "live" | "fallback";
 	error?: string;
 }> {
-	const discovered = await discoverGrokModels(binary);
+	const discovered = await discoverGrokModels(binary, grokContextWindowsFromCache(contextCache));
 	if (discovered.source === "live") return discovered;
 	return { ...discovered, models: fallbackModels() };
 }

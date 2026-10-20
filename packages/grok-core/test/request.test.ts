@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildResponsesBody } from "../src/request.js";
+import { buildResponsesBody, estimateResponsesTokens } from "../src/request.js";
 
 const ping = {
   name: "ping",
@@ -62,6 +62,44 @@ describe("Responses request body", () => {
         content: [{ type: "input_image", image_url: "data:image/png;base64,aaaa" }],
       },
     ]);
+  });
+
+  it("drops the oldest turns once the body is past the context window", () => {
+    const filler = "x".repeat(400);
+    const body = buildResponsesBody({
+      model: "grok-4.7",
+      contextWindow: 200,
+      messages: [
+        { role: "user", content: [{ type: "text", text: `old ${filler}` }] },
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call_old", name: "ping", arguments: { value: filler } }],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call_old",
+          toolName: "ping",
+          isError: false,
+          content: [{ type: "text", text: filler }],
+        },
+        { role: "user", content: [{ type: "text", text: "latest question" }] },
+      ],
+    });
+
+    const input = body.input as Array<{ type: string; call_id?: string }>;
+    expect(input.map((item) => item.type)).toEqual(["message"]);
+    expect(JSON.stringify(input)).toContain("latest question");
+    expect(JSON.stringify(input)).not.toContain("call_old");
+    expect(estimateResponsesTokens(body)).toBeLessThanOrEqual(200);
+  });
+
+  it("keeps a single item that is larger than the window on its own", () => {
+    const body = buildResponsesBody({
+      model: "grok-4.7",
+      contextWindow: 10,
+      messages: [{ role: "user", content: [{ type: "text", text: "x".repeat(400) }] }],
+    });
+    expect(body.input).toHaveLength(1);
   });
 
   it("omits reasoning when the host turned it off", () => {

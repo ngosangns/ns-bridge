@@ -2,8 +2,8 @@
 // ABOUTME: The CLI protocol itself is not exercised here; these are pure functions.
 
 import { describe, expect, it } from "vitest";
-import { parseGrokModelsOutput, resolveCliModelId } from "../src/agent/models.js";
-import { GROK_DEFAULT_MODEL_ID } from "../src/catalog.js";
+import { grokContextWindowsFromCache, parseGrokModelsOutput, resolveCliModelId } from "../src/agent/models.js";
+import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MODEL_ID } from "../src/catalog.js";
 
 describe("parseGrokModelsOutput", () => {
   it("reads the bullet list the CLI prints", () => {
@@ -27,6 +27,30 @@ describe("parseGrokModelsOutput", () => {
 
   it("returns nothing for output with no models", () => {
     expect(parseGrokModelsOutput("not authenticated")).toEqual([]);
+  });
+
+  it("uses the window the CLI cache records and keeps the default for a model it lacks", () => {
+    const windows = grokContextWindowsFromCache(
+      JSON.stringify({
+        models: {
+          "grok-4.7": { info: { context_window: 256_000, context_windows: [256_000, 500_000] } },
+          "grok-4.6": { info: { context_window: 0 } },
+          "grok-4.5": { info: {} },
+        },
+      }),
+    );
+    const models = parseGrokModelsOutput(["  * grok-4.7", "  * grok-4.6", "  * grok-4.5"].join("\n"), windows);
+    expect(models.find((model) => model.id === "grok-4.7")?.contextWindow).toBe(256_000);
+    expect(models.find((model) => model.id === "grok-4.6")?.contextWindow).toBe(GROK_DEFAULT_CONTEXT_WINDOW);
+    expect(models.find((model) => model.id === "grok-4.5")?.contextWindow).toBe(GROK_DEFAULT_CONTEXT_WINDOW);
+  });
+});
+
+describe("grokContextWindowsFromCache", () => {
+  it("returns nothing for a missing or unreadable cache", () => {
+    expect(grokContextWindowsFromCache(undefined).size).toBe(0);
+    expect(grokContextWindowsFromCache("not json").size).toBe(0);
+    expect(grokContextWindowsFromCache(JSON.stringify({ models: [] })).size).toBe(0);
   });
 });
 

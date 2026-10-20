@@ -13,7 +13,7 @@ import {
   type DshAdapterRequest,
   type DshLlmAdapterSpec,
 } from "ns-bridge-core/dsh";
-import { streamGrok } from "ns-grok-core";
+import { GROK_DEFAULT_CONTEXT_WINDOW, streamGrok } from "ns-grok-core";
 import { type GrokListedModel, readGrokCatalogFile } from "./catalog.js";
 import { toLlmError } from "./errors.js";
 
@@ -47,6 +47,10 @@ export function createGrokAdapter(options: GrokAdapterOptions) {
     provider: options.provider,
     displayName: options.displayName,
     catalog: () => readGrokCatalogFile().map(toAdapterModel),
+    // Read once per request: the catalog file is what names each model's window,
+    // and a refresh between turns has to take effect without restarting.
+    contextWindow: (model: string) =>
+      readGrokCatalogFile().find((candidate) => candidate.id === model)?.contextWindow ?? GROK_DEFAULT_CONTEXT_WINDOW,
     // Grok authenticates from the local CLI session inside the core, so there is
     // no per-request credential to resolve here.
     credentials: async () => undefined,
@@ -63,6 +67,7 @@ export function createGrokAdapter(options: GrokAdapterOptions) {
         systemPrompt: request.system,
         tools,
         effort: toBridgeEffort(request.reasoningEffort),
+        contextWindow: request.contextWindow,
         signal: request.signal,
       });
     },

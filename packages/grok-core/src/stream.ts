@@ -14,6 +14,8 @@ export interface StreamGrokOptions {
   systemPrompt?: string;
   tools?: readonly GrokTool[];
   effort?: GrokEffort;
+  /** Model context window. Input that would exceed it is trimmed before the request. */
+  contextWindow?: number;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   /** Skip the auth file. Tests pass a token; production leaves this unset. */
@@ -91,6 +93,7 @@ export async function* streamGrok(options: StreamGrokOptions): AsyncGenerator<Gr
     messages: options.messages,
     tools: options.tools,
     effort: options.effort,
+    contextWindow: options.contextWindow,
   });
   const response = await fetchImpl(`${base}/responses`, {
     method: "POST",

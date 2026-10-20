@@ -45,6 +45,13 @@ type AdapterModelFields = Pick<DshAdapterModel, "id" | "name" | "input" | "conte
 export interface DshAdapterRequest extends Omit<GenerateOptions, "messages" | "system"> {
   messages: BridgeMessage[];
   system?: string;
+  /**
+   * Context window of the model this request names, when the spec's catalog
+   * knows one. A spec uses it to keep the request inside the window; the
+   * Harness still owns compaction, so a spec that cannot fit reports overflow
+   * rather than dropping the current turn.
+   */
+  contextWindow?: number;
 }
 
 /**
@@ -70,6 +77,14 @@ export interface DshLlmAdapterSpec<Credentials, Model extends AdapterModelFields
    * chunks itself.
    */
   stream: (request: DshAdapterRequest, credentials: Credentials) => AsyncIterable<BridgeStreamEvent>;
+  /**
+   * The context window of one catalog model, read at request time.
+   *
+   * A spec that trims its own request needs the number before the call. The
+   * catalog is the source, so this is read per request rather than captured
+   * when the adapter was built: a refresh between turns has to take effect.
+   */
+  contextWindow?: (model: string) => number | undefined;
   /** Optional durable attachment service, resolved at request time. */
   attachments?: () => AttachmentStore | undefined;
 }
@@ -160,6 +175,7 @@ export function createDshLlmAdapter<Credentials, Model extends AdapterModelField
       // it replays may also carry `system`-role messages. Both are real system
       // text, so they are joined rather than one silently winning.
       const system = [options.system, projected.system].filter((part) => !!part).join("\n\n") || undefined;
+      const contextWindow = spec.contextWindow?.(options.model);
 
       yield* streamToDsh(
         spec.stream(
@@ -167,6 +183,7 @@ export function createDshLlmAdapter<Credentials, Model extends AdapterModelField
             ...options,
             messages: projected.messages,
             ...(system !== undefined ? { system } : {}),
+            ...(contextWindow !== undefined ? { contextWindow } : {}),
           },
           credentials,
         ),

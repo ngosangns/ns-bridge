@@ -23,7 +23,13 @@ export {
   grokResponseHeaders,
   resolveGrokClientVersion,
 } from "./headers.js";
-export { buildResponsesBody, grokWireModelId, toResponsesInput } from "./request.js";
+export {
+  buildResponsesBody,
+  estimateResponsesTokens,
+  fitResponsesBody,
+  grokWireModelId,
+  toResponsesInput,
+} from "./request.js";
 export { createResponsesState, finishResponses, parseSseJson, reduceResponsesEvent } from "./sse.js";
 export { type StreamGrokOptions, streamGrok } from "./stream.js";
 export type {

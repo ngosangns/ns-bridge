@@ -8,6 +8,7 @@
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { grokAuthCandidates } from "ns-grok-core";
@@ -127,7 +128,15 @@ export async function refreshGrokModels(options: {
     binary = undefined;
   }
 
-  const discovered = await discoverModels(binary);
+  // The CLI writes each model's real window here and never prints it. A missing
+  // file leaves every model on the default, which is what a cold install had.
+  let contextCache: string | undefined;
+  try {
+    contextCache = readFileSync(join(homedir(), ".grok", "models_cache.json"), "utf8");
+  } catch {
+    contextCache = undefined;
+  }
+  const discovered = await discoverModels(binary, contextCache);
   const catalog = descriptorsToCatalog(discovered.models);
   cache.store(GROK_PROVIDER_ID, catalog, { version: "grok-cli-v1" });
   return {

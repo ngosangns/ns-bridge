@@ -148,8 +148,8 @@ The workflow accepts only a `ns-bridge@<version>` tag.
    git tag ns-bridge@<version> && git push origin ns-bridge@<version>
    ```
 
-The CLI on npm is `0.1.7`, tagged `ns-bridge@0.1.7`. That tag is already
-published. Do not republish `0.1.0` through `0.1.6`. The next release is a new
+The CLI on npm is `0.1.8`, tagged `ns-bridge@0.1.8`. That tag is already
+published. Do not republish `0.1.0` through `0.1.7`. The next release is a new
 version in `packages/cli/package.json`.
 
 The workflow re-runs lint, build, typecheck and tests, then
@@ -176,7 +176,7 @@ the former ns-kiro-provider `v*` tags are kept and mirrored as
 
 The publisher is registered. The `0.1.1` publish validated it, and `0.1.2`
 (workflow `39284264937`), `0.1.3` (workflow `39363250503`), `0.1.4`
-(workflow `39382637599`), `0.1.5` (workflow `39396872195`), `0.1.6` (workflow `39457751796`), and `0.1.7` published from the same workflow. Settings →
+(workflow `39382637599`), `0.1.5` (workflow `39396872195`), `0.1.6` (workflow `39457751796`), `0.1.7`, and `0.1.8` published from the same workflow. Settings →
 Trusted Publisher → GitHub Actions, with
 
 | Field | Value |
@@ -205,7 +205,7 @@ npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bri
 ```
 
 That sequence already ran for this CLI: `0.1.0` from a logged-in machine, then
-`0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, and `0.1.7` from the workflow. A later release is a
+`0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, and `0.1.8` from the workflow. A later release is a
 version bump and a new `ns-bridge@<version>` tag.
 
 A trusted publisher that has never published expires 48 hours after it is
