@@ -5,20 +5,21 @@ project is and how to install/use it, see [README.md](README.md).
 
 ## Layout
 
-pnpm workspace. Ten packages under `packages/`. npm publishes only `@ngosangns/ns-bridge`. The other packages stay at their last published version.
+pnpm workspace. Eleven packages under `packages/`. npm publishes only `@ngosangns/ns-bridge`. The other packages stay at their last published version.
 
 This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns-pi-provider`, `ns-omp-provider`, and `ns-devin-provider` (archived, each pointing here).
 
 | Layer | Package | Owns |
 | --- | --- | --- |
-| shared | [`ns-bridge-core`](packages/bridge-core) | The neutral vocabulary (`Bridge*` messages, tools, stream events, usage, effort) and one bridge per host family: `./pi` (Pi and OMP) and `./dsh` (DeepSeek Harness) |
+| shared | [`ns-core-utils`](packages/core-utils) | Plumbing every vendor core needs and none owns: retry-header parsing, exponential backoff, abort-aware delay, and the atomic JSON cache read/write. Dependency-free and host-free, so a core can depend on it without gaining a host coupling |
+| shared | [`ns-bridge-core`](packages/bridge-core) | The neutral vocabulary (`Bridge*` messages, tools, stream events, usage, effort) and one bridge per host family: `./pi` (Pi and OMP) and `./dsh` (DeepSeek Harness, including the `createDshLlmAdapter` factory every Harness adapter is built from) |
 | vendor core | [`ns-kiro-core`](packages/kiro-core) | The Kiro protocol in this process: AWS event-stream, request building, response assembly, the retry ladder, tokenizer, login, local credential stores (kiro-cli, Kiro IDE) and their selection, the model-catalog cache, profile caches, error vocabulary, and host login/model helpers (`host-auth.ts`, `host-model.ts`) |
 | vendor core | [`ns-devin-core`](packages/devin-core) | The Devin protocol in this process: Cascade over Connect/protobuf, PKCE login, credentials files, the model catalog cache, usage, error vocabulary, and request/result conversion |
-| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro` + `devin` over the cores via `ns-bridge-core/pi`; `grok` (local CLI / ACP) still lives here |
+| vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary |
+| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro` + `devin` over the cores via `ns-bridge-core/pi`; `grok` still lives here — the Pi-side Grok CLI/ACP stack (spawn, session, JSONL/ACP modes) is not yet in `ns-grok-core` |
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter behind an OMP-compat layer; `kiro` opt-in |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
-| host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh` |
-| host adapter | [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter` that lists the Pi Grok catalog and streams by spawning the local `grok` CLI |
+| host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
 | cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Installs host packages and refreshes model catalogs outside the host process |
 
 Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh --apply` writes them.
@@ -31,24 +32,32 @@ Pi, OMP, and DSH read the catalog files while they run. They do not refresh thos
   once per host family. Typed structurally (`PiContextLike`, …) so one bridge
   serves both Pi and OMP without importing either.
 - **Host adapters** register with the host and wire a core to a bridge. If two
-  adapters grow the same logic, move it down a layer.
-- Dependencies point down only: adapters → cores + bridge. The cores emit the
-  bridge vocabulary *structurally* and do not import `ns-bridge-core`;
-  `ns-bridge-core` imports no core at runtime (only its tests do).
-  `toBridgeEffort` lives at the package root because both host bridges use it.
+  adapters grow the same logic, move it down a layer. The Harness adapters take
+  this literally: they are `createDshLlmAdapter` specs, not classes.
+- Dependencies point down only: adapters → cores + bridge, cores → `ns-core-utils`.
+  The cores emit the bridge vocabulary *structurally* and do not import
+  `ns-bridge-core`; `ns-bridge-core` imports no core at runtime (only its tests
+  do). `toBridgeEffort` lives at the package root because both host bridges use it.
 
 ### In-process engines
 
-Kiro and Devin run in the Node process that loaded the host adapter.
-`streamKiro` and `streamDevin` yield `BridgeStreamEvent`s. `streamToPi` and
-`streamToDsh` in `ns-bridge-core` turn those events into the host's stream.
+Kiro, Devin, and Grok all run in the Node process that loaded the host adapter.
+`streamKiro`, `streamDevin`, and `streamGrok` yield `BridgeStreamEvent`s.
+`streamToPi` and `streamToDsh` in `ns-bridge-core` turn those events into the
+host's stream.
 
 | Path | Owns |
 | --- | --- |
 | `packages/kiro-core/src` | Kiro: `generateAssistantResponse` over AWS event-stream, the retry ladder, catalog, usage, token refresh, API-key login |
 | `packages/devin-core/src` | Devin: Cascade over Connect/protobuf, model discovery, usage, PKCE login |
-| `packages/bridge-core/src/types.ts` | The vocabulary both engines emit and both host bridges consume |
-| `packages/bridge-core/src/pi`, `packages/bridge-core/src/dsh` | Host translation |
+| `packages/grok-core/src` | Grok: the Responses API over SSE, usage, the CLI login session and its refresh |
+| `packages/core-utils/src` | Retry headers, backoff, abort-aware delay, atomic JSON cache |
+| `packages/bridge-core/src/types.ts` | The vocabulary every engine emits and every host bridge consumes |
+| `packages/bridge-core/src/pi`, `packages/bridge-core/src/dsh` | Host translation; `dsh/adapter.ts` is the shared Harness adapter factory |
+
+The Pi-side Grok CLI/ACP stack is the exception: it spawns the local `grok`
+binary and still lives in `packages/pi-provider/src/grok`. `ns-grok-core` covers
+only the HTTP Responses path.
 
 `KIRO_RUNTIME_ENDPOINT` / `KIRO_MANAGEMENT_ENDPOINT` (`{region}` substituted)
 redirect Kiro, for example to a test server. `refreshDevinToken` is a
@@ -89,7 +98,7 @@ cd ns-bridge
 pnpm install
 pnpm -r build       # check typechecks against built declarations, so build first
 pnpm -r check
-pnpm test           # vitest projects: bridge, kiro, devin, grok-dsh, cli, pi, omp
+pnpm test           # vitest projects: bridge, core-utils, kiro, devin, grok, grok-dsh, cli, pi, omp
 pnpm vitest run --project kiro   # one project
 pnpm lint           # biome check .  (lint:fix / format to write)
 ```
