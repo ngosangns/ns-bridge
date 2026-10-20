@@ -57,11 +57,11 @@ beforeAll(async () => {
 });
 
 describe("dist/index.js on a fake OMP API", () => {
-  it("registers kiro, devin, and grok (+ grok-sdk alias) in OMP shape", async () => {
+  it("registers kiro, devin, and grok in OMP shape", async () => {
     const pi = new FakeOmpApi();
     await extension(pi);
 
-    expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "grok-sdk", "kiro"]);
+    expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "kiro"]);
     for (const [name, config] of pi.providers) {
       expect(config, name).not.toHaveProperty("refreshModels");
       expect(typeof config.fetchDynamicModels, name).toBe("function");
@@ -82,7 +82,7 @@ describe("dist/index.js on a fake OMP API", () => {
     try {
       const pi = new FakeOmpApi();
       await extension(pi);
-      expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "grok-sdk", "kiro"]);
+      expect([...pi.providers.keys()].sort()).toEqual(["devin", "grok", "kiro"]);
       const kiro = pi.providers.get("kiro")!;
       expect(kiro).not.toHaveProperty("refreshModels");
       expect(typeof kiro.fetchDynamicModels).toBe("function");

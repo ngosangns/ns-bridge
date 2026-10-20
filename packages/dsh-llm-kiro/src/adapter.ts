@@ -1,5 +1,6 @@
 // ABOUTME: The Harness LLM seam over kiro-core, built from the shared dsh adapter factory.
 
+import { withDeclaredToolNames } from "ns-bridge-core";
 import { createDshLlmAdapter, type DshAdapterRequest, type DshLlmAdapterSpec } from "ns-bridge-core/dsh";
 import {
   getCachedModels,
@@ -48,7 +49,7 @@ export function createKiroAdapter(options: KiroAdapterOptions) {
         parameters: tool.parameters,
       }));
 
-      return streamKiro({
+      const events = streamKiro({
         model: { ...model, region, ...(credentials.profileArn ? { profileArn: credentials.profileArn } : {}) },
         messages: request.messages,
         systemPrompt: request.system,
@@ -67,6 +68,7 @@ export function createKiroAdapter(options: KiroAdapterOptions) {
         // settle a degenerate response rather than replay over one already sent.
         canDiscardEmittedBlocks: false,
       });
+      return withDeclaredToolNames(events, request.tools);
     },
   };
 

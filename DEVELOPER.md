@@ -15,7 +15,7 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | shared | [`ns-bridge-core`](packages/bridge-core) | The neutral vocabulary (`Bridge*` messages, tools, stream events, usage, effort) and one bridge per host family: `./pi` (Pi and OMP) and `./dsh` (DeepSeek Harness, including the `createDshLlmAdapter` factory every Harness adapter is built from) |
 | vendor core | [`ns-kiro-core`](packages/kiro-core) | The Kiro protocol in this process: AWS event-stream, request building, response assembly, the retry ladder, tokenizer, login, local credential stores (kiro-cli, Kiro IDE) and their selection, the model-catalog cache, profile caches, error vocabulary, and host login/model helpers (`host-auth.ts`, `host-model.ts`) |
 | vendor core | [`ns-devin-core`](packages/devin-core) | The Devin protocol in this process: Cascade over Connect/protobuf, PKCE login, credentials files, the model catalog cache, usage, error vocabulary, and request/result conversion |
-| vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./agent` — locating the Grok CLI and reading its model list |
+| vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./cli` — locating the Grok CLI and reading its model list |
 | host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, and `grok` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter behind an OMP-compat layer; `kiro` opt-in |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
@@ -51,7 +51,7 @@ host's stream.
 | `packages/kiro-core/src` | Kiro: `generateAssistantResponse` over AWS event-stream, the retry ladder, catalog, usage, token refresh, API-key login |
 | `packages/devin-core/src` | Devin: Cascade over Connect/protobuf, model discovery, usage, PKCE login |
 | `packages/grok-core/src` | Grok: the Responses API over SSE, usage, the CLI login session and its refresh |
-| `packages/grok-core/src/agent` | Grok: locating the CLI binary and reading `grok models` |
+| `packages/grok-core/src/cli` | Grok: locating the CLI binary and reading `grok models` |
 | `packages/core-utils/src` | Retry headers, backoff, abort-aware delay, atomic JSON cache |
 | `packages/bridge-core/src/types.ts` | The vocabulary every engine emits and every host bridge consumes |
 | `packages/bridge-core/src/pi`, `packages/bridge-core/src/dsh` | Host translation; `dsh/adapter.ts` is the shared Harness adapter factory |

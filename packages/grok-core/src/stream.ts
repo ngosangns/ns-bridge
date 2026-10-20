@@ -4,7 +4,7 @@
 import { loadGrokAccess } from "./auth.js";
 import { GrokApiError } from "./errors.js";
 import { grokProxyBase, grokResponseHeaders, resolveGrokClientVersion } from "./headers.js";
-import { buildResponsesBody, grokWireModelId } from "./request.js";
+import { buildResponsesBody } from "./request.js";
 import { createResponsesState, finishResponses, parseSseJson, reduceResponsesEvent, type WireEvent } from "./sse.js";
 import type { GrokEffort, GrokMessage, GrokStreamEvent, GrokTool } from "./types.js";
 
@@ -111,11 +111,10 @@ export async function* streamGrok(options: StreamGrokOptions): AsyncGenerator<Gr
   }
   if (!response.body) throw new GrokApiError("Grok responses error: empty body");
   const contentType = response.headers.get("content-type") ?? "";
-  const wireModel = grokWireModelId(options.model);
   if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
     const json = (await response.json()) as WireEvent["response"];
-    yield* eventsFromWire([{ type: "response.completed", response: json }], wireModel, options.signal);
+    yield* eventsFromWire([{ type: "response.completed", response: json }], options.model, options.signal);
     return;
   }
-  yield* eventsFromWire(parseSseJson(readBody(response.body)), wireModel, options.signal);
+  yield* eventsFromWire(parseSseJson(readBody(response.body)), options.model, options.signal);
 }

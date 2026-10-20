@@ -27,7 +27,6 @@ export {
   buildResponsesBody,
   estimateResponsesTokens,
   fitResponsesBody,
-  grokWireModelId,
   toResponsesInput,
 } from "./request.js";
 export { createResponsesState, finishResponses, parseSseJson, reduceResponsesEvent } from "./sse.js";

@@ -51,12 +51,12 @@ export function pinProfileArnForTests(profileArn: string | undefined): void {
  * rejected token. Returns the credential unchanged, with `source: "unchanged"`,
  * when neither path yields a replacement.
  */
-export function rotateRejectedKiroCredential(rejectedAccessToken: string): KiroRotatedCredential {
+export async function rotateRejectedKiroCredential(rejectedAccessToken: string): Promise<KiroRotatedCredential> {
   const stored = getKiroCliCredentials();
   if (stored?.access && stored.access !== rejectedAccessToken) {
     return { accessToken: stored.access, profileArn: stored.profileArn, source: "store" };
   }
-  const refreshed = refreshViaKiroCli();
+  const refreshed = await refreshViaKiroCli();
   if (refreshed?.access) {
     return { accessToken: refreshed.access, profileArn: refreshed.profileArn, source: "kiro-cli" };
   }

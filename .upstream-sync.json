@@ -8,7 +8,7 @@
   "syncedCommit": "bb89d39c71c3ee14c7afdd0a85f80c21152020be",
   "syncedTag": "v0.12.1+5 (main, chưa tag)",
   "syncedAt": "2026-10-08",
-  "_syncNote": "Đã review toàn bộ range 0899ed9c8..bb89d39c7 (5 commit sau v0.12.1). Port: #163 (parser <tool_use>/<tool_call>/<function_call>/<tool> -> packages/kiro-core/src/tool-use-parser.ts; alias tên tool -> tool-name-aliases.ts nhưng có guard theo tool đã khai báo), #174 (bỏ lọc content frame trùng liên tiếp — đã kiểm chứng live 2026-10-08 là bug làm mất text; contextUsagePercentage trong tokenUsage; stopReason tường minh MAX_TOKENS/END_TURN/TOOL_USE và throw cho CONTENT_FILTERED/MODEL_CONTEXT_WINDOW_EXCEEDED/PAUSE_TURN), #175 (đã có sẵn từ 2026-09-04 — upstream giờ trùng hành vi), #167 (esbuild đã là devDependency ở root; chỉ thêm test packaging). Không port: #168 credentialAccessor (xem notPorted).",
+  "_syncNote": "Đã review toàn bộ range 0899ed9c8..bb89d39c7 (5 commit sau v0.12.1). Port: #163 (parser <tool_use>/<tool_call>/<function_call>/<tool> -> packages/kiro-core/src/tool-use-parser.ts; alias tên tool -> packages/bridge-core/src/tool-names.ts nhưng có guard theo tool đã khai báo), #174 (bỏ lọc content frame trùng liên tiếp — đã kiểm chứng live 2026-10-08 là bug làm mất text; contextUsagePercentage trong tokenUsage; stopReason tường minh MAX_TOKENS/END_TURN/TOOL_USE và throw cho CONTENT_FILTERED/MODEL_CONTEXT_WINDOW_EXCEEDED/PAUSE_TURN), #175 (đã có sẵn từ 2026-09-04 — upstream giờ trùng hành vi), #167 (esbuild đã là devDependency ở root; chỉ thêm test packaging). Không port: #168 credentialAccessor (xem notPorted).",
   "pathMapping": {
     "src/bracket-tool-parser.ts": "packages/kiro-core/src/bracket-tool-parser.ts",
     "src/cache-estimator.ts": "packages/kiro-core/src/cache-estimator.ts",
@@ -42,7 +42,7 @@
     "test/packaging.test.ts": "packages/omp-provider-kiro/test/packaging.test.ts",
     "test/registration.test.ts": "packages/omp-provider-kiro/test/packaging.test.ts",
     "src/tool-use-parser.ts": "packages/kiro-core/src/tool-use-parser.ts",
-    "src/tool-name-aliases.ts": "packages/kiro-core/src/tool-name-aliases.ts"
+    "src/tool-name-aliases.ts": "packages/bridge-core/src/tool-names.ts"
   },
   "notPorted": [
     {
@@ -259,12 +259,12 @@
       "risk": "Nếu upstream tự sanitize theo scheme khác, đối chiếu để không đổi wire name đã phát hành (history cũ tham chiếu alias cũ vẫn phải giải được) — hash-suffix scheme là deterministic nên port chỉ cần giữ cùng hàm. Giữ hành vi bằng packages/kiro-core/test/transform.test.ts (toKiroToolName/kiroToolNameAliases) và stream.test.ts ('wire-legal spec name')."
     },
     {
-      "path": "packages/kiro-core/src/tool-name-aliases.ts, response-assembler.ts",
+      "path": "packages/bridge-core/src/tool-names.ts, packages/kiro-core/src/response-assembler.ts",
       "upstreamPath": "src/tool-name-aliases.ts, src/stream.ts (emitToolCall)",
       "since": "2026-10-08",
-      "what": "normalizeKiroToolName(name, declared) chỉ đổi tên khi host có khai báo tool, tên model phát ra KHÔNG nằm trong số đó, và đích alias CÓ nằm trong số đó. Upstream normalizeToolName(name) đổi vô điều kiện sang tên built-in của pi.",
+      "what": "normalizeToolName(name, declared) (bridge-core, áp qua withDeclaredToolNames trên stream trung lập) chỉ đổi tên khi host có khai báo tool, tên model phát ra KHÔNG nằm trong số đó, và đích alias CÓ nằm trong số đó. Upstream normalizeToolName(name) đổi vô điều kiện sang tên built-in của pi.",
       "why": "kiro-core phục vụ cả OMP lẫn DeepSeek Harness. Đổi vô điều kiện sẽ định tuyến sai tool thật tên read_file (MCP, dsh) sang `read`, và vô ích với host không có `read`. Bảng alias giữ nguyên của upstream.",
-      "risk": "Nếu upstream mở rộng bảng alias, chép thêm key; đừng bỏ guard. Test: packages/kiro-core/test/tool-name-aliases.test.ts và stream.test.ts ('maps a training-prior tool name', 'keeps a training-prior name when the host declared that exact tool')."
+      "risk": "Nếu upstream mở rộng bảng alias, chép thêm key; đừng bỏ guard. Test: packages/bridge-core/test/tool-names.test.ts; kiro-core/test/stream.test.ts chỉ còn khẳng định core báo đúng tên wire."
     },
     {
       "path": "packages/kiro-core/src/response-assembler.ts, stream.ts (degenerate retry)",

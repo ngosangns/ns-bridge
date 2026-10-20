@@ -588,7 +588,7 @@ export async function updateKiroModelsCache(accessToken: string, region: string,
   // Billing weights come from kiro-cli, the only source that publishes them.
   // Absent when it is not installed, which leaves the catalog rate-less rather
   // than failing the refresh.
-  const models = mapKiroCatalogModels(response.models, region, getKiroCliModelRates());
+  const models = mapKiroCatalogModels(response.models, region, await getKiroCliModelRates());
   const cache: ManagementModelsCache = readManagementCache() ?? {
     version: KIRO_MANAGEMENT_CACHE_VERSION,
     source: KIRO_MANAGEMENT_CACHE_SOURCE,

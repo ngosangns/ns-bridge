@@ -10,21 +10,14 @@ vi.mock("ns-grok-core", async (importOriginal) => {
   return { ...actual, streamGrok: core.streamGrok };
 });
 
-import { streamGrokAgent } from "../src/grok/provider.js";
+import { streamGrokForPi } from "../src/grok/provider.js";
 
-const model = { id: "grok-4.7", api: "grok-sdk", provider: "grok", name: "Grok" } as Model<Api>;
-
-const MODE_KEYS = ["PI_GROK_SDK_MODE", "PI_GROK_AGENT_MODE", "PI_GROK_AGENT_CLI_MODE"] as const;
-
-function withoutMode(): void {
-	for (const key of MODE_KEYS) delete process.env[key];
-}
+const model = { id: "grok-4.7", api: "grok-cli", provider: "grok", name: "Grok" } as Model<Api>;
 
 describe("api grok mode", () => {
 	beforeEach(() => {
 		child.spawn.mockReset();
 		core.streamGrok.mockReset();
-		withoutMode();
 	});
 
 	it("calls the Responses client with the host tool and does not spawn grok", async () => {
@@ -58,7 +51,7 @@ describe("api grok mode", () => {
 			],
 		} as unknown as Context;
 
-		const output = await streamGrokAgent(model, context, { reasoning: "low" }).result();
+		const output = await streamGrokForPi(model, context, { reasoning: "low" }).result();
 		expect(child.spawn).not.toHaveBeenCalled();
 		expect(request?.model).toBe("grok-4.7");
 		expect(request?.tools?.map((tool) => tool.name)).toEqual(["ping"]);

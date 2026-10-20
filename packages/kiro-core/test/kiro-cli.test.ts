@@ -163,29 +163,29 @@ describe("Feature 4: kiro-cli Credential Fallback", () => {
   });
 
   describe("refreshViaKiroCli", () => {
-    it("returns undefined when kiro-cli is not installed", () => {
+    it("returns undefined when kiro-cli is not installed", async () => {
       vi.mock("node:child_process", async (importOriginal) => {
         const actual = await importOriginal<typeof import("node:child_process")>();
         return {
           ...actual,
-          execFileSync: vi.fn(() => {
-            throw new Error("ENOENT");
+          execFile: vi.fn((...args: unknown[]) => {
+            (args.at(-1) as (error: Error) => void)(new Error("ENOENT"));
           }),
         };
       });
 
-      // Since we can't easily mock execFileSync for a single call in this
+      // Since we can't easily mock execFile for a single call in this
       // test setup, we just verify the function exists and returns the right type
-      const result = refreshViaKiroCli();
+      const result = await refreshViaKiroCli();
       expect(result === undefined || (typeof result === "object" && "access" in result)).toBe(true);
 
       vi.restoreAllMocks();
     });
 
-    it("returns credentials or undefined", () => {
+    it("returns credentials or undefined", async () => {
       // On CI (no kiro-cli): returns undefined
       // On dev machine (kiro-cli installed): returns credentials or undefined
-      const result = refreshViaKiroCli();
+      const result = await refreshViaKiroCli();
       if (result) {
         expect(result).toHaveProperty("access");
         expect(result).toHaveProperty("refresh");

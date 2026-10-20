@@ -1,9 +1,9 @@
-// ABOUTME: Tests the Grok model-list parser and the id mapping.
+// ABOUTME: Tests the Grok model-list parser and the context windows.
 // ABOUTME: The CLI protocol itself is not exercised here; these are pure functions.
 
 import { describe, expect, it } from "vitest";
-import { grokContextWindowsFromCache, parseGrokModelsOutput, resolveCliModelId } from "../src/agent/models.js";
-import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MODEL_ID } from "../src/catalog.js";
+import { GROK_DEFAULT_CONTEXT_WINDOW } from "../src/catalog.js";
+import { grokContextWindowsFromCache, parseGrokModelsOutput } from "../src/cli/models.js";
 
 describe("parseGrokModelsOutput", () => {
   it("reads the bullet list the CLI prints", () => {
@@ -51,19 +51,5 @@ describe("grokContextWindowsFromCache", () => {
     expect(grokContextWindowsFromCache(undefined).size).toBe(0);
     expect(grokContextWindowsFromCache("not json").size).toBe(0);
     expect(grokContextWindowsFromCache(JSON.stringify({ models: [] })).size).toBe(0);
-  });
-});
-
-describe("resolveCliModelId", () => {
-  it("maps the pre-0.2 alias onto the default model", () => {
-    expect(resolveCliModelId("grok-4.5-agent")).toBe(GROK_DEFAULT_MODEL_ID);
-  });
-
-  it("strips a generic -agent suffix", () => {
-    expect(resolveCliModelId("grok-4.7-agent")).toBe("grok-4.7");
-  });
-
-  it("leaves a plain id alone", () => {
-    expect(resolveCliModelId("grok-4.7")).toBe("grok-4.7");
   });
 });

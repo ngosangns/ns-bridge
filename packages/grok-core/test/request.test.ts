@@ -14,7 +14,7 @@ const ping = {
 describe("Responses request body", () => {
   it("sends the host tool and leaves Grok's own tools out", () => {
     const body = buildResponsesBody({
-      model: "grok-4.7-agent",
+      model: "grok-4.7",
       systemPrompt: "be brief",
       effort: "low",
       tools: [ping],

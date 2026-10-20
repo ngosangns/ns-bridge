@@ -185,7 +185,7 @@ describe("catalog refresh does not block host startup", () => {
     const started = Date.now();
     await registerGrokProvider(api as never);
     expect(Date.now() - started).toBeLessThan(400);
-    expect(api.registerProvider).toHaveBeenCalledTimes(2);
+    expect(api.registerProvider).toHaveBeenCalledTimes(1);
     expect(child.execFile).not.toHaveBeenCalled();
     expectNoBlockingSpawn();
     const { existsSync } = await import("node:fs");

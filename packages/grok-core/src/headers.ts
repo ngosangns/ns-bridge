@@ -4,7 +4,6 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { grokWireModelId } from "./request.js";
 
 /** Installed grok-native the 2026-10-20 proxy accepted. Overridden by the cache or env. */
 export const FALLBACK_GROK_CLIENT_VERSION = "1.0.62";
@@ -39,7 +38,6 @@ export function grokResponseHeaders(input: {
   clientVersion: string;
   modelId: string;
 }): Record<string, string> {
-  const model = grokWireModelId(input.modelId);
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${input.accessToken}`,
@@ -48,6 +46,6 @@ export function grokResponseHeaders(input: {
     "x-grok-client-identifier": "grok-shell",
     "x-grok-client-mode": "xai-grok-cli",
     "User-Agent": `grok-cli/${input.clientVersion}`,
-    "x-grok-model-override": model,
+    "x-grok-model-override": input.modelId,
   };
 }

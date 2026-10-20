@@ -15,7 +15,7 @@ are bundled at build time with a small compat layer.
 |----------|------|-------|
 | `kiro` (**opt-in**) | kiro-cli / Kiro IDE session (`/login kiro`) + `KIRO_API_KEY` | Off by default — use [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro); see below |
 | `devin` | OAuth (`/login devin`) + `credentials.toml` / env | Swe-2 catalog when authenticated |
-| `grok` (+ `grok-sdk` alias) | Local `grok` CLI / `~/.grok` / `XAI_API_KEY` | `/grok status`, `/grok models`. `/grok refresh` points at the CLI |
+| `grok` | Local `grok` CLI / `~/.grok` / `XAI_API_KEY` | `/grok status`, `/grok models`. `/grok refresh` points at the CLI |
 
 Shared command: `/ns-pi status`. `/ns-pi refresh [all|kiro|devin|grok]` points at `ns-bridge models refresh --apply`.
 
@@ -41,7 +41,7 @@ CLI / `~/.grok` auth (or `XAI_API_KEY`).
 
 ### Choosing providers (`kiro` is opt-in)
 
-By default this package registers **`devin`** and **`grok`** (+ `grok-sdk`) only.
+By default this package registers **`devin`** and **`grok`** only.
 For Kiro in OMP, the recommended path is the dedicated
 [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro) plugin;
 this package's `kiro` stays off so it never shadows that plugin.

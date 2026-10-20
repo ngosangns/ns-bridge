@@ -14,16 +14,14 @@ import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-codin
 import { grokAuthCandidates } from "ns-grok-core";
 
 import { ensureCacheCost, getDefaultCatalogCache, type CatalogModel } from "../shared/index.js";
-import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "ns-grok-core/agent";
-import { API as GROK_SDK_API, CLIENT_NAME, CLIENT_VERSION } from "./config.js";
+import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "ns-grok-core/cli";
+import { CLIENT_NAME, CLIENT_VERSION } from "./config.js";
 import { discoverModels, fallbackModels, toProviderModels } from "./models.js";
-import { streamGrokAgent } from "./provider.js";
-import type { GrokModelDescriptor } from "ns-grok-core/agent";
+import { streamGrokForPi } from "./provider.js";
+import type { GrokModelDescriptor } from "ns-grok-core/cli";
 
 /** Unified provider id requested by ns-pi-provider. */
 export const GROK_PROVIDER_ID = "grok";
-/** Keep sdk alias for compatibility with pi-grok-sdk settings. */
-export const GROK_SDK_PROVIDER_ID = "grok-sdk";
 export const GROK_API = "grok-cli";
 
 function descriptorsToCatalog(descriptors: GrokModelDescriptor[]): CatalogModel[] {
@@ -153,7 +151,7 @@ function createProviderConfig(models: ProviderModelConfig[]) {
     apiKey: "grok-cli",
     api: GROK_API,
     models,
-    streamSimple: streamGrokAgent,
+    streamSimple: streamGrokForPi,
     // OMP awaits this at startup and caches a non-null list for 24h. Only a
     // TTL hit is returned. An expired disk snapshot is already on `models`
     // for the picker, and the bootstrap fallback is not stored, so both stay
@@ -201,12 +199,6 @@ export async function registerGrokProvider(pi: ExtensionAPI): Promise<void> {
     refreshed = next;
     const config = createProviderConfig(models);
     pi.registerProvider(GROK_PROVIDER_ID, config as never);
-    // Alias for settings that still say grok-sdk
-    pi.registerProvider(GROK_SDK_PROVIDER_ID, {
-      ...config,
-      name: "Grok (sdk alias)",
-      api: GROK_SDK_API,
-    } as never);
   };
   publish(refreshed, true);
 

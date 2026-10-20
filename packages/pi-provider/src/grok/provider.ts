@@ -8,14 +8,14 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai/compat";
 import { streamViaApi } from "./api-mode.js";
-import { emptyAssistantMessage } from "./events.js";
+import { emptyAssistantMessage } from "./message.js";
 
 /**
  * The registered provider's stream. One Responses call per host turn: the Grok
  * CLI login is the session, and the host runs the tools. Nothing here spawns
  * the Grok CLI.
  */
-export function streamGrokAgent(
+export function streamGrokForPi(
 	model: Model<Api>,
 	context: Context,
 	options?: SimpleStreamOptions,

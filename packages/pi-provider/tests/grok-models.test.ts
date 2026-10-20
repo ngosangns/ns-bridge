@@ -108,7 +108,7 @@ Default model: grok-4.5
     expect(refreshed.source).toBe("fallback");
     expect(refreshed.fromCache).toBe(false);
     expect(refreshed.models.map((model) => model.id)).toEqual(
-      expect.arrayContaining(["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5", "grok-4.5-agent"]),
+      expect.arrayContaining(["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"]),
     );
     expect(memFs.size).toBe(0);
     expect(child.execFile).not.toHaveBeenCalled();

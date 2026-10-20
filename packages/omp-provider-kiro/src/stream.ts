@@ -3,6 +3,7 @@
 
 import type { Api, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
 import * as PiAi from "@oh-my-pi/pi-ai";
+import { withDeclaredToolNames } from "ns-bridge-core";
 import { streamToPi, toBridgeContext, toBridgeEffort } from "ns-bridge-core/pi";
 import {
   formatSafeError,
@@ -63,7 +64,7 @@ export function streamKiroForOmp(
       const region =
         (model as KiroBackedModel).kiroRegion ?? getKiroRegionFromEndpoint(model.baseUrl) ?? credentials.region;
       const neutral = toBridgeContext(context);
-      return streamKiro({
+      const events = streamKiro({
         model: toKiroModel(model as KiroBackedModel, region),
         messages: neutral.messages,
         systemPrompt: neutral.systemPrompt,
@@ -75,6 +76,7 @@ export function streamKiroForOmp(
         profileArn: (model as KiroBackedModel).kiroProfileArn ?? credentials.profileArn,
         canDiscardEmittedBlocks: true,
       });
+      return withDeclaredToolNames(events, neutral.tools);
     },
   });
 }

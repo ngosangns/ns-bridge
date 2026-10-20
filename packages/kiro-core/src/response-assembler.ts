@@ -11,7 +11,6 @@ import type { KiroModel } from "./models.js";
 import type { KiroWireEventFrame } from "./response-stream.js";
 import { ThinkingTagParser } from "./thinking-parser.js";
 import { countTokens } from "./tokenizer.js";
-import { normalizeKiroToolName } from "./tool-name-aliases.js";
 import { parseToolUseCalls } from "./tool-use-parser.js";
 import type { KiroStreamEvent, KiroUsage } from "./types.js";
 
@@ -106,17 +105,11 @@ export class KiroResponseAssembler {
      * registered, not the alias the wire required.
      */
     private readonly toolNameAliases?: ReadonlyMap<string, string>,
-    /**
-     * Host names of every tool the request declared. Lets a training-prior
-     * name the model invented (`read_file`) land on the declared tool it means
-     * (`read`), but only when that tool exists and the invented name does not.
-     */
-    private readonly declaredToolNames?: ReadonlySet<string>,
   ) {}
 
-  /** Wire name -> the name the host registered, then alias repair. */
+  /** Wire name -> the name the host registered. */
   private originalToolName(name: string): string {
-    return normalizeKiroToolName(this.toolNameAliases?.get(name) ?? name, this.declaredToolNames);
+    return this.toolNameAliases?.get(name) ?? name;
   }
 
   /** Clear per-attempt state. Only block indexes are kept. */

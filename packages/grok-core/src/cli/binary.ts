@@ -1,4 +1,4 @@
-// ABOUTME: Locating and probing the local Grok agent CLI binary.
+// ABOUTME: Locating and probing the local Grok CLI binary.
 // ABOUTME: Host-neutral: the env names are the CLI's own, not one host's.
 
 import { execFile } from "node:child_process";
@@ -8,14 +8,8 @@ import { join } from "node:path";
 
 const CANDIDATE_NAMES = ["agent", "grok"] as const;
 
-/**
- * Environment variables that name the binary outright, most specific first.
- *
- * `PI_GROK_SDK_BIN` and `PI_GROK_AGENT_BIN` are the Pi provider's historical
- * names and stay supported; `GROK_AGENT_BIN` and `GROK_BIN` are the neutral
- * ones a non-Pi host should set.
- */
-const BINARY_ENV_NAMES = ["GROK_AGENT_BIN", "GROK_BIN", "PI_GROK_SDK_BIN", "PI_GROK_AGENT_BIN"] as const;
+/** Environment variables that name the binary outright, most specific first. */
+const BINARY_ENV_NAMES = ["GROK_AGENT_BIN", "GROK_BIN"] as const;
 
 function isExecutable(path: string): boolean {
   try {
@@ -53,10 +47,10 @@ async function which(name: string): Promise<string | undefined> {
 }
 
 /**
- * Resolve the local Grok agent CLI binary.
+ * Resolve the local Grok CLI binary.
  *
  * Order:
- * 1. `GROK_AGENT_BIN` / `GROK_BIN` / `PI_GROK_SDK_BIN` / `PI_GROK_AGENT_BIN`
+ * 1. `GROK_AGENT_BIN` / `GROK_BIN`
  * 2. `agent` then `grok` on PATH
  * 3. `~/.grok/bin/{agent,grok}` (standard install location)
  */
@@ -64,9 +58,7 @@ export async function resolveGrokBinary(env: NodeJS.ProcessEnv = process.env): P
   const explicit = BINARY_ENV_NAMES.map((name) => env[name]?.trim()).find(Boolean);
   if (explicit) {
     if (!isExecutable(explicit)) {
-      throw new Error(
-        `Configured Grok agent binary is not executable: ${explicit}. Check ${BINARY_ENV_NAMES.join(" / ")}.`,
-      );
+      throw new Error(`Configured Grok binary is not executable: ${explicit}. Check ${BINARY_ENV_NAMES.join(" / ")}.`);
     }
     return explicit;
   }
@@ -83,7 +75,7 @@ export async function resolveGrokBinary(env: NodeJS.ProcessEnv = process.env): P
   }
 
   throw new Error(
-    "Grok agent CLI not found. Install/authenticate the xAI Grok agent (`agent` or `grok` on PATH, or ~/.grok/bin). Then run: agent --version",
+    "Grok CLI not found. Install/authenticate the xAI Grok CLI (`agent` or `grok` on PATH, or ~/.grok/bin). Then run: agent --version",
   );
 }
 

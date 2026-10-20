@@ -4,11 +4,6 @@
 import { GROK_DEFAULT_CONTEXT_WINDOW } from "./catalog.js";
 import type { GrokEffort, GrokMessage, GrokTool, GrokUserContent } from "./types.js";
 
-/** Catalog ids ending in `-agent` are a host alias. The proxy wants the base id. */
-export function grokWireModelId(modelId: string): string {
-  return modelId.endsWith("-agent") ? modelId.slice(0, -"-agent".length) : modelId;
-}
-
 function userParts(content: readonly GrokUserContent[]): unknown[] {
   const parts: unknown[] = [];
   for (const part of content) {
@@ -127,7 +122,7 @@ export function buildResponsesBody(input: {
   contextWindow?: number;
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    model: grokWireModelId(input.model),
+    model: input.model,
     input: toResponsesInput(input.messages),
     stream: true,
   };

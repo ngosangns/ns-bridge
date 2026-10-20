@@ -3,7 +3,7 @@
  * The Pi half of Grok model handling: the CLI's list becomes Pi provider models.
  *
  * Discovery, id mapping, and the bootstrap list are the core's
- * (`ns-grok-core/agent` and `ns-grok-core`); only the Pi provider-model shape is
+ * (`ns-grok-core/cli` and `ns-grok-core`); only the Pi provider-model shape is
  * built here.
  */
 
@@ -13,11 +13,10 @@ import {
 	discoverGrokModels,
 	type GrokModelDescriptor,
 	grokContextWindowsFromCache,
-	resolveCliModelId,
-} from "ns-grok-core/agent";
-import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, DEFAULT_MODEL_ID, THINKING_LEVEL_MAP } from "./config.js";
+} from "ns-grok-core/cli";
+import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, THINKING_LEVEL_MAP } from "./config.js";
 
-export { parseGrokModelsOutput, resolveCliModelId } from "ns-grok-core/agent";
+export { parseGrokModelsOutput } from "ns-grok-core/cli";
 
 /**
  * Ids `grok models` printed when this list was last checked. The list itself is
@@ -67,17 +66,5 @@ function toProviderModel(d: GrokModelDescriptor): ProviderModelConfig {
 }
 
 export function toProviderModels(descriptors: readonly GrokModelDescriptor[]): ProviderModelConfig[] {
-	const models = descriptors.map(toProviderModel);
-	// Back-compat alias used by older settings / README (v0.1.x).
-	const hasDefault = models.some((m) => m.id === DEFAULT_MODEL_ID);
-	const hasLegacyAlias = models.some((m) => m.id === "grok-4.5-agent");
-	if (hasDefault && !hasLegacyAlias) {
-		const base = models.find((m) => m.id === DEFAULT_MODEL_ID)!;
-		models.push({
-			...base,
-			id: "grok-4.5-agent",
-			name: `${base.name} (legacy alias)`,
-		});
-	}
-	return models;
+	return descriptors.map(toProviderModel);
 }

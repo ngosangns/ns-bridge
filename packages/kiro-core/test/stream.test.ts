@@ -598,7 +598,7 @@ describe("streamKiro — tool calls", () => {
     });
   });
 
-  it("maps a training-prior tool name onto the declared tool it stands for", async () => {
+  it("reports the wire tool name as sent; renaming onto declared tools is the bridge's job", async () => {
     stubFetch(
       makeOkResponse(
         '{"name":"read_file","toolUseId":"t1","input":"{\\"path\\":\\"/a\\"}","stop":true}{"contextUsagePercentage":10}',
@@ -610,7 +610,10 @@ describe("streamKiro — tool calls", () => {
       ),
     );
 
-    expect(events.find((e) => e.type === "tool_call_end")).toMatchObject({ name: "read", arguments: { path: "/a" } });
+    expect(events.find((e) => e.type === "tool_call_end")).toMatchObject({
+      name: "read_file",
+      arguments: { path: "/a" },
+    });
   });
 
   it("keeps a training-prior name when the host declared that exact tool", async () => {
@@ -734,7 +737,7 @@ describe("streamKiro — text-dialect tool-call recovery", () => {
     expect(end.arguments.summary).toBe(RECORD_279_SUMMARY);
   });
 
-  it("lifts a <tool_call> JSON-dialect call and maps its invented name", async () => {
+  it("lifts a <tool_call> JSON-dialect call under the name the model wrote", async () => {
     const content =
       'Writing it.\n<tool_call>{"name":"write_file","arguments":{"path":"/tmp/x","content":"hi"}}</tool_call>';
     stubFetch(makeOkResponse(`${JSON.stringify({ content })}{"contextUsagePercentage":10}`));
@@ -748,7 +751,7 @@ describe("streamKiro — text-dialect tool-call recovery", () => {
     );
 
     expect(events.find((e) => e.type === "tool_call_end")).toMatchObject({
-      name: "write",
+      name: "write_file",
       arguments: { path: "/tmp/x", content: "hi" },
     });
     expect((events.find((e) => e.type === "text_end") as { text: string }).text).not.toContain("<tool_call>");

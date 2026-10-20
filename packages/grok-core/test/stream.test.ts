@@ -46,7 +46,7 @@ describe("streamGrok", () => {
 
     const events = [];
     for await (const event of streamGrok({
-      model: "grok-4.7-agent",
+      model: "grok-4.7",
       systemPrompt: "be brief",
       accessToken: "session-token",
       clientVersion: "1.2.3",

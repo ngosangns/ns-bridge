@@ -1,8 +1,8 @@
-// ABOUTME: Discovering the Grok agent CLI's model list and mapping host model ids onto it.
+// ABOUTME: Discovering the Grok CLI's model list.
 // ABOUTME: Host-neutral: returns descriptors, not any host's provider-model shape.
 
 import { execFile } from "node:child_process";
-import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS, GROK_DEFAULT_MODEL_ID } from "../catalog.js";
+import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS } from "../catalog.js";
 import { resolveGrokBinary } from "./binary.js";
 import type { GrokModelDescriptor } from "./types.js";
 
@@ -107,16 +107,4 @@ export async function discoverGrokModels(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-/**
- * Map a host model id onto a CLI `--model` id.
- * Supports the pre-0.2 alias `grok-4.5-agent` and a generic `*-agent` suffix strip.
- */
-export function resolveCliModelId(modelId: string): string {
-  if (modelId === "grok-4.5-agent") return GROK_DEFAULT_MODEL_ID;
-  if (modelId.endsWith("-agent") && modelId.length > 6) {
-    return modelId.slice(0, -"-agent".length);
-  }
-  return modelId;
 }

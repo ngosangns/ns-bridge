@@ -261,7 +261,7 @@ export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<Ki
     // The host may have captured an access token before kiro-cli rotated it.
     // Profile discovery must succeed before the runtime request can be built,
     // so a rejection here rotates the credential and resolves again.
-    const rotated = rotateRejectedKiroCredential(accessToken);
+    const rotated = await rotateRejectedKiroCredential(accessToken);
     if (rotated.source === "unchanged") throw error;
 
     accessToken = rotated.accessToken;
@@ -325,12 +325,7 @@ export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<Ki
     systemPrompt = `<thinking_mode>enabled</thinking_mode><max_thinking_length>${budget}</max_thinking_length>${systemPrompt ? `\n${systemPrompt}` : ""}`;
   }
 
-  const assembler = new KiroResponseAssembler(
-    model,
-    thinkingEnabled,
-    kiroToolNameAliases(request.tools),
-    new Set((request.tools ?? []).map((tool) => String(tool.name))),
-  );
+  const assembler = new KiroResponseAssembler(model, thinkingEnabled, kiroToolNameAliases(request.tools));
   const usageTracking = request.usageTracking ?? KIRO_USAGE_TRACKING_DISABLED;
   let retryCount = 0;
   const maxRetries = 3;
@@ -487,7 +482,7 @@ export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<Ki
           // rotated the token. If it still contains the rejected token, force
           // kiro-cli to refresh before retrying runtime.
           const rejectedAccessToken = accessToken;
-          const rotated = rotateRejectedKiroCredential(rejectedAccessToken);
+          const rotated = await rotateRejectedKiroCredential(rejectedAccessToken);
           if (rotated.source !== "unchanged") accessToken = rotated.accessToken;
           managementAuth = { accessToken, region };
           profileArn = await resolveRotatedProfileArn(managementAuth, rejectedAccessToken, profileArn, rotated);

@@ -1,7 +1,7 @@
 // ABOUTME: Reads and writes credentials from the kiro-cli SQLite database.
 // ABOUTME: Provides fallback auth and write-back to keep kiro-cli in sync after refresh.
 
-import { execFileSync, execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
@@ -318,6 +318,21 @@ export function saveKiroCliCredentials(creds: KiroCredentials): void {
   }
 }
 
+/**
+ * Run `kiro-cli` and resolve with its stdout.
+ *
+ * Asynchronous on purpose: the host streams other turns on the same event loop,
+ * and a synchronous spawn would stall all of them for up to the timeout.
+ */
+function runKiroCli(args: string[], timeout: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("kiro-cli", args, { encoding: "utf-8", timeout }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout);
+    });
+  });
+}
+
 /** Relative billing weight for one model, as kiro-cli reports it. */
 export interface KiroModelRate {
   /** Multiplier applied to the billed amount; 1.0 is the baseline. */
@@ -339,14 +354,10 @@ interface KiroCliListModelsResponse {
  * shape expected — the catalog is still usable without rates, so this must
  * never be fatal.
  */
-export function getKiroCliModelRates(): Map<string, KiroModelRate> | undefined {
+export async function getKiroCliModelRates(): Promise<Map<string, KiroModelRate> | undefined> {
   let raw: string;
   try {
-    raw = execFileSync("kiro-cli", ["chat", "--list-models", "--format", "json"], {
-      encoding: "utf-8",
-      timeout: 10_000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    raw = await runKiroCli(["chat", "--list-models", "--format", "json"], 10_000);
   } catch (error) {
     debugLog("models.rates", { source: "kiro-cli", error: formatSafeError(error) });
     return undefined;
@@ -380,12 +391,9 @@ export function getKiroCliModelRates(): Map<string, KiroModelRate> | undefined {
  * Returns refreshed credentials on success, or undefined if kiro-cli is not
  * installed, the command fails, or the DB still has no valid tokens afterward.
  */
-export function refreshViaKiroCli(): KiroCredentials | undefined {
+export async function refreshViaKiroCli(): Promise<KiroCredentials | undefined> {
   try {
-    execFileSync("kiro-cli", ["debug", "refresh-auth-token"], {
-      timeout: 15000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    await runKiroCli(["debug", "refresh-auth-token"], 15_000);
     return getKiroCliCredentials();
   } catch (error) {
     console.warn(`[kiro-core] kiro-cli refresh failed: ${formatSafeError(error)}`);

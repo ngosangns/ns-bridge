@@ -22,6 +22,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { withDeclaredToolNames } from "ns-bridge-core";
 import { streamToPi, toBridgeContext, toBridgeEffort, toPiThinkingLevelMap } from "ns-bridge-core/pi";
 import {
   formatSafeError,
@@ -158,7 +159,7 @@ export function streamKiroForPi(
       const credentials = await resolveKiroRequestCredentials(hostKey);
       const region = getKiroRegionFromEndpoint(model.baseUrl) ?? credentials.region;
       const neutral = toBridgeContext(context as never);
-      return streamKiro({
+      const events = streamKiro({
         model: toKiroModelForHost(model as KiroBackedPiModel, region),
         messages: neutral.messages,
         systemPrompt: neutral.systemPrompt,
@@ -170,6 +171,7 @@ export function streamKiroForPi(
         profileArn: (model as KiroBackedPiModel).kiroProfileArn ?? credentials.profileArn,
         canDiscardEmittedBlocks: true,
       });
+      return withDeclaredToolNames(events, neutral.tools);
     },
   });
 }

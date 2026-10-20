@@ -60,7 +60,7 @@ try {
   // the extension ran: grok registers with a literal apiKey ("grok-cli") and
   // fallback models, so it is visible even with no credentials. (kiro/devin
   // are hidden by OMP until authenticated; tests/bundle.test.ts covers them.)
-  if (!byProvider.grok || !byProvider["grok-sdk"]) {
+  if (!byProvider.grok) {
     console.error(result.stderr);
     console.error(`smoke FAILED: grok provider missing; providers: ${JSON.stringify(byProvider)}`);
     process.exit(1);

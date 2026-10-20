@@ -5,4 +5,5 @@
 
 export { toBridgeEffort } from "./effort.js";
 export { formatErrorMessage } from "./errors.js";
+export { normalizeToolName, withDeclaredToolNames } from "./tool-names.js";
 export * from "./types.js";
