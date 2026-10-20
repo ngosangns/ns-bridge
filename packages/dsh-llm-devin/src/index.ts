@@ -30,11 +30,10 @@ import {
   refreshDevinToken,
   resolveDevinCredentials,
 } from "ns-devin-core";
-import { DevinAdapter } from "./adapter.js";
+import { createDevinAdapter } from "./adapter.js";
 
-export { DevinAdapter, type DevinAdapterOptions } from "./adapter.js";
+export { createDevinAdapter, type DevinAdapterOptions } from "./adapter.js";
 export { toLlmError } from "./errors.js";
-export { toDevinMessages } from "./messages.js";
 
 export const name = "llm-devin";
 
@@ -94,7 +93,7 @@ export function apply(ctx: Context, config: Config): void {
     );
   });
 
-  const adapter = new DevinAdapter({
+  const adapter = createDevinAdapter({
     provider: config.provider,
     displayName: config.displayName,
     credentials: currentCredentials,

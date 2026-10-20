@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { GrokAdapter } from "../src/adapter.js";
+import { createGrokAdapter } from "../src/adapter.js";
 
 describe("grok adapter model info", () => {
   it("advertises image input even when the catalog file is text only", async () => {
-    const adapter = new GrokAdapter({ provider: "grok", displayName: "Grok" });
+    const adapter = createGrokAdapter({ provider: "grok", displayName: "Grok" });
     const models = await adapter.listModels("grok");
     expect(models.length).toBeGreaterThan(0);
     expect(models.every((model) => model.inputModalities?.includes("text"))).toBe(true);

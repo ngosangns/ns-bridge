@@ -35,9 +35,13 @@
     "prepublishOnly": "pnpm run check && pnpm run build"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-attachment": ">=0.1.5-rc.1 <0.3.0",
     "@deepseek-ai/dsh-llm": ">=0.1.0-0"
   },
   "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-attachment": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-llm": {
       "optional": true
     }

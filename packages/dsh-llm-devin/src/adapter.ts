@@ -1,20 +1,9 @@
-// ABOUTME: The Harness LLM seam over devin-core.
+// ABOUTME: The Harness LLM seam over devin-core, built from the shared dsh adapter factory.
 
 import type { AttachmentStore } from "@deepseek-ai/dsh-attachment";
-import {
-  type GenerateOptions,
-  LlmAdapter,
-  LlmError,
-  type LlmModelInfo,
-  type LlmProviderInfo,
-  type LlmResolvedModelInfo,
-  type ReasoningEffortId,
-  type StreamChunk,
-} from "@deepseek-ai/dsh-llm";
-import { streamToDsh } from "ns-bridge-core/dsh";
+import { createDshLlmAdapter, type DshAdapterRequest, type DshLlmAdapterSpec } from "ns-bridge-core/dsh";
 import { type DevinCredentials, type DevinEffort, type DevinTool, getCachedModels, streamDevin } from "ns-devin-core";
 import { toLlmError } from "./errors.js";
-import { toDevinMessages } from "./messages.js";
 
 /** What the plugin resolves per request and freezes for the duration of one call. */
 export interface DevinAdapterOptions {
@@ -28,110 +17,36 @@ export interface DevinAdapterOptions {
   attachments?: () => AttachmentStore | undefined;
 }
 
-const EFFORT_NAMES: Record<DevinEffort, string> = {
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Maximum",
-};
+/** Build the Harness adapter for the Devin route. */
+export function createDevinAdapter(options: DevinAdapterOptions) {
+  const spec: DshLlmAdapterSpec<DevinCredentials> = {
+    provider: options.provider,
+    displayName: options.displayName,
+    catalog: () => getCachedModels(),
+    credentials: options.credentials,
+    ...(options.attachments ? { attachments: options.attachments } : {}),
+    stream: (request: DshAdapterRequest, credentials) => {
+      const model = getCachedModels().find((candidate) => candidate.id === request.model);
+      if (!model) throw new Error(`Unknown Devin model: ${request.model}`);
 
-export class DevinAdapter extends LlmAdapter {
-  constructor(private readonly options: DevinAdapterOptions) {
-    super();
-  }
+      const tools: DevinTool[] | undefined = request.tools?.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }));
 
-  providerInfo(provider: string): LlmProviderInfo {
-    return { id: provider, name: this.options.displayName };
-  }
-
-  private toModelInfo(provider: string, model: ReturnType<typeof getCachedModels>[number]): LlmModelInfo {
-    return {
-      provider,
-      id: model.id,
-      name: model.name,
-      inputModalities: model.input.filter((modality) => modality === "text" || modality === "image"),
-    };
-  }
-
-  async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    // The Harness awaits this while it builds the model list. Serve the disk
-    // cache (or the seed). `ns-bridge models refresh` updates that file.
-    return getCachedModels().map((model) => this.toModelInfo(provider, model));
-  }
-
-  async resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo> {
-    const known = getCachedModels().find((candidate) => candidate.id === model);
-    if (!known) throw new LlmError(`Unknown Devin model: ${model}`, "UNKNOWN_MODEL");
-    return this.toResolved(provider, known);
-  }
-
-  private toResolved(provider: string, known: ReturnType<typeof getCachedModels>[number]): LlmResolvedModelInfo {
-    return {
-      provider,
-      id: known.id,
-      name: known.name,
-      inputModalities: known.input.filter((modality) => modality === "text" || modality === "image"),
-      context: { contextWindow: known.contextWindow },
-      defaultMaxTokens: known.maxTokens,
-      ...(known.efforts?.length
-        ? {
-            reasoning: {
-              efforts: known.efforts.map((effort) => ({
-                id: effort as ReasoningEffortId,
-                name: EFFORT_NAMES[effort],
-              })),
-            },
-          }
-        : {}),
-    };
-  }
-
-  async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    try {
-      yield* this.streamInner(options);
-    } catch (error) {
-      // `LlmRuntime.stream()` normalizes a throw into a terminal finish, but only
-      // after this generator has surfaced it. Converting here is what gives the
-      // loop a routing code instead of Devin's raw wording.
-      throw toLlmError(error);
-    }
-  }
-
-  private async *streamInner(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const credentials = await this.options.credentials();
-    const model = getCachedModels().find((candidate) => candidate.id === options.model);
-    if (!model) throw new LlmError(`Unknown Devin model: ${options.model}`, "UNKNOWN_MODEL");
-
-    const projected = await toDevinMessages(options.messages, {
-      attachments: this.options.attachments?.(),
-      signal: options.signal,
-    });
-    // The Harness passes the system prompt as a request field, but a history it
-    // replays may also carry `system`-role messages. Both are real system text,
-    // so they are joined rather than one silently winning.
-    const system = [options.system, projected.system].filter((part) => !!part).join("\n\n") || undefined;
-
-    const tools: DevinTool[] | undefined = options.tools?.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    }));
-
-    // Event translation (blocks, usage, finish, unclosed-block safety) is
-    // shared with every dsh adapter in ns-bridge-core/dsh.
-    yield* streamToDsh(
-      streamDevin({
+      return streamDevin({
         model,
-        messages: projected.messages,
-        systemPrompt: system,
+        messages: request.messages,
+        systemPrompt: request.system,
         tools,
-        effort: options.reasoningEffort as DevinEffort | undefined,
+        effort: request.reasoningEffort as DevinEffort | undefined,
         apiKey: credentials.access,
-        sessionId: options.sessionId,
-        signal: options.signal,
-      }),
-    );
-  }
+        sessionId: request.sessionId,
+        signal: request.signal,
+      });
+    },
+  };
+
+  return createDshLlmAdapter(spec, toLlmError);
 }

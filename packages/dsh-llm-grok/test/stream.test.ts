@@ -25,7 +25,7 @@ vi.mock("ns-grok-core", () => ({
 }));
 
 import { GrokAuthError } from "ns-grok-core";
-import { GrokAdapter } from "../src/adapter.js";
+import { createGrokAdapter } from "../src/adapter.js";
 
 let recorded: StreamGrokOptions | undefined;
 
@@ -36,11 +36,11 @@ const user = {
   content: [{ type: "text", text: "ping" }],
 } as unknown as Message;
 
-function adapter(): GrokAdapter {
-  return new GrokAdapter({ provider: "grok", displayName: "Grok" });
+function adapter() {
+  return createGrokAdapter({ provider: "grok", displayName: "Grok" });
 }
 
-describe("GrokAdapter responses stream", () => {
+describe("Grok adapter responses stream", () => {
   beforeEach(() => {
     recorded = undefined;
     core.streamGrok.mockReset();

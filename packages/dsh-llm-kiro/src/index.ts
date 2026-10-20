@@ -26,11 +26,10 @@ import type { AttachmentStore } from "@deepseek-ai/dsh-attachment";
 import { LlmError } from "@deepseek-ai/dsh-llm";
 import z from "@deepseek-ai/schemastery";
 import { isExpired, type KiroCredentials, refreshKiroToken, resolveKiroCredentials } from "ns-kiro-core";
-import { KiroAdapter } from "./adapter.js";
+import { createKiroAdapter } from "./adapter.js";
 
-export { KiroAdapter, type KiroAdapterOptions } from "./adapter.js";
+export { createKiroAdapter, type KiroAdapterOptions } from "./adapter.js";
 export { toLlmError } from "./errors.js";
-export { toKiroMessages } from "./messages.js";
 
 export const name = "llm-kiro";
 
@@ -95,7 +94,7 @@ export function apply(ctx: Context, config: Config): void {
     );
   });
 
-  const adapter = new KiroAdapter({
+  const adapter = createKiroAdapter({
     provider: config.provider,
     displayName: config.displayName,
     credentials: currentCredentials,

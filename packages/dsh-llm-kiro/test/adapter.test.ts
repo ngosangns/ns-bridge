@@ -11,7 +11,7 @@ vi.mock("ns-kiro-core", async (importOriginal) => {
   return { ...actual, streamKiro };
 });
 
-import { KiroAdapter } from "../src/adapter.js";
+import { createKiroAdapter } from "../src/adapter.js";
 
 const SESSION = "session-1" as NonNullable<GenerateOptions["sessionId"]>;
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
@@ -20,8 +20,8 @@ function usage(partial: Partial<KiroUsage> & Pick<KiroUsage, "input" | "output" 
   return { cost: ZERO_COST, ...partial };
 }
 
-function adapter(): KiroAdapter {
-  return new KiroAdapter({
+function adapter() {
+  return createKiroAdapter({
     provider: "kiro",
     displayName: "Kiro",
     credentials: async () => ({
@@ -68,7 +68,7 @@ async function collect(events: CoreEvent[]): Promise<{
 
 let recorded: KiroStreamRequest | undefined;
 
-describe("KiroAdapter cache usage", () => {
+describe("Kiro adapter cache usage", () => {
   beforeEach(() => {
     recorded = undefined;
     streamKiro.mockReset();

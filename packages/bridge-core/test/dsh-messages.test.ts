@@ -3,7 +3,7 @@
 import type { AttachmentId } from "@deepseek-ai/dsh-attachment";
 import type { Message, ToolCallId } from "@deepseek-ai/dsh-llm";
 import { describe, expect, it } from "vitest";
-import { toKiroMessages } from "../src/messages.js";
+import { toBridgeMessagesFromDsh } from "../src/dsh/messages.js";
 
 /**
  * Loosely typed on purpose: the legacy cases below build dsh 0.1 messages
@@ -13,9 +13,9 @@ import { toKiroMessages } from "../src/messages.js";
 const message = (input: { role: string; content: readonly unknown[] } & Record<string, unknown>): Message =>
   ({ id: "m1", source: { kind: "user" }, ...input }) as unknown as Message;
 
-describe("toKiroMessages", () => {
+describe("toBridgeMessagesFromDsh", () => {
   it("lifts the system role out of the history into the system slot", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({ role: "system", content: [{ type: "text", text: "be brief" }] }),
       message({ role: "user", content: [{ type: "text", text: "hi" }] }),
     ]);
@@ -24,7 +24,7 @@ describe("toKiroMessages", () => {
   });
 
   it("joins several system messages rather than letting the last one win", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({ role: "system", content: [{ type: "text", text: "first" }] }),
       message({ role: "system", content: [{ type: "text", text: "second" }] }),
     ]);
@@ -32,12 +32,12 @@ describe("toKiroMessages", () => {
   });
 
   it("reports no system text when the history carries none", async () => {
-    const out = await toKiroMessages([message({ role: "user", content: [{ type: "text", text: "hi" }] })]);
+    const out = await toBridgeMessagesFromDsh([message({ role: "user", content: [{ type: "text", text: "hi" }] })]);
     expect(out.system).toBeUndefined();
   });
 
   it("lifts a tool-result block out of its user message into its own turn", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "user",
         content: [{ type: "tool-result", toolCallId: "c1" as ToolCallId, content: [{ type: "text", text: "ok" }] }],
@@ -55,7 +55,7 @@ describe("toKiroMessages", () => {
   });
 
   it("keeps plain content ahead of the results that share its message", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "user",
         content: [
@@ -68,7 +68,7 @@ describe("toKiroMessages", () => {
   });
 
   it("carries the tool-result error flag as a boolean even when absent", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "user",
         content: [
@@ -85,7 +85,7 @@ describe("toKiroMessages", () => {
   });
 
   it("maps reasoning blocks onto thinking and parses tool-call arguments", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "assistant",
         content: [
@@ -101,7 +101,7 @@ describe("toKiroMessages", () => {
   });
 
   it("keeps an unparseable tool call so its result still has a partner", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "assistant",
         content: [{ type: "tool-call", id: "c1" as ToolCallId, name: "read", arguments: "{not json" }],
@@ -113,7 +113,7 @@ describe("toKiroMessages", () => {
   });
 
   it("drops images when no attachment store is available", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "user",
         content: [
@@ -129,7 +129,7 @@ describe("toKiroMessages", () => {
   });
 
   it("projects a file block into handle text rather than dropping it", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "user",
         content: [
@@ -154,7 +154,7 @@ describe("toKiroMessages", () => {
     const attachments = {
       fileHostPath: () => "/tmp/notes.txt",
     } as never;
-    const out = await toKiroMessages(
+    const out = await toBridgeMessagesFromDsh(
       [
         message({
           role: "user",
@@ -180,7 +180,7 @@ describe("toKiroMessages", () => {
     const attachments = {
       readImage: async () => ({ data: new Uint8Array([1, 2, 3]), ref: {} }),
     } as never;
-    const out = await toKiroMessages(
+    const out = await toBridgeMessagesFromDsh(
       [
         message({
           role: "user",
@@ -200,9 +200,9 @@ describe("toKiroMessages", () => {
   });
 });
 
-describe("toKiroMessages on the dsh 0.2 message model", () => {
+describe("toBridgeMessagesFromDsh on the dsh 0.2 message model", () => {
   it("maps tool-role messages to tool results named after their call", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "assistant",
         source: { kind: "model", provider: "kiro", model: "claude-sonnet-4-5" },
@@ -227,7 +227,7 @@ describe("toKiroMessages on the dsh 0.2 message model", () => {
   });
 
   it("names a dsh 0.1 tool-result block after its call too", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({
         role: "assistant",
         content: [{ type: "tool-call", id: "c1", name: "read", arguments: "{}" }],
@@ -241,7 +241,7 @@ describe("toKiroMessages on the dsh 0.2 message model", () => {
   });
 
   it("skips developer tool-change messages instead of sending them as user turns", async () => {
-    const out = await toKiroMessages([
+    const out = await toBridgeMessagesFromDsh([
       message({ role: "user", content: [{ type: "text", text: "hi" }] }),
       message({ role: "developer", content: [{ type: "tool-addition", toolName: "web_search" }] } as never),
     ]);
@@ -252,7 +252,7 @@ describe("toKiroMessages on the dsh 0.2 message model", () => {
     const readImage = async () => {
       throw new Error("an offloaded image must not be read");
     };
-    const out = await toKiroMessages(
+    const out = await toBridgeMessagesFromDsh(
       [
         message({
           role: "user",
@@ -274,7 +274,7 @@ describe("toKiroMessages on the dsh 0.2 message model", () => {
   });
 
   it("accepts identity-free request inputs", async () => {
-    const out = await toKiroMessages([{ role: "user", content: [{ type: "text", text: "one-shot" }] }]);
+    const out = await toBridgeMessagesFromDsh([{ role: "user", content: [{ type: "text", text: "one-shot" }] }]);
     expect(out.messages).toEqual([{ role: "user", content: [{ type: "text", text: "one-shot" }] }]);
   });
 });

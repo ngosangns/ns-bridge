@@ -18,9 +18,9 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { AttachmentStore } from "@deepseek-ai/dsh-attachment";
 import z from "@deepseek-ai/schemastery";
-import { GrokAdapter } from "./adapter.js";
+import { createGrokAdapter } from "./adapter.js";
 
-export { GrokAdapter, type GrokAdapterOptions } from "./adapter.js";
+export { createGrokAdapter, type GrokAdapterOptions } from "./adapter.js";
 export { modelsFromCatalogJson, readGrokCatalog } from "./catalog.js";
 
 export const name = "llm-grok";
@@ -58,7 +58,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.llm.registerAdapter(
     [config.provider],
-    new GrokAdapter({
+    createGrokAdapter({
       provider: config.provider,
       displayName: config.displayName,
       attachments: () => attachments,

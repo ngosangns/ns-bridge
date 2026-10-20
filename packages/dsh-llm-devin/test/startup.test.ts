@@ -25,7 +25,7 @@ vi.mock("node:child_process", async () => {
   return { ...actual, ...child };
 });
 
-import { DevinAdapter } from "../src/adapter.js";
+import { createDevinAdapter } from "../src/adapter.js";
 import { apply } from "../src/index.js";
 
 const previous = process.env.NS_DEVIN_MODEL_CACHE;
@@ -47,7 +47,7 @@ describe("Devin catalog refresh does not block the harness", () => {
     process.env.NS_BRIDGE_BACKGROUND_REFRESH = "1";
     process.env.NS_DEVIN_MODEL_CACHE = join(mkdtempSync(join(tmpdir(), "ns-dsh-devin-")), "missing.json");
     const credentials = vi.fn(hangingCredentials());
-    const adapter = new DevinAdapter({
+    const adapter = createDevinAdapter({
       provider: "devin",
       displayName: "Devin",
       credentials,
@@ -59,7 +59,7 @@ describe("Devin catalog refresh does not block the harness", () => {
 
   it("lists and resolves a cached model while discovery is still pending", async () => {
     process.env.NS_DEVIN_MODEL_CACHE = join(mkdtempSync(join(tmpdir(), "ns-dsh-devin-")), "missing.json");
-    const adapter = new DevinAdapter({
+    const adapter = createDevinAdapter({
       provider: "devin",
       displayName: "Devin",
       credentials: hangingCredentials(),
@@ -109,7 +109,7 @@ describe("Devin catalog refresh does not block the harness", () => {
     const credentials = vi.fn(async () => {
       throw new Error("no session");
     });
-    const adapter = new DevinAdapter({
+    const adapter = createDevinAdapter({
       provider: "devin",
       displayName: "Devin",
       credentials,
