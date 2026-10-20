@@ -999,6 +999,22 @@ describe("streamKiro — stop reason and usage", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    // A host routes on the typed fields, so the wording is free to change.
+    it("types a terminal wire stop instead of leaving the host to parse the wording", async () => {
+      stubFetch(makeOkResponse('{"stopReason":"MODEL_CONTEXT_WINDOW_EXCEEDED"}{"contextUsagePercentage":100}'));
+      const error = await collect(streamKiro(makeRequest())).catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(KiroApiError);
+      expect((error as KiroApiError).status).toBe(400);
+      expect((error as KiroApiError).reasonCode).toBe("MODEL_CONTEXT_WINDOW_EXCEEDED");
+    });
+
+    it("types PAUSE_TURN with its own reason code", async () => {
+      stubFetch(makeOkResponse('{"content":"partial"}{"stopReason":"PAUSE_TURN"}'));
+      const error = await collect(streamKiro(makeRequest())).catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(KiroApiError);
+      expect((error as KiroApiError).reasonCode).toBe("PAUSE_TURN");
+    });
+
     it("surfaces a refusal without retrying and without handing over its tool calls", async () => {
       const fetchMock = stubFetch(
         makeOkResponse(

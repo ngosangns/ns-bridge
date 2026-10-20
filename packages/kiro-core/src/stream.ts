@@ -207,17 +207,31 @@ export function resetProfileArnCache(resolved = false): void {
  * so a host's overflow detector (OMP's compaction, dsh's CONTEXT_OVERFLOW)
  * recognizes it, the same wording the 413 path uses. The refusal detail is
  * wire-controlled, so it is redacted and clamped before it is quoted.
+ *
+ * These are typed like every other terminal failure: a host routes on
+ * `reasonCode`/`status` rather than re-parsing the wording, which is what lets
+ * the message stay host-friendly without becoming the contract.
  */
 function throwOnTerminalWireStop(wireStopReason: string | undefined, stopDetails?: Record<string, unknown>): void {
   switch (wireStopReason) {
     case "MODEL_CONTEXT_WINDOW_EXCEEDED":
-      throw new Error("Kiro API error: context_length_exceeded (MODEL_CONTEXT_WINDOW_EXCEEDED)");
+      throw new KiroApiError(
+        "Kiro API error: context_length_exceeded (MODEL_CONTEXT_WINDOW_EXCEEDED)",
+        400,
+        "MODEL_CONTEXT_WINDOW_EXCEEDED",
+      );
     case "CONTENT_FILTERED":
-      throw new Error(
+      throw new KiroApiError(
         `Kiro content filtered: ${clampForDiagnostic(redactSensitiveText(JSON.stringify(stopDetails ?? {})))}`,
+        400,
+        "CONTENT_FILTERED",
       );
     case "PAUSE_TURN":
-      throw new Error("Kiro paused the turn (PAUSE_TURN); automatic continuation is not supported");
+      throw new KiroApiError(
+        "Kiro paused the turn (PAUSE_TURN); automatic continuation is not supported",
+        400,
+        "PAUSE_TURN",
+      );
   }
 }
 
@@ -243,7 +257,7 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
 
   const initialAccessToken = request.accessToken;
   if (!initialAccessToken) {
-    throw new Error("Kiro credentials not set. Run `kiro-cli login`, or set KIRO_API_KEY.");
+    throw new KiroApiError("Kiro credentials not set. Run `kiro-cli login`, or set KIRO_API_KEY.", 401);
   }
   let accessToken = initialAccessToken;
   const region = model.region ?? "us-east-1";
@@ -423,7 +437,9 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
         responseHeaderDeadline.cleanup();
       }
       if (responseHeadersTimedOut) {
-        if (retryCount >= maxRetries) throw new Error("Kiro API error: response headers timeout after max retries");
+        if (retryCount >= maxRetries) {
+          throw new KiroApiError("Kiro API error: response headers timeout after max retries", 504);
+        }
         retryCount++;
         await abortableDelay(exponentialBackoff(retryCount - 1, 1000, MAX_RETRY_DELAY), signal);
         continue requestLoop;
@@ -465,8 +481,12 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
         }
         if (isRequestRateExceeded) {
           if (retryCount >= maxRetries) {
-            throw new Error(
+            throw new KiroApiError(
               `Kiro API error: request window retry budget exhausted (${KIRO_REASON_CODES.USER_REQUEST_RATE_EXCEEDED})`,
+              429,
+              KIRO_REASON_CODES.USER_REQUEST_RATE_EXCEEDED,
+              parseRetryAfterMs(response.headers),
+              { credentialRefresh: credentialRefreshTotal, capacity: capacityRetryTotal },
             );
           }
           retryCount++;
@@ -571,7 +591,7 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
     if (!response.ok) continue;
 
     yield { type: "start" };
-    if (!response.body) throw new Error("No response body");
+    if (!response.body) throw new KiroApiError("No response body", response.status);
     assembler.beginAttempt();
 
     const { frames, outcome } = readKiroEventStream(response.body as ReadableStream<Uint8Array>, {
@@ -609,9 +629,12 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
         await abortableDelay(exponentialBackoff(retryCount - 1, 1000, MAX_RETRY_DELAY), signal);
         continue;
       }
-      if (outcome.error) throw new Error(`Kiro API stream error after max retries: ${outcome.error}`);
-      throw new Error(
+      if (outcome.error) {
+        throw new KiroApiError(`Kiro API stream error after max retries: ${outcome.error}`, 502);
+      }
+      throw new KiroApiError(
         `Kiro API error: ${outcome.firstTokenTimedOut ? "first token" : "idle"} timeout after max retries`,
+        504,
       );
     }
 
