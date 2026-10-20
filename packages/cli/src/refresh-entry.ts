@@ -19,7 +19,7 @@ export function createBundledRefresh(): ModelRefresh {
       return { count: refreshed.models.length };
     },
     grok: async () => {
-      const refreshed = refreshGrokModels({ force: true });
+      const refreshed = await refreshGrokModels({ force: true });
       return { count: refreshed.models.length, detail: `source=${refreshed.source}` };
     },
   };

@@ -81,6 +81,8 @@ The wire protocol and the per-process state both live in this package.
 | [`tokenizer.ts`](packages/kiro-core/src/tokenizer.ts), [`thinking-parser.ts`](packages/kiro-core/src/thinking-parser.ts), and the tool parsers | Token counts (`js-tiktoken` `cl100k_base`), thinking tags, tool-call recovery |
 | [`kiro-cli.ts`](packages/kiro-core/src/kiro-cli.ts), [`kiro-ide.ts`](packages/kiro-core/src/kiro-ide.ts) | The local credential stores — kiro-cli's SQLite DB and the Kiro IDE's credentials file — and which one a machine resolves (`KIRO_AUTH_SOURCE`) |
 | [`oauth.ts`](packages/kiro-core/src/oauth.ts) | Credential resolution, token refresh, and API-key login (`loginKiroWithApiKey` calls GetProfile) |
+| [`http.ts`](packages/kiro-core/src/http.ts) | The one HTTP seam, and the User-Agent each endpoint family expects |
+| [`credential-rotation.ts`](packages/kiro-core/src/credential-rotation.ts) | What a rejected credential is replaced with: re-read the kiro-cli store, refresh only if it still holds the rejected token |
 | [`management.ts`](packages/kiro-core/src/management.ts) | Profile-ARN and profile-region caches for this process |
 | [`models.ts`](packages/kiro-core/src/models.ts), [`effort.ts`](packages/kiro-core/src/effort.ts) | The bootstrap catalog, the on-disk management cache, effort ladders |
 | [`stream.ts`](packages/kiro-core/src/stream.ts) | `streamKiro`: resolve the model and profile, stream one turn, apply the cache-read estimate |

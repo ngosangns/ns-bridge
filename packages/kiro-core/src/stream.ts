@@ -3,18 +3,18 @@
 
 import { createHash } from "node:crypto";
 import { applyCacheEstimate } from "./cache-estimator.js";
+import {
+  pinProfileArnForTests,
+  resolveInitialProfileArn,
+  resolveRotatedProfileArn,
+  rotateRejectedKiroCredential,
+} from "./credential-rotation.js";
 import { debugEnabled, debugLog, redactSensitiveText } from "./debug.js";
 import { buildKiroAdditionalModelRequestFields, clampKiroEffort, getKiroEffortConfig } from "./effort.js";
 import { getKiroEndpoints, getKiroRegionFromProfileArn } from "./endpoints.js";
 import { extractKiroReasonCode, KiroApiError, parseRetryAfterMs } from "./errors.js";
-import { getKiroCliCredentials, getKiroCliCredentialsAllowExpired, refreshViaKiroCli } from "./kiro-cli.js";
-import {
-  invalidateKiroProfileArn,
-  type KiroManagementAuth,
-  KiroManagementHttpError,
-  resetKiroProfileArnCache,
-  resolveKiroProfileArn,
-} from "./management.js";
+import { kiroFetch, kiroRuntimeUserAgent } from "./http.js";
+import { type KiroManagementAuth, KiroManagementHttpError, resetKiroProfileArnCache } from "./management.js";
 import { type KiroModel, resolveKiroModel } from "./models.js";
 import { kiroAuthHeaders } from "./oauth.js";
 import { buildKiroRequest } from "./request-builder.js";
@@ -186,18 +186,14 @@ function describeReturnedContent(kinds: string[]): string {
   return `returning only ${unique.join(" and ")} content`;
 }
 
-let skipProfileResolutionForTests = false;
+/** The profile ARN stream tests pin so they never reach the management API. */
 const TEST_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:000000000000:profile/test";
-
-/** The profile ARN tests pin with `resetProfileArnCache(true)`, if any. */
-export function testProfileArnOverride(): string | undefined {
-  return skipProfileResolutionForTests ? TEST_PROFILE_ARN : undefined;
-}
 
 /** Reset profile resolution state — exported for stream tests. */
 export function resetProfileArnCache(resolved = false): void {
   resetKiroProfileArnCache();
-  skipProfileResolutionForTests = resolved;
+  // Pinning lives next to the rotation policy, not in this request loop.
+  pinProfileArnForTests(resolved ? TEST_PROFILE_ARN : undefined);
 }
 
 /**
@@ -245,14 +241,6 @@ function throwOnTerminalWireStop(wireStopReason: string | undefined, stopDetails
  * governs.
  */
 export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
-  yield* streamKiroInProcess(request);
-}
-
-/**
- * The implementation of {@link streamKiro}. Exported so tests and hosts can
- * call the same generator without going through the public wrapper.
- */
-export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
   const { model, signal } = request;
 
   const initialAccessToken = request.accessToken;
@@ -263,30 +251,22 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
   const region = model.region ?? "us-east-1";
   let managementAuth: KiroManagementAuth = { accessToken, region };
 
-  const cliCreds = getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired();
-  const cliProfileArn = cliCreds?.access === accessToken ? cliCreds.profileArn : undefined;
-  const initialProfileArn = model.profileArn || request.profileArn || cliProfileArn;
+  const hintedProfileArn = model.profileArn || request.profileArn;
   let profileArn: string;
   try {
-    profileArn =
-      initialProfileArn ||
-      (skipProfileResolutionForTests ? TEST_PROFILE_ARN : await resolveKiroProfileArn(managementAuth));
+    profileArn = await resolveInitialProfileArn(managementAuth, hintedProfileArn);
   } catch (error) {
     if (!(error instanceof KiroManagementHttpError) || error.status !== 403) throw error;
 
     // The host may have captured an access token before kiro-cli rotated it.
-    // Re-read the shared store first, then force a refresh only when it still
-    // contains the rejected token. Profile discovery must succeed before the
-    // runtime request can be constructed.
-    const storedCreds = getKiroCliCredentials();
-    const freshCreds = storedCreds?.access && storedCreds.access !== accessToken ? storedCreds : refreshViaKiroCli();
-    if (!freshCreds?.access) throw error;
+    // Profile discovery must succeed before the runtime request can be built,
+    // so a rejection here rotates the credential and resolves again.
+    const rotated = rotateRejectedKiroCredential(accessToken);
+    if (rotated.source === "unchanged") throw error;
 
-    accessToken = freshCreds.access;
+    accessToken = rotated.accessToken;
     managementAuth = { accessToken, region };
-    profileArn =
-      freshCreds.profileArn ||
-      (skipProfileResolutionForTests ? TEST_PROFILE_ARN : await resolveKiroProfileArn(managementAuth));
+    profileArn = rotated.profileArn || (await resolveInitialProfileArn(managementAuth, hintedProfileArn));
   }
 
   // ListAvailableProfiles probes across regions (#104, #131), so an SSO login
@@ -398,7 +378,6 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
     // Inner loop: retry capacity errors without consuming outer retry budget.
     while (true) {
       const mid = crypto.randomUUID().replace(/-/g, "");
-      const ua = `aws-sdk-rust/1.0.0 ua/2.1 os/other lang/rust api/codewhispererstreaming#1.28.3 m/E app/AmazonQ-For-CLI md/appVersion-1.28.3-${mid}`;
       debugLog("request.send", {
         attempt: retryCount,
         capacityAttempt: capacityRetryCount,
@@ -413,7 +392,7 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
       const responseHeaderDeadline = createResponseHeaderDeadline(signal, retryConfig.requestHeaderTimeoutMs);
       let responseHeadersTimedOut = false;
       try {
-        response = await fetch(endpoint, {
+        response = await kiroFetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -424,8 +403,7 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
             "amz-sdk-invocation-id": crypto.randomUUID(),
             "amz-sdk-request": "attempt=1; max=1",
             "x-amzn-kiro-agent-mode": "vibe",
-            "x-amz-user-agent": ua,
-            "user-agent": ua,
+            ...kiroRuntimeUserAgent(mid),
           },
           body: JSON.stringify(kiroRequest),
           signal: responseHeaderDeadline.signal,
@@ -508,32 +486,11 @@ export async function* streamKiroInProcess(request: KiroStreamRequest): AsyncGen
           // Re-read the shared store first in case another process already
           // rotated the token. If it still contains the rejected token, force
           // kiro-cli to refresh before retrying runtime.
-          invalidateKiroProfileArn(managementAuth);
           const rejectedAccessToken = accessToken;
-          const rejectedProfileArn = profileArn;
-          const storedCreds = getKiroCliCredentials();
-          const rejectedCliCreds =
-            storedCreds?.access === rejectedAccessToken
-              ? storedCreds
-              : cliCreds?.access === rejectedAccessToken
-                ? cliCreds
-                : undefined;
-          const freshCreds =
-            storedCreds?.access && storedCreds.access !== rejectedAccessToken ? storedCreds : refreshViaKiroCli();
-          if (freshCreds?.access) accessToken = freshCreds.access;
+          const rotated = rotateRejectedKiroCredential(rejectedAccessToken);
+          if (rotated.source !== "unchanged") accessToken = rotated.accessToken;
           managementAuth = { accessToken, region };
-
-          // Social profiles may not be discoverable through management. Carry
-          // the profile used by the rejected request only across a confirmed
-          // desktop-to-desktop credential replacement.
-          const inheritedDesktopProfileArn =
-            rejectedCliCreds?.authMethod === "desktop" && freshCreds?.authMethod === "desktop"
-              ? rejectedProfileArn
-              : undefined;
-          profileArn =
-            freshCreds?.profileArn ||
-            inheritedDesktopProfileArn ||
-            (skipProfileResolutionForTests ? TEST_PROFILE_ARN : await resolveKiroProfileArn(managementAuth));
+          profileArn = await resolveRotatedProfileArn(managementAuth, rejectedAccessToken, profileArn, rotated);
           // A replacement credential can carry a profile in another region,
           // so re-pin the runtime host before retrying.
           runtimeRegion = getKiroRegionFromProfileArn(profileArn) ?? region;

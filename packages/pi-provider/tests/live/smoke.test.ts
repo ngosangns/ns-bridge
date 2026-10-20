@@ -38,12 +38,12 @@ describe.runIf(LIVE)("live smoke (creds)", () => {
     console.info(`[live] devin: ${result.models.length} models`);
   });
 
-  it("grok models when auth present", () => {
+  it("grok models when auth present", async () => {
     if (!grokAuthPresent() && !has(join(homedir(), ".grok", "auth.json"))) {
       console.info("[live] grok: skip (no auth)");
       return;
     }
-    const result = refreshGrokModels({ force: true });
+    const result = await refreshGrokModels({ force: true });
     expect(result.models.length).toBeGreaterThan(0);
     console.info(`[live] grok: ${result.models.length} models [${result.source}]`);
   });

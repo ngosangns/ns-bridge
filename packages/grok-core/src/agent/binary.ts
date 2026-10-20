@@ -1,7 +1,7 @@
 // ABOUTME: Locating and probing the local Grok agent CLI binary.
 // ABOUTME: Host-neutral: the env names are the CLI's own, not one host's.
 
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -26,21 +26,30 @@ function isExecutable(path: string): boolean {
   }
 }
 
-function which(name: string): string | undefined {
-  try {
-    const out = execFileSync(process.platform === "win32" ? "where" : "which", [name], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 5_000,
-    }).trim();
-    const first = out
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean);
-    return first && isExecutable(first) ? first : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * Run a command and return its stdout, or `undefined` when it fails.
+ *
+ * Async on purpose. These probes spawn a process, and a synchronous spawn
+ * stalls every other request the host is serving until it returns. The callers
+ * are status and refresh paths, so awaiting them costs nothing.
+ */
+function run(command: string, args: string[], timeout: number): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile(command, args, { encoding: "utf8", timeout }, (error, stdout) => {
+      resolve(error ? undefined : stdout);
+    });
+  });
+}
+
+async function which(name: string): Promise<string | undefined> {
+  const out = await run(process.platform === "win32" ? "where" : "which", [name], 5_000);
+  if (out === undefined) return undefined;
+  const first = out
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return first && isExecutable(first) ? first : undefined;
 }
 
 /**
@@ -51,7 +60,7 @@ function which(name: string): string | undefined {
  * 2. `agent` then `grok` on PATH
  * 3. `~/.grok/bin/{agent,grok}` (standard install location)
  */
-export function resolveGrokBinary(env: NodeJS.ProcessEnv = process.env): string {
+export async function resolveGrokBinary(env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const explicit = BINARY_ENV_NAMES.map((name) => env[name]?.trim()).find(Boolean);
   if (explicit) {
     if (!isExecutable(explicit)) {
@@ -63,7 +72,7 @@ export function resolveGrokBinary(env: NodeJS.ProcessEnv = process.env): string 
   }
 
   for (const name of CANDIDATE_NAMES) {
-    const found = which(name);
+    const found = await which(name);
     if (found) return found;
   }
 
@@ -78,35 +87,22 @@ export function resolveGrokBinary(env: NodeJS.ProcessEnv = process.env): string 
   );
 }
 
-/**
- * The CLI's reported version, or `"unknown"`.
- *
- * Synchronous on purpose: this is a one-shot probe on a status path, not a
- * per-turn call. A host that calls it inside a stream should not.
- */
-export function getGrokVersion(binary?: string): string {
+/** The CLI's reported version, or `"unknown"` when the binary cannot say. */
+export async function getGrokVersion(binary?: string): Promise<string> {
   try {
-    const bin = binary ?? resolveGrokBinary();
-    return execFileSync(bin, ["--version"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 8_000,
-    }).trim();
+    const bin = binary ?? (await resolveGrokBinary());
+    return (await run(bin, ["--version"], 8_000))?.trim() || "unknown";
   } catch {
     return "unknown";
   }
 }
 
 /** Whether the CLI reports an authenticated session. */
-export function probeGrokAuth(binary?: string): boolean {
+export async function probeGrokAuth(binary?: string): Promise<boolean> {
   try {
-    const bin = binary ?? resolveGrokBinary();
-    const stdout = execFileSync(bin, ["models"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 20_000,
-    });
-    return !/not authenticated/i.test(stdout);
+    const bin = binary ?? (await resolveGrokBinary());
+    const stdout = await run(bin, ["models"], 20_000);
+    return stdout !== undefined && !/not authenticated/i.test(stdout);
   } catch {
     return false;
   }

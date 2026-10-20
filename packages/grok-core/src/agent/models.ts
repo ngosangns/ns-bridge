@@ -1,7 +1,7 @@
 // ABOUTME: Discovering the Grok agent CLI's model list and mapping host model ids onto it.
 // ABOUTME: Host-neutral: returns descriptors, not any host's provider-model shape.
 
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS, GROK_DEFAULT_MODEL_ID } from "../catalog.js";
 import { resolveGrokBinary } from "./binary.js";
 import type { GrokModelDescriptor } from "./types.js";
@@ -49,17 +49,18 @@ export function parseGrokModelsOutput(stdout: string): GrokModelDescriptor[] {
 }
 
 /** Ask the CLI for its model list, falling back to the bootstrap descriptors. */
-export function discoverGrokModels(binary?: string): {
+export async function discoverGrokModels(binary?: string): Promise<{
   models: GrokModelDescriptor[];
   source: "live" | "fallback";
   error?: string;
-} {
+}> {
   try {
-    const bin = binary ?? resolveGrokBinary();
-    const stdout = execFileSync(bin, ["models"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 20_000,
+    const bin = binary ?? (await resolveGrokBinary());
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(bin, ["models"], { encoding: "utf8", timeout: 20_000 }, (error, out) => {
+        if (error) reject(error);
+        else resolve(out);
+      });
     });
     const parsed = parseGrokModelsOutput(stdout);
     if (parsed.length === 0) {

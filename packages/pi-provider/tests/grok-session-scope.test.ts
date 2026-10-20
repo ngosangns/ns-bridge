@@ -13,9 +13,7 @@ vi.mock("ns-grok-core/agent", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("ns-grok-core/agent")>();
 	return {
 		...actual,
-		resolveGrokBinary: () => {
-			throw new Error("grok binary not available in tests");
-		},
+		resolveGrokBinary: () => Promise.reject(new Error("grok binary not available in tests")),
 	};
 });
 
@@ -58,7 +56,7 @@ describe("grok session scope (pi-grok-sdk 45fde95)", () => {
 
 	it("session_shutdown disposes only the shutting-down session's agents", async () => {
 		const { api, handlers } = mockPi();
-		registerGrokProvider(api as never);
+		await registerGrokProvider(api as never);
 		const shutdown = handlers.get("session_shutdown") ?? [];
 		expect(shutdown).toHaveLength(1);
 
@@ -70,16 +68,16 @@ describe("grok session scope (pi-grok-sdk 45fde95)", () => {
 	it("session_start for another session no longer disposes the previous scope", async () => {
 		vi.mocked(disposeSessionAgentsForScope).mockClear();
 		const { api, handlers } = mockPi();
-		registerGrokProvider(api as never);
+		await registerGrokProvider(api as never);
 		for (const fn of handlers.get("session_start") ?? []) await fn({ type: "session_start" }, ctxFor("/s/a.jsonl"));
 		for (const fn of handlers.get("session_start") ?? []) await fn({ type: "session_start" }, ctxFor("/s/b.jsonl"));
 		expect(disposeSessionAgentsForScope).not.toHaveBeenCalled();
 	});
 
-	it("installs a single process exit hook across registrations", () => {
+	it("installs a single process exit hook across registrations", async () => {
 		const before = process.listenerCount("exit");
-		registerGrokProvider(mockPi().api as never);
-		registerGrokProvider(mockPi().api as never);
+		await registerGrokProvider(mockPi().api as never);
+		await registerGrokProvider(mockPi().api as never);
 		expect(process.listenerCount("exit")).toBe(before);
 	});
 });

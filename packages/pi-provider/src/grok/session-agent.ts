@@ -111,7 +111,7 @@ export async function withSessionAgent<T>(
 	params: WithSessionAgentParams,
 	fn: (session: LiveAcpSession, meta: { created: boolean }) => Promise<T>,
 ): Promise<T> {
-	const binary = resolveGrokBinary();
+	const binary = await resolveGrokBinary();
 	const scopeKey = getSessionScopeKey();
 	const cwd = params.cwd ?? getSessionCwd();
 	const key = poolKey({

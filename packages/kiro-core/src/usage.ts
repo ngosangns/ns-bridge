@@ -155,11 +155,6 @@ async function fetchRawUsage(auth: KiroManagementAuth, profileArn?: string): Pro
 }
 
 export async function fetchKiroUsage(credentials: KiroCredentials): Promise<KiroProviderUsage> {
-  return fetchKiroUsageInProcess(credentials);
-}
-
-/** {@link fetchKiroUsage} against the management API. */
-export async function fetchKiroUsageInProcess(credentials: KiroCredentials): Promise<KiroProviderUsage> {
   const auth = { accessToken: credentials.access, region: resolveApiRegion(credentials.region) };
   const raw = await fetchRawUsage(auth, credentials.profileArn);
   const usageBuckets = raw.usageBreakdownList?.length

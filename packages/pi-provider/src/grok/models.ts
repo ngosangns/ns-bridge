@@ -29,12 +29,12 @@ export function fallbackModels(): GrokModelDescriptor[] {
 }
 
 /** Ask the CLI for its models, falling back to the bootstrap descriptors. */
-export function discoverModels(binary?: string): {
+export async function discoverModels(binary?: string): Promise<{
 	models: GrokModelDescriptor[];
 	source: "live" | "fallback";
 	error?: string;
-} {
-	const discovered = discoverGrokModels(binary);
+}> {
+	const discovered = await discoverGrokModels(binary);
 	if (discovered.source === "live") return discovered;
 	return { ...discovered, models: fallbackModels() };
 }

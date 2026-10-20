@@ -183,7 +183,7 @@ describe("catalog refresh does not block host startup", () => {
       on: vi.fn(),
     };
     const started = Date.now();
-    registerGrokProvider(api as never);
+    await registerGrokProvider(api as never);
     expect(Date.now() - started).toBeLessThan(400);
     expect(api.registerProvider).toHaveBeenCalledTimes(2);
     expect(child.execFile).not.toHaveBeenCalled();

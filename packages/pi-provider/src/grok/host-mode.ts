@@ -94,7 +94,7 @@ async function runHostTurn(
 		const promptFile = join(promptDir, "prompt.json");
 		await writeFile(promptFile, hostAcpDocument(plan.text), "utf8");
 
-		const binary = resolveGrokBinary();
+		const binary = await resolveGrokBinary();
 		const args = buildHostGrokArgs({
 			promptFile,
 			modelId: model.id,

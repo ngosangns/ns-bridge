@@ -46,7 +46,7 @@ export async function registerAllProviders(
   }
   if (enableGrok) {
     try {
-      registerGrokProvider(pi);
+      await registerGrokProvider(pi);
     } catch (err) {
       console.warn(
         `[ns-pi-provider] grok registration failed: ${err instanceof Error ? err.message : String(err)}`,

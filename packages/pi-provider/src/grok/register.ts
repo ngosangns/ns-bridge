@@ -88,13 +88,13 @@ export function grokAuthPresent(env: NodeJS.ProcessEnv = process.env, home = hom
   return grokAuthCandidates(env, home).some((path) => sessionFileHasAccessToken(path));
 }
 
-export function refreshGrokModels(options: {
+export async function refreshGrokModels(options: {
   force?: boolean;
   /** When false, a cache miss returns the static fallback and does not spawn `grok models`. */
   allowCli?: boolean;
   binary?: string;
   cache?: ReturnType<typeof getDefaultCatalogCache>;
-} = {}): { models: ProviderModelConfig[]; fromCache: boolean; source: "live" | "fallback" | "cache" } {
+} = {}): Promise<{ models: ProviderModelConfig[]; fromCache: boolean; source: "live" | "fallback" | "cache" }> {
   const cache = options.cache ?? getDefaultCatalogCache();
 
   if (!options.force) {
@@ -134,12 +134,12 @@ export function refreshGrokModels(options: {
 
   let binary: string | undefined = options.binary;
   try {
-    binary ??= resolveGrokBinary();
+    binary ??= await resolveGrokBinary();
   } catch {
     binary = undefined;
   }
 
-  const discovered = discoverModels(binary);
+  const discovered = await discoverModels(binary);
   const catalog = descriptorsToCatalog(discovered.models);
   cache.store(GROK_PROVIDER_ID, catalog, { version: "grok-cli-v1" });
   return {
@@ -162,7 +162,7 @@ function createProviderConfig(models: ProviderModelConfig[]) {
     // for the picker, and the bootstrap fallback is not stored, so both stay
     // null here and do not become that authoritative list.
     fetchDynamicModels: async () => {
-      const latest = refreshGrokModels({ allowCli: false });
+      const latest = await refreshGrokModels({ allowCli: false });
       if (!latest.fromCache || latest.models.length === 0) return null;
       return latest.models;
     },
@@ -174,7 +174,7 @@ function createProviderConfig(models: ProviderModelConfig[]) {
   };
 }
 
-export function registerGrokProvider(pi: ExtensionAPI): void {
+export async function registerGrokProvider(pi: ExtensionAPI): Promise<void> {
   registerSessionScope(pi);
   // Tear down only this session's ACP pool entry (pi-grok-sdk 45fde95).
   // Multi-session hosts share one Node process; disposing every agent on any
@@ -198,19 +198,25 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
 
   let binary: string | undefined;
   let binaryError: string | undefined;
-  try {
-    binary = resolveGrokBinary();
-  } catch (err) {
-    binaryError = err instanceof Error ? err.message : String(err);
-  }
+
+  // Registration serves the disk cache or the static fallback, so it never
+  // spawns the CLI. Resolving the binary still probes PATH, which is async so
+  // it does not stall the host while extensions load.
+  void resolveGrokBinary()
+    .then((found) => {
+      binary = found;
+    })
+    .catch((err: unknown) => {
+      binaryError = err instanceof Error ? err.message : String(err);
+    });
 
   // `grok models` can block for 20s. Registration serves the disk cache or the
   // static fallback. `ns-bridge models refresh` is what runs the CLI.
-  let refreshed = refreshGrokModels({ allowCli: false, binary });
+  let refreshed = await refreshGrokModels({ allowCli: false });
   let models = refreshed.models;
   const sameIds = (next: ProviderModelConfig[]) =>
     models.length === next.length && models.every((model, index) => model.id === next[index]?.id);
-  const publish = (next: ReturnType<typeof refreshGrokModels>, force = false) => {
+  const publish = (next: Awaited<ReturnType<typeof refreshGrokModels>>, force = false) => {
     if (!force && sameIds(next.models)) {
       refreshed = next;
       return;
@@ -232,7 +238,7 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
   // A probe that finished while extensions were loading is republished here,
   // still without spawning the CLI.
   pi.on("session_start", () => {
-    publish(refreshGrokModels({ allowCli: false, binary }));
+    void refreshGrokModels({ allowCli: false, binary }).then((next) => publish(next));
   });
 
   const commandHandler = async (
@@ -254,8 +260,8 @@ export function registerGrokProvider(pi: ExtensionAPI): void {
       } catch (err) {
         mode = err instanceof Error ? err.message : String(err);
       }
-      const version = binary ? getGrokVersion(binary) : "unknown";
-      const authed = binary ? probeGrokAuth(binary) : grokAuthPresent();
+      const version = binary ? await getGrokVersion(binary) : "unknown";
+      const authed = binary ? await probeGrokAuth(binary) : grokAuthPresent();
       notify(
         [
           `${CLIENT_NAME} via ns-pi-provider v${CLIENT_VERSION}`,

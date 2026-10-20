@@ -54,3 +54,15 @@ export function isExternalIdpAccessToken(accessToken: string | undefined): boole
 export function kiroTokenTypeHeaders(accessToken: string | undefined): Record<string, string> {
   return isExternalIdpAccessToken(accessToken) ? { tokentype: "EXTERNAL_IDP" } : {};
 }
+
+/** A `ksk_` bearer token. Kiro issues these as long-lived API keys. */
+export function isApiKey(token: string): boolean {
+  return token.startsWith("ksk_");
+}
+
+/** The `Authorization` header, plus `tokentype: API_KEY` when the token is one. */
+export function kiroAuthHeaders(token: string): Record<string, string> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  if (isApiKey(token)) headers.tokentype = "API_KEY";
+  return headers;
+}

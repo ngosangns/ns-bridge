@@ -10,7 +10,17 @@ const child = vi.hoisted(() => ({
 vi.mock("node:child_process", async () => {
   const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
   const wrap = (name: keyof typeof child) => {
-    child[name].mockImplementation((...args: unknown[]) => (actual[name] as (...inner: unknown[]) => unknown)(...args));
+    child[name].mockImplementation((...args: unknown[]) => {
+      const impl = actual[name] as (...inner: unknown[]) => unknown;
+      // `execFile`'s result arrives through its callback. The real one is last,
+      // so hand back the synthetic stdout and let the caller decide the rest.
+      const tail = args.at(-1);
+      if (name === "execFile" && typeof tail === "function") {
+        (tail as (error: null, stdout: string) => void)(null, "grok 0.0.0-test\n");
+        return;
+      }
+      return impl(...args);
+    });
   };
   wrap("execFile");
   wrap("execFileSync");
@@ -78,8 +88,8 @@ Default model: grok-4.5
     }
   });
 
-  it("refreshGrokModels caches and hits TTL", () => {
-    const first = refreshGrokModels({ force: true, binary: undefined, cache });
+  it("refreshGrokModels caches and hits TTL", async () => {
+    const first = await refreshGrokModels({ force: true, binary: undefined, cache });
     expect(first.fromCache).toBe(false);
     expect(first.models.length).toBeGreaterThan(0);
     // costs on provider models
@@ -88,13 +98,13 @@ Default model: grok-4.5
       cacheWrite: expect.any(Number),
     });
 
-    const second = refreshGrokModels({ binary: undefined, cache });
+    const second = await refreshGrokModels({ binary: undefined, cache });
     expect(second.fromCache).toBe(true);
     expect(second.source).toBe("cache");
   });
 
-  it("serves the fallback on a cache miss when the CLI is not allowed", () => {
-    const refreshed = refreshGrokModels({ allowCli: false, cache });
+  it("serves the fallback on a cache miss when the CLI is not allowed", async () => {
+    const refreshed = await refreshGrokModels({ allowCli: false, cache });
     expect(refreshed.source).toBe("fallback");
     expect(refreshed.fromCache).toBe(false);
     expect(refreshed.models.map((model) => model.id)).toEqual(
@@ -107,7 +117,7 @@ Default model: grok-4.5
     expect(child.spawnSync).not.toHaveBeenCalled();
   });
 
-  it("serves an expired disk catalog without spawning or rewriting it", () => {
+  it("serves an expired disk catalog without spawning or rewriting it", async () => {
     const planted = {
       version: "grok-cli-v1",
       fetchedAt: now - 60_000,
@@ -126,7 +136,7 @@ Default model: grok-4.5
     };
     memFs.set(cache.pathFor("grok"), JSON.stringify(planted));
     const before = memFs.size;
-    const refreshed = refreshGrokModels({ allowCli: false, cache });
+    const refreshed = await refreshGrokModels({ allowCli: false, cache });
     expect(refreshed.source).toBe("cache");
     expect(refreshed.fromCache).toBe(false);
     expect(refreshed.models.map((model) => model.id)).toEqual(

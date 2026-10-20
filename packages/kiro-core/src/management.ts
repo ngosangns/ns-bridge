@@ -4,8 +4,8 @@
 import { createHash } from "node:crypto";
 import { debugLog, redactSensitiveText } from "./debug.js";
 import { getKiroEndpoints } from "./endpoints.js";
-import { fetchApiKeyGetProfile, isApiKey, kiroAuthHeaders } from "./oauth.js";
-import { kiroTokenTypeHeaders } from "./token-type.js";
+import { kiroManagementFetch } from "./http.js";
+import { fetchApiKeyGetProfile, isApiKey } from "./oauth.js";
 
 const LIST_PROFILES_PATH = "List-Available-Profiles";
 const LIST_MODELS_PATH = "List-Available-Models";
@@ -109,26 +109,10 @@ async function requestManagement<TResponse>(
   body: Record<string, unknown>,
 ): Promise<TResponse> {
   const url = new URL(path, getKiroEndpoints(auth.region).management);
-  const request: RequestInit = {
-    method,
-    headers: {
-      Accept: "application/json",
-      ...kiroAuthHeaders(auth.accessToken),
-      ...kiroTokenTypeHeaders(auth.accessToken),
-    },
-  };
-  if (method === "GET") {
-    for (const [name, value] of Object.entries(body)) {
-      if (value !== undefined) url.searchParams.set(name, String(value));
-    }
-  } else {
-    request.headers = { ...request.headers, "Content-Type": "application/json" };
-    request.body = JSON.stringify(body);
-  }
 
   let response: Response;
   try {
-    response = await fetch(url.toString(), request);
+    response = await kiroManagementFetch(url, auth, method, body);
   } catch (error) {
     throw new Error(`Kiro management ${operation} request failed in ${auth.region}`, { cause: error });
   }
@@ -362,21 +346,12 @@ export async function getUsageLimits<TResponse>(
 ): Promise<TResponse> {
   const operation = "GetUsageLimits";
   const url = new URL("Get-Usage-Limits", getKiroEndpoints(auth.region).management);
-  for (const [name, value] of Object.entries(request)) {
-    if (value !== undefined) url.searchParams.set(name, String(value));
-  }
 
   let response: Response;
   try {
-    response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        ...kiroAuthHeaders(auth.accessToken),
-        ...kiroTokenTypeHeaders(auth.accessToken),
-        "User-Agent": "ns-kiro-provider",
-      },
-    });
+    // The same request as every other management call. It used to be written
+    // out by hand here, which is how its User-Agent drifted from the rest.
+    response = await kiroManagementFetch(url, auth, "GET", request);
   } catch (error) {
     throw new Error(`Kiro management ${operation} request failed in ${auth.region}`, { cause: error });
   }

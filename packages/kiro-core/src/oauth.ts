@@ -11,8 +11,10 @@
 
 import { formatSafeError } from "./debug.js";
 import { getKiroEndpoints } from "./endpoints.js";
+import { KIRO_USER_AGENTS, kiroFetch, kiroSdkUserAgent } from "./http.js";
 import { getKiroCliCredentials, getKiroCliCredentialsAllowExpired } from "./kiro-cli.js";
 import { getKiroIdeCredentials, getKiroIdeCredentialsAllowExpired } from "./kiro-ide.js";
+import { isApiKey, kiroAuthHeaders } from "./token-type.js";
 
 export const SSO_OIDC_ENDPOINT = "https://oidc.us-east-1.amazonaws.com";
 export const BUILDER_ID_START_URL = "https://view.awsapps.com/start";
@@ -47,7 +49,8 @@ export interface KiroCredentials {
   isEnterprise?: boolean;
 }
 
-export const KIRO_DESKTOP_USER_AGENT = "Kiro-Desktop/0.2.13 (darwin; arm64)";
+/** @deprecated The user-agent table lives in {@link KIRO_USER_AGENTS}. */
+export const KIRO_DESKTOP_USER_AGENT = KIRO_USER_AGENTS.desktop;
 
 /**
  * Which of this machine's two Kiro sessions the provider signs in with.
@@ -78,23 +81,10 @@ export function resolveKiroAuthSource(): KiroAuthSource {
   return "cli";
 }
 
-export function kiroUserAgent(service: string, sdkVersion: string): Record<string, string> {
-  return {
-    "User-Agent": `aws-sdk-js/3.714.0 os/macos/24.3.0 lang/js md/nodejs/22.14.0 api/${service}/3.714.0 exec-env/kiro-cli/2.7.0 m/E`,
-    "amz-sdk-invocation-id": "00000000-0000-0000-0000-000000000000",
-    "amz-sdk-request": `attempt=1; max=${sdkVersion}`,
-  };
-}
+/** @deprecated Use {@link kiroSdkUserAgent}. Kept so existing deep imports still resolve. */
+export const kiroUserAgent = kiroSdkUserAgent;
 
-export function kiroAuthHeaders(token: string): Record<string, string> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-  if (isApiKey(token)) headers.tokentype = "API_KEY";
-  return headers;
-}
-
-export function isApiKey(token: string): boolean {
-  return token.startsWith("ksk_");
-}
+export { isApiKey, kiroAuthHeaders };
 
 /** Region Kiro issues API keys against. Management calls for a `ksk_` key go here. */
 const API_KEY_REGION = "us-east-1";
@@ -105,13 +95,13 @@ const API_KEY_REGION = "us-east-1";
  */
 export async function fetchApiKeyGetProfile(accessToken: string): Promise<Response> {
   try {
-    return await fetch(getKiroEndpoints(API_KEY_REGION).management, {
+    return await kiroFetch(getKiroEndpoints(API_KEY_REGION).management, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-amz-json-1.0",
         "X-Amz-Target": "AmazonCodeWhispererService.GetProfile",
         ...kiroAuthHeaders(accessToken),
-        ...kiroUserAgent("codewhispererruntime", "F,C"),
+        ...kiroSdkUserAgent("codewhispererruntime", "F,C"),
       },
       body: "{}",
     });
@@ -292,9 +282,9 @@ async function refreshKiroTokenDirectInProcess(credentials: KiroCredentials): Pr
   if (authMethod === "desktop") {
     // Kiro desktop app tokens use a different refresh endpoint.
     const url = endpointFromEnv(KIRO_DESKTOP_REFRESH_ENDPOINT_ENV, KIRO_DESKTOP_REFRESH_URL, region);
-    const response = await fetch(url, {
+    const response = await kiroFetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": KIRO_DESKTOP_USER_AGENT },
+      headers: { "Content-Type": "application/json", "User-Agent": KIRO_USER_AGENTS.desktop },
       body: JSON.stringify({ refreshToken }),
     });
     if (!response.ok) throw new Error(`Desktop token refresh failed: ${response.status}`);
@@ -326,12 +316,12 @@ async function refreshKiroTokenDirectInProcess(credentials: KiroCredentials): Pr
     const idpClientId = parts[1] ?? "";
     const tokenEndpoint = parts[2] ?? "";
     if (!tokenEndpoint) throw new Error("External IdP token refresh: missing token endpoint");
-    const response = await fetch(tokenEndpoint, {
+    const response = await kiroFetch(tokenEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         Accept: "application/json",
-        "User-Agent": "kiro-core",
+        "User-Agent": KIRO_USER_AGENTS.externalIdp,
       },
       body: new URLSearchParams({
         grant_type: "refresh_token",
@@ -363,9 +353,9 @@ async function refreshKiroTokenDirectInProcess(credentials: KiroCredentials): Pr
   const clientId = parts[1] ?? "";
   const clientSecret = parts[2] ?? "";
   const ssoEndpoint = endpointFromEnv(KIRO_OIDC_ENDPOINT_ENV, "https://oidc.{region}.amazonaws.com", region);
-  const response = await fetch(`${ssoEndpoint}/token`, {
+  const response = await kiroFetch(`${ssoEndpoint}/token`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...kiroUserAgent("ssooidc", "E") },
+    headers: { "Content-Type": "application/json", ...kiroSdkUserAgent("ssooidc", "E") },
     body: JSON.stringify({ clientId, clientSecret, refreshToken, grantType: "refresh_token" }),
   });
   if (!response.ok) throw new Error(`Token refresh failed: ${response.status}`);

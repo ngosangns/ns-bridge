@@ -97,7 +97,7 @@ export function streamViaJsonl(
 				return;
 			}
 
-			const binary = resolveGrokBinary();
+			const binary = await resolveGrokBinary();
 			const cwd = getSessionCwd();
 			const reasoning = mapReasoningEffort(options?.reasoning);
 			const prompt = buildFullPrompt(context);

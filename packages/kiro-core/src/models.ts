@@ -579,16 +579,6 @@ export function isCacheStale(region: string): boolean {
  * reads synchronously.
  */
 export async function updateKiroModelsCache(accessToken: string, region: string, profileArn?: string): Promise<void> {
-  await updateKiroModelsCacheInProcess(accessToken, region, profileArn);
-  refreshKnownModelIds(readManagementCache());
-}
-
-/** {@link updateKiroModelsCache} against the management API. */
-export async function updateKiroModelsCacheInProcess(
-  accessToken: string,
-  region: string,
-  profileArn?: string,
-): Promise<void> {
   // The management client and the kiro-cli rate reader stay off the import
   // graph. Registration only reads the disk cache below; this refresh is the
   // first point that talks to either.
