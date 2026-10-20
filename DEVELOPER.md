@@ -133,9 +133,9 @@ The workflow accepts only a `ns-bridge@<version>` tag.
    git tag ns-bridge@<version> && git push origin ns-bridge@<version>
    ```
 
-The CLI on npm is `0.1.2`, tagged `ns-bridge@0.1.2`. That tag is already
-published. Do not republish `0.1.0` or `0.1.1`. The next release is a new
-version in `packages/cli/package.json`.
+`0.1.0`, `0.1.1`, and `0.1.2` (`ns-bridge@0.1.2`) are already on npm. This tree
+releases `0.1.3`, tagged `ns-bridge@0.1.3`. Do not republish those versions.
+The next release after that is a new version in `packages/cli/package.json`.
 
 The workflow re-runs lint, build, typecheck and tests, then
 [`scripts/release-plan.mjs`](scripts/release-plan.mjs) publishes that CLI
