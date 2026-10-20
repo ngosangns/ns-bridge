@@ -124,3 +124,22 @@ describe("Kiro adapter cache usage", () => {
     });
   });
 });
+
+describe("Kiro adapter compaction reservation", () => {
+  it("reserves Pi's 16,384 where the catalog ceiling is larger, and keeps a small ceiling", async () => {
+    const models = await adapter().listModels("kiro");
+    const opus = await adapter().resolveModel("kiro", "claude-opus-4-5");
+    const haiku = await adapter().resolveModel("kiro", "claude-haiku-4-5");
+    const glm = await adapter().resolveModel("kiro", "glm-5");
+
+    // opus-4.5 is 200k/64k: the 64k ceiling would be reserved in full. haiku is
+    // 200k/65,536, same story. glm-5 is 200k/8,192, already below the floor, so
+    // its ceiling stays the reservation.
+    expect(models.map((model) => model.id)).toContain("claude-opus-4-5");
+    expect(opus.context?.contextWindow).toBe(200_000);
+    expect(opus.defaultMaxTokens).toBe(16_384);
+    expect(haiku.defaultMaxTokens).toBe(16_384);
+    expect(glm.context?.contextWindow).toBe(200_000);
+    expect(glm.defaultMaxTokens).toBe(8_192);
+  });
+});

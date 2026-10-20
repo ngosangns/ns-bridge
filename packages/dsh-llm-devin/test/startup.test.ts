@@ -76,6 +76,12 @@ describe("Devin catalog refresh does not block the harness", () => {
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("resolveModel waited")), 50)),
     ]);
     expect(resolved.id).toBe("swe-1-6");
+    // swe-1-6's catalog ceiling is 128k of a 200k window. Reserving all of it
+    // leaves the Harness compacting near 6k tokens. The reservation drops to
+    // Pi's 16,384; the wire request still uses the catalog ceiling, because
+    // this adapter never forwards the reservation.
+    expect(resolved.context?.contextWindow).toBe(200_000);
+    expect(resolved.defaultMaxTokens).toBe(16_384);
     expect(child.execFile).not.toHaveBeenCalled();
     expect(child.execFileSync).not.toHaveBeenCalled();
     expect(child.execSync).not.toHaveBeenCalled();

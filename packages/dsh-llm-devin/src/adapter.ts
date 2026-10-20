@@ -1,9 +1,25 @@
 // ABOUTME: The Harness LLM seam over devin-core, built from the shared dsh adapter factory.
 
 import type { AttachmentStore } from "@deepseek-ai/dsh-attachment";
-import { createDshLlmAdapter, type DshAdapterRequest, type DshLlmAdapterSpec } from "ns-bridge-core/dsh";
+import {
+  compactionReserveTokens,
+  createDshLlmAdapter,
+  type DshAdapterRequest,
+  type DshLlmAdapterSpec,
+} from "ns-bridge-core/dsh";
 import { type DevinCredentials, type DevinEffort, type DevinTool, getCachedModels, streamDevin } from "ns-devin-core";
 import { toLlmError } from "./errors.js";
+
+/**
+ * Report a smaller output reservation than the catalog ceiling, so the Harness
+ * does not compact at `window − ceiling − headroom`. Only the reported
+ * reservation changes: Devin's request builder falls back to the catalog
+ * ceiling on its own, and this adapter never forwards the reservation.
+ */
+function withCompactionReserve<T extends { contextWindow: number; maxTokens: number }>(model: T): T {
+  const reserve = compactionReserveTokens(model);
+  return reserve !== undefined && reserve < model.maxTokens ? { ...model, compactionReserveTokens: reserve } : model;
+}
 
 /** What the plugin resolves per request and freezes for the duration of one call. */
 export interface DevinAdapterOptions {
@@ -22,7 +38,7 @@ export function createDevinAdapter(options: DevinAdapterOptions) {
   const spec: DshLlmAdapterSpec<DevinCredentials> = {
     provider: options.provider,
     displayName: options.displayName,
-    catalog: () => getCachedModels(),
+    catalog: () => getCachedModels().map(withCompactionReserve),
     credentials: options.credentials,
     ...(options.attachments ? { attachments: options.attachments } : {}),
     stream: (request: DshAdapterRequest, credentials) => {

@@ -1,7 +1,12 @@
 // ABOUTME: The Harness LLM seam over kiro-core, built from the shared dsh adapter factory.
 
 import { withDeclaredToolNames } from "ns-bridge-core";
-import { createDshLlmAdapter, type DshAdapterRequest, type DshLlmAdapterSpec } from "ns-bridge-core/dsh";
+import {
+  compactionReserveTokens,
+  createDshLlmAdapter,
+  type DshAdapterRequest,
+  type DshLlmAdapterSpec,
+} from "ns-bridge-core/dsh";
 import {
   getCachedModels,
   type KiroCredentials,
@@ -13,6 +18,16 @@ import {
   streamKiro,
 } from "ns-kiro-core";
 import { toLlmError } from "./errors.js";
+
+/**
+ * Report a smaller output reservation than the catalog ceiling, so the Harness
+ * does not compact at `window − ceiling − headroom`. The catalog `maxTokens`
+ * stays the completion ceiling; Kiro's request builder never reads it anyway.
+ */
+function withCompactionReserve<T extends { contextWindow: number; maxTokens: number }>(model: T): T {
+  const reserve = compactionReserveTokens(model);
+  return reserve !== undefined && reserve < model.maxTokens ? { ...model, compactionReserveTokens: reserve } : model;
+}
 
 /** What the plugin resolves per request and freezes for the duration of one call. */
 export interface KiroAdapterOptions {
@@ -35,7 +50,7 @@ export function createKiroAdapter(options: KiroAdapterOptions) {
   const spec: DshLlmAdapterSpec<KiroCredentials, KiroModel> = {
     provider: options.provider,
     displayName: options.displayName,
-    catalog: () => catalog(),
+    catalog: () => catalog().map(withCompactionReserve),
     credentials: options.credentials,
     ...(options.attachments ? { attachments: options.attachments } : {}),
     stream: (request: DshAdapterRequest, credentials) => {

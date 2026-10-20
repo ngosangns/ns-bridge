@@ -8,6 +8,7 @@
 import type { AttachmentStore } from "@deepseek-ai/dsh-attachment";
 import { toBridgeEffort } from "ns-bridge-core";
 import {
+  compactionReserveTokens,
   createDshLlmAdapter,
   type DshAdapterModel,
   type DshAdapterRequest,
@@ -27,6 +28,14 @@ export interface GrokAdapterOptions {
 /** Every listed Grok model accepts images. The catalog file stays text-only. */
 const INPUT_MODALITIES = ["text", "image"] as const;
 
+/** Output held back for Harness compaction, when it is below the catalog ceiling. */
+function reserveField(model: { contextWindow: number; maxTokens: number }): {
+  compactionReserveTokens?: number;
+} {
+  const reserve = compactionReserveTokens(model);
+  return reserve !== undefined && reserve < model.maxTokens ? { compactionReserveTokens: reserve } : {};
+}
+
 /** The reasoning ladder every Grok model exposes. */
 const EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -37,6 +46,10 @@ function toAdapterModel(model: GrokListedModel): DshAdapterModel {
     input: INPUT_MODALITIES,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
+    // The catalog ceiling is the most one completion may run to. Reporting all
+    // of it as reserved output, on top of the Harness headroom, compacts
+    // grok-4.7 near 62k of its 256k window. Hold back Pi's 16,384 instead.
+    ...reserveField(model),
     ...(model.reasoning ? { efforts: EFFORTS } : {}),
   };
 }

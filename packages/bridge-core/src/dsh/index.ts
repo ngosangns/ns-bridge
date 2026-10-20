@@ -2,6 +2,7 @@
 // Needs @deepseek-ai/dsh-llm at runtime (an optional peer: the Harness provides it).
 
 export {
+  compactionReserveTokens,
   createDshLlmAdapter,
   type DshAdapterModel,
   type DshAdapterRequest,

@@ -24,6 +24,20 @@ export interface DshAdapterModel {
   input: readonly string[];
   contextWindow: number;
   maxTokens: number;
+  /**
+   * Output tokens the Harness should hold back when it decides whether the
+   * context is full, when that differs from {@link maxTokens}.
+   *
+   * The Harness treats `defaultMaxTokens` as output reserved out of the window:
+   * it compacts once the context passes `min(window × ratio, window − reserved −
+   * headroom)`. Reporting the catalog's maximum completion there, on top of the
+   * plugin's own headroom, compacts far too early. This field is what gets
+   * reported instead. It never reaches a vendor request — the catalog maximum
+   * stays the completion ceiling.
+   *
+   * Absent means the catalog maximum is a fair reservation on its own.
+   */
+  compactionReserveTokens?: number;
   /** Reasoning rungs this model exposes, lowest first. Absent means none. */
   efforts?: readonly string[];
 }
@@ -35,7 +49,45 @@ export interface DshAdapterModel {
  * the spec's `stream` needs the whole thing. Typing the catalog as the vendor's
  * own model and reading it through this subset keeps both true without a cast.
  */
-type AdapterModelFields = Pick<DshAdapterModel, "id" | "name" | "input" | "contextWindow" | "maxTokens" | "efforts">;
+type AdapterModelFields = Pick<
+  DshAdapterModel,
+  "id" | "name" | "input" | "contextWindow" | "maxTokens" | "compactionReserveTokens" | "efforts"
+>;
+
+/**
+ * Output tokens reported to the Harness as reserved out of the context window.
+ *
+ * The Harness compacts at `floor(min(window × ratio, window − reserved −
+ * headroom))`, and it takes `reserved` from the adapter's `defaultMaxTokens`.
+ * A catalog ceiling of 128k on a 256k window, plus the plugin's own 65,536
+ * headroom, leaves a trigger near 62k — about a quarter of the window, against
+ * the ~80% the native harnesses use and the `window − 16,384` Pi uses.
+ *
+ * The reported reservation is therefore the smaller of the catalog ceiling and
+ * {@link COMPACTION_RESERVE_FLOOR}. That is Pi's `reserveTokens`, not a guess
+ * at how long one completion runs: it is the output a host already treats as
+ * "held back" without clipping a normal turn. A ceiling at or below the floor
+ * is already a fair reservation, so it is left untouched.
+ *
+ * This number is only what the Harness holds back. It is not forwarded to a
+ * vendor, so the catalog ceiling stays the completion cap on the wire.
+ */
+const COMPACTION_RESERVE_FLOOR = 16_384;
+
+/**
+ * The output reservation the Harness should see for one catalog entry.
+ * Non-positive or non-finite input is not a reservation, so the caller falls
+ * back to the catalog ceiling.
+ */
+export function compactionReserveTokens(model: { contextWindow: number; maxTokens: number }): number | undefined {
+  const { contextWindow, maxTokens } = model;
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return undefined;
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0) return undefined;
+  // A window that cannot hold the floor plus one message token has no room to
+  // reserve less than its ceiling. Leave it on the ceiling.
+  if (contextWindow <= COMPACTION_RESERVE_FLOOR) return undefined;
+  return Math.max(1, Math.min(Math.floor(maxTokens), COMPACTION_RESERVE_FLOOR));
+}
 
 /**
  * One request as a vendor spec receives it: the Harness options with the
@@ -111,7 +163,7 @@ function toResolvedModel(provider: string, model: AdapterModelFields): LlmResolv
   return {
     ...toModelInfo(provider, model),
     context: { contextWindow: model.contextWindow },
-    defaultMaxTokens: model.maxTokens,
+    defaultMaxTokens: model.compactionReserveTokens ?? model.maxTokens,
     ...(model.efforts?.length
       ? {
           reasoning: {
