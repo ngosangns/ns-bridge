@@ -197,4 +197,22 @@ describe("Grok CLI session", () => {
       await chmod(dir, 0o700);
     }
   });
+
+  it("returns a fresh token without waiting on another process's refresh lock", async () => {
+    const path = await authFile({ "https://auth.x.ai::client-1": account({ expires_at: "2026-10-20T01:00:00.000Z" }) });
+    // A lock another process holds (or left behind) must not stall a token that needs no refresh.
+    await writeFile(`${path}.lock`, "");
+    const fetchImpl = async () => {
+      throw new Error("no refresh expected");
+    };
+    const started = Date.now();
+    const loaded = await loadGrokAccess({
+      authPath: path,
+      now: Date.parse("2026-10-20T00:00:00.000Z"),
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(loaded.accessToken).toBe("access-old");
+    expect(Date.now() - started).toBeLessThan(1_000);
+    await expect(stat(`${path}.lock`)).resolves.toBeTruthy();
+  });
 });

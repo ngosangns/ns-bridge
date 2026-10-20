@@ -323,10 +323,35 @@ async function refreshSession(path: string, options: LoadGrokAccessOptions): Pro
   }
 }
 
+/**
+ * The token on disk when it needs no refresh, read without the cross-process lock.
+ *
+ * Every request used to take `auth.json.lock` even when the token had most of
+ * its hour left, so a Grok CLI or another host refreshing at that moment (or a
+ * crashed one that left the lock behind) stalled each turn for up to
+ * {@link LOCK_WAIT_MS}. Only a refresh rewrites the file, and the rename that
+ * stores it is atomic, so a plain read sees either the old or the new record.
+ */
+async function freshTokenWithoutLock(path: string, now: number): Promise<{ accessToken: string } | undefined> {
+  let file: Record<string, unknown>;
+  try {
+    file = await readAuthFile(path);
+  } catch {
+    return undefined;
+  }
+  const picked = pickGrokAccount(file);
+  const accessToken = picked?.account.key;
+  if (!picked || !accessToken) return undefined;
+  if (tokenExpiresSoon(picked.account.expires_at, now)) return undefined;
+  return { accessToken };
+}
+
 /** The access token for one Responses call. Refreshes the CLI session when it is near expiry. */
 export async function loadGrokAccess(options: LoadGrokAccessOptions = {}): Promise<{ accessToken: string }> {
   const path = options.authPath ?? (await firstExisting(grokAuthCandidates(options.env, options.home ?? homedir())));
   if (!path) throw new GrokAuthError(GROK_LOGIN_MESSAGE);
+  const fresh = await freshTokenWithoutLock(path, options.now ?? Date.now());
+  if (fresh) return fresh;
   const current = refreshFlights.get(path);
   if (current) return current;
   const flight = refreshSession(path, options);
