@@ -1,6 +1,6 @@
 {
   "name": "@ngosangns/ns-bridge",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Install, update, and refresh ns-bridge providers outside Pi, OMP, and DSH.",
   "type": "module",
   "license": "MIT",
