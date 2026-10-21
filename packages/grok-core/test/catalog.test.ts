@@ -20,6 +20,11 @@ describe("grokBootstrapModels", () => {
     expect(models.every((model) => model.maxTokens === GROK_DEFAULT_MAX_TOKENS)).toBe(true);
     expect(models.every((model) => model.reasoning)).toBe(true);
   });
+
+  it("falls back to the 256k window grok-4.7 actually serves, not the 500k ceiling", () => {
+    expect(GROK_DEFAULT_CONTEXT_WINDOW).toBe(256_000);
+    expect(grokBootstrapModels().find((model) => model.id === "grok-4.7")?.contextWindow).toBe(256_000);
+  });
 });
 
 describe("grokModelsFromCatalogJson", () => {

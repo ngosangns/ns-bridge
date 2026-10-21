@@ -11,8 +11,15 @@ import { join } from "node:path";
  */
 export const GROK_BOOTSTRAP_MODEL_IDS = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"] as const;
 
-/** Context window every Grok model is assumed to have when the catalog omits one. */
-export const GROK_DEFAULT_CONTEXT_WINDOW = 500_000;
+/**
+ * Context window every Grok model is assumed to have when the catalog omits one.
+ *
+ * This is the window the live model serves (`context_window` in the CLI's
+ * models cache: 256k for grok-4.7). The larger figure in `context_windows` is
+ * a ceiling, not what a request gets, so a fallback built on it lets a host
+ * send prompts the proxy refuses and compact far too late.
+ */
+export const GROK_DEFAULT_CONTEXT_WINDOW = 256_000;
 /** Output ceiling assumed when the catalog omits one. */
 export const GROK_DEFAULT_MAX_TOKENS = 128_000;
 

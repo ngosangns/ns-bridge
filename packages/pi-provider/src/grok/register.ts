@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import { grokAuthCandidates } from "ns-grok-core";
+import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS, grokAuthCandidates } from "ns-grok-core";
 
 import { ensureCacheCost, getDefaultCatalogCache, type CatalogModel } from "../shared/index.js";
 import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "ns-grok-core/cli";
@@ -34,8 +34,8 @@ function descriptorsToCatalog(descriptors: GrokModelDescriptor[]): CatalogModel[
     reasoning: d.supportsReasoningEffort ?? true,
     input: ["text"] as Array<"text" | "image">,
     cost: ensureCacheCost({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }),
-    contextWindow: d.contextWindow ?? 500_000,
-    maxTokens: d.maxTokens ?? 128_000,
+    contextWindow: d.contextWindow ?? GROK_DEFAULT_CONTEXT_WINDOW,
+    maxTokens: d.maxTokens ?? GROK_DEFAULT_MAX_TOKENS,
   }));
 }
 
