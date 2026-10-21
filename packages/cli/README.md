@@ -18,8 +18,6 @@ ns-bridge update <pi|omp|dsh|all> [--apply] [--profile <name>]
 ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
 ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
 ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--apply] [--profile <name>]
-ns-bridge agents status omp [name]
-ns-bridge agents enable|disable omp <name> [--apply]
 ns-bridge models list [kiro|devin|grok|all]
 ns-bridge models refresh [kiro|devin|grok|all] [--apply]
 ns-bridge status
@@ -36,8 +34,6 @@ DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it
 `update` with no host updates this CLI, not the host plugins. It asks npm for the latest `@ngosangns/ns-bridge` and, with `--apply`, runs `npm install -g @ngosangns/ns-bridge@<latest>`. Already current prints the version and does not install. A host argument (`pi`, `omp`, `dsh`, or `all`) updates those plugins instead.
 
 `providers enable` and `providers disable` turn one of `kiro`, `devin`, or `grok` on or off. Pi and OMP share `~/.ns-bridge/providers.json` (`NS_BRIDGE_PROVIDERS` overrides the path); the extension reads it at launch. With no file, all three are on. `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds, and `NS_OMP_PROVIDER_DISABLE` removes. DSH writes `disabled: true` on that plugin's id in the profile's `cordis.patch.yml`. In OMP, `kiro` stays with `ns-omp-provider-kiro` while that plugin is installed, unless the file or an env list names it.
-
-`agents enable` and `agents disable` edit OMP's `task.disabledAgents` in `~/.omp/agent/config.yml` (or `~/.omp/profiles/<OMP_PROFILE>/agent/config.yml`). Pi and DSH have no agent list, so those hosts are refused.
 
 `models list` and `status` read the catalog files and do not import the provider cores:
 

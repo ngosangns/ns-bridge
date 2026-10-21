@@ -19,7 +19,6 @@ ns-bridge install --apply  # pi + omp; DSH needs --profile
 ns-bridge update --apply       # this CLI, from npm
 ns-bridge models list
 ns-bridge providers disable omp grok --apply
-ns-bridge agents disable omp scout --apply
 ns-bridge models refresh --apply
 ```
 

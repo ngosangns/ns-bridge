@@ -323,20 +323,6 @@ describe("ns-bridge", () => {
     expect(readFileSync(patch, "utf8")).not.toContain("disabled:");
   });
 
-  it("adds and removes an omp agent from task.disabledAgents", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
-    const config = join(dir, "config.yml");
-    writeFileSync(config, "modelRoles:\n  default: grok/grok-4.7\n");
-    const off = capture();
-    expect(await run(["agents", "disable", "omp", "scout", "--apply"], { ...off, ompConfig: config })).toBe(0);
-    expect(readFileSync(config, "utf8")).toContain("disabledAgents:\n    - scout");
-    expect(readFileSync(config, "utf8")).toContain("modelRoles:");
-    const on = capture();
-    expect(await run(["agents", "enable", "omp", "scout", "--apply"], { ...on, ompConfig: config })).toBe(0);
-    expect(readFileSync(config, "utf8")).not.toContain("disabledAgents");
-    expect(readFileSync(config, "utf8")).toContain("modelRoles:");
-  });
-
   it("previews a self-update and does not install", async () => {
     const io = capture();
     const calls: string[][] = [];
@@ -388,9 +374,9 @@ describe("ns-bridge", () => {
     expect(io.stderr.join("\n")).toContain("ENOTFOUND");
   });
 
-  it("refuses agent toggles for hosts without a list", async () => {
+  it("does not manage host coding agents", async () => {
     const io = capture();
-    expect(await run(["agents", "disable", "pi", "scout"], io)).toBe(1);
-    expect(io.stderr.join("\n")).toContain("only omp");
+    expect(await run(["agents", "disable", "omp", "scout"], io)).toBe(1);
+    expect(io.stderr[0]).toBe("unknown command agents");
   });
 });
