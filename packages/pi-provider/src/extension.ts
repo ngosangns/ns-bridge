@@ -10,6 +10,7 @@ import { registerDevinProvider, refreshDevinModels, devinCatalogStatus, DEVIN_PR
 import { registerGrokProvider, refreshGrokModels, GROK_PROVIDER_ID } from "./grok/register.js";
 import { getDefaultCatalogCache } from "./shared/index.js";
 import { resolveProviderSelection } from "./selection.js";
+import { setUsageHost } from "ns-bridge-core";
 
 export interface NsPiProviderOptions {
   /** Skip individual providers when false. Default: all enabled. */
@@ -22,6 +23,8 @@ export async function registerAllProviders(
   pi: ExtensionAPI,
   options: NsPiProviderOptions = {},
 ): Promise<void> {
+  // First caller wins, so ns-omp-provider keeps its own label.
+  setUsageHost("pi");
   const enableKiro = options.kiro !== false;
   const enableDevin = options.devin !== false;
   const enableGrok = options.grok !== false;

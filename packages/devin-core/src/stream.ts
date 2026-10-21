@@ -1,6 +1,7 @@
 // ABOUTME: streamDevin — one Cascade turn over Connect server-streaming,
 // ABOUTME: emitting the neutral DevinStreamEvent sequence hosts render from.
 
+import { recordUsage } from "ns-core-utils";
 import { assignDevinModel, DEVIN_CHAT_MESSAGE_PATH, type FetchImpl, fetchDevinAuthMetadata } from "./client.js";
 import { ConnectFrameReader, encodeConnectFrame } from "./connect.js";
 import { createDevinHttpError, DevinProtocolError, DevinStreamError, readConnectTrailerError } from "./errors.js";
@@ -76,7 +77,13 @@ export function calculateDevinCost(
  * own `fetch`; otherwise the global `fetch` is used.
  */
 export function streamDevin(request: DevinStreamRequest): AsyncIterable<DevinStreamEvent> {
-  return streamDevinInProcess(request);
+  return recordUsage(streamDevinInProcess(request), {
+    vendor: "devin",
+    model: request.model.id,
+    contextWindow: request.model.contextWindow,
+    effort: request.effort,
+    sessionId: request.conversationId ?? request.sessionId,
+  });
 }
 
 /**

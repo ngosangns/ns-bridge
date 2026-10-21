@@ -3,6 +3,7 @@
 //   ns-bridge-core/pi   Pi (@earendil-works/pi-ai) and OMP (@oh-my-pi/pi-ai)
 //   ns-bridge-core/dsh  DeepSeek Harness (@deepseek-ai/dsh-llm)
 
+export { setUsageHost, type UsageHost } from "ns-core-utils";
 export { toBridgeEffort } from "./effort.js";
 export { formatErrorMessage } from "./errors.js";
 export { normalizeToolName, withDeclaredToolNames } from "./tool-names.js";

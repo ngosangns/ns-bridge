@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { registerAllProviders } from "@ngosangns/ns-pi-provider";
+import { setUsageHost } from "ns-bridge-core";
 import { readProviderFile } from "@ngosangns/ns-pi-provider/selection";
 
 import { wrapExtensionApi } from "./adapter.js";
@@ -20,6 +21,7 @@ export { adaptProviderConfig, toPiContext, toOmpApiKey, toFetchDynamicModels, wr
 export { resolveProviderSelection } from "./config.js";
 
 export default async function nsOmpProvider(pi: object): Promise<void> {
+  setUsageHost("omp");
   const selection = resolveProviderSelection();
   // ns-omp-provider-kiro owns the kiro id while it is installed. A file or
   // env list that names kiro is an explicit choice, so this plugin registers it.

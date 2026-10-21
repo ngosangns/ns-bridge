@@ -379,4 +379,188 @@ describe("ns-bridge", () => {
     expect(await run(["agents", "disable", "omp", "scout"], io)).toBe(1);
     expect(io.stderr[0]).toBe("unknown command agents");
   });
+
+  describe("usage", () => {
+    function line(over: Record<string, unknown>): string {
+      return JSON.stringify({
+        ts: "2026-10-21T05:00:00.000Z",
+        vendor: "grok",
+        host: "dsh",
+        model: "m",
+        session: "s1",
+        step: 1,
+        gapMs: null,
+        input: 100,
+        output: 10,
+        promptTokens: 1000,
+        cacheRead: 900,
+        cacheHitRatio: 0.9,
+        cacheWriteRatio: null,
+        cacheSource: "wire",
+        ...over,
+      });
+    }
+    function ledger(files: Record<string, string[]>): string {
+      const root = mkdtempSync(join(tmpdir(), "ns-bridge-usage-"));
+      for (const [path, lines] of Object.entries(files)) {
+        mkdirSync(join(root, path, ".."), { recursive: true });
+        writeFileSync(join(root, path), `${lines.join("\n")}\n`);
+      }
+      return root;
+    }
+
+    it("sums cache read over prompt tokens instead of averaging per-step ratios", async () => {
+      // A tiny cold step and a huge warm one: the average of ratios is 50%, the true hit is ~99%.
+      const usageDir = ledger({
+        "2026-10-21/grok/s1.jsonl": [
+          line({ promptTokens: 100, cacheRead: 0, cacheHitRatio: 0 }),
+          line({ promptTokens: 9900, cacheRead: 9900, cacheHitRatio: 1, step: 2 }),
+        ],
+      });
+      const io = capture();
+      expect(await run(["usage"], { ...io, usageDir })).toBe(0);
+      expect(io.stdout.join("\n")).toContain("99.0%");
+      expect(io.stdout.join("\n")).not.toContain("50.0%");
+    });
+
+    it("leaves steps without cache counters out of the hit ratio and shows their source", async () => {
+      const usageDir = ledger({
+        "2026-10-21/kiro/s1.jsonl": [
+          line({ vendor: "kiro", promptTokens: 1000, cacheRead: 800, cacheHitRatio: 0.8 }),
+          line({
+            vendor: "kiro",
+            promptTokens: 5000,
+            cacheRead: undefined,
+            cacheHitRatio: null,
+            cacheSource: "none",
+            step: 2,
+          }),
+        ],
+      });
+      const io = capture();
+      await run(["usage"], { ...io, usageDir });
+      const text = io.stdout.join("\n");
+      expect(text).toContain("80.0%");
+      expect(text).toContain("wire 1");
+      expect(text).toContain("no cache data 1");
+    });
+
+    it("shows a credits-capped row as an upper bound and keeps it out of the hit ratio", async () => {
+      const usageDir = ledger({
+        "2026-10-21/kiro/s1.jsonl": [
+          line({ vendor: "kiro", promptTokens: 30000, cacheRead: 27000, cacheHitRatio: 0.9, cacheSource: "credits" }),
+          line({
+            vendor: "kiro",
+            promptTokens: 30000,
+            cacheRead: undefined,
+            cacheHitRatio: null,
+            cacheSource: "credits-capped",
+            cacheHitMax: 0.9,
+            step: 2,
+          }),
+        ],
+      });
+      const summary = capture();
+      await run(["usage"], { ...summary, usageDir });
+      expect(summary.stdout.join("\n")).toContain("credits cap 1");
+      expect(summary.stdout.join("\n")).toContain("90.0%");
+      const session = capture();
+      await run(["usage", "--session", "s1"], { ...session, usageDir });
+      expect(session.stdout[2]).toContain("<=90.0%*");
+    });
+
+    it("marks hit ratios derived from credits so they are not read as provider counters", async () => {
+      const usageDir = ledger({
+        "2026-10-21/kiro/s1.jsonl": [
+          line({ vendor: "kiro", promptTokens: 20000, cacheRead: 18000, cacheHitRatio: 0.9, cacheSource: "credits" }),
+          line({
+            vendor: "kiro",
+            promptTokens: 20000,
+            cacheRead: undefined,
+            cacheHitRatio: null,
+            cacheSource: "none",
+            step: 2,
+          }),
+        ],
+      });
+      const summary = capture();
+      await run(["usage"], { ...summary, usageDir });
+      expect(summary.stdout.join("\n")).toContain("from credits 1");
+      expect(summary.stdout.join("\n")).toContain("no cache data 1");
+      const session = capture();
+      await run(["usage", "--session", "s1"], { ...session, usageDir });
+      expect(session.stdout[1]).toContain("90.0%*");
+    });
+
+    it("prints a dash, not 0%, when no step reported cache", async () => {
+      const usageDir = ledger({
+        "2026-10-21/kiro/s1.jsonl": [
+          line({ vendor: "kiro", cacheRead: undefined, cacheHitRatio: null, cacheSource: "none" }),
+        ],
+      });
+      const io = capture();
+      await run(["usage"], { ...io, usageDir });
+      expect(io.stdout[1]).toMatch(/kiro\s+1\s+1\.0k\s+-\s+-\s+no cache data 1/);
+    });
+
+    it("filters by vendor and lists one session step by step", async () => {
+      const usageDir = ledger({
+        "2026-10-21/grok/s1.jsonl": [line({}), line({ step: 2, gapMs: 7000, cacheHitRatio: 0.5 })],
+        "2026-10-21/devin/s1.jsonl": [line({ vendor: "devin", session: "s1" })],
+        "2026-10-21/grok/s2.jsonl": [line({ session: "s2" })],
+      });
+      const byVendor = capture();
+      await run(["usage", "--vendor", "devin"], { ...byVendor, usageDir });
+      expect(byVendor.stdout.join("\n")).toContain("devin");
+      expect(byVendor.stdout.join("\n")).not.toContain("grok");
+
+      const bySession = capture();
+      await run(["usage", "--session", "s1", "--vendor", "grok"], { ...bySession, usageDir });
+      expect(bySession.stdout).toHaveLength(3);
+      expect(bySession.stdout[2]).toContain("7s");
+    });
+
+    it("limits to the newest days and to one named day", async () => {
+      const usageDir = ledger({
+        "2026-10-19/grok/s1.jsonl": [line({ ts: "2026-10-19T05:00:00.000Z" })],
+        "2026-10-20/grok/s1.jsonl": [line({ ts: "2026-10-20T05:00:00.000Z" })],
+        "2026-10-21/grok/s1.jsonl": [line({ ts: "2026-10-21T05:00:00.000Z" })],
+      });
+      const newest = capture();
+      await run(["usage", "--days", "1"], { ...newest, usageDir });
+      expect(newest.stdout.join("\n")).toContain("2026-10-21");
+      expect(newest.stdout.join("\n")).not.toContain("2026-10-20");
+
+      const one = capture();
+      await run(["usage", "--day", "2026-10-20"], { ...one, usageDir });
+      expect(one.stdout.join("\n")).toContain("2026-10-20");
+      expect(one.stdout.join("\n")).not.toContain("2026-10-21");
+    });
+
+    it("prints raw lines with --json and skips a torn line with a note", async () => {
+      const usageDir = ledger({ "2026-10-21/grok/s1.jsonl": [line({}), '{"vendor":"grok","prom'] });
+      const io = capture();
+      expect(await run(["usage", "--json"], { ...io, usageDir })).toBe(0);
+      expect(io.stdout).toHaveLength(1);
+      expect(JSON.parse(io.stdout[0] ?? "").vendor).toBe("grok");
+      expect(io.stderr.join("\n")).toContain("skipped 1 unreadable line");
+    });
+
+    it("says so when nothing was recorded, and rejects bad input", async () => {
+      const usageDir = mkdtempSync(join(tmpdir(), "ns-bridge-usage-"));
+      const empty = capture();
+      expect(await run(["usage"], { ...empty, usageDir })).toBe(0);
+      expect(empty.stdout[0]).toBe("no usage recorded");
+
+      for (const argv of [
+        ["usage", "--vendor", "x"],
+        ["usage", "--day", "yesterday"],
+        ["usage", "--days", "0"],
+        ["usage", "extra"],
+      ]) {
+        const io = capture();
+        expect(await run(argv, { ...io, usageDir })).toBe(1);
+      }
+    });
+  });
 });

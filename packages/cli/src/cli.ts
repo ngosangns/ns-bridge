@@ -12,6 +12,7 @@ import { formatCommand, type HostAction, parseHosts, planHostCommands } from "./
 import { formatProviderPlan, type ProviderPaths, planProviders, providerPaths } from "./providers.js";
 import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.js";
 import { currentVersion, PACKAGE_NAME, parseNpmVersion, planSelfUpdate } from "./self.js";
+import { formatSession, formatSummary, localDay, readUsage, summarize, usageRoot } from "./usage.js";
 
 export interface CommandResult {
   code: number;
@@ -29,6 +30,8 @@ export interface RunOptions {
   paths?: CatalogPaths;
   now?: number;
   providerPaths?: ProviderPaths;
+  /** Usage ledger root. Tests pass a temp dir; production reads ~/.ns-bridge/usage. */
+  usageDir?: string;
   /** Installed CLI version. Tests pass this so they do not read package.json. */
   version?: string;
 }
@@ -45,6 +48,8 @@ Usage:
   ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
   ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
   ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--apply] [--profile <name>]
+  ns-bridge usage [--vendor <kiro|devin|grok>] [--day YYYY-MM-DD] [--days <n>] [--json]
+  ns-bridge usage --session <id> [--vendor <name>] [--json]
   ns-bridge models list [kiro|devin|grok|all]
   ns-bridge models refresh [kiro|devin|grok|all] [--apply]
   ns-bridge status
@@ -68,6 +73,10 @@ providers enable/disable writes the host's own switch:
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
 install/update <host> without --profile skips DSH and still previews Pi and OMP.
 These commands install the npm packages. A local Pi path stays until that install runs.
+
+usage reads the ledger the plugins write under ~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl.
+It never calls the network. Hit is cacheRead over prompt tokens, summed, not an average of
+per-step ratios. NS_BRIDGE_USAGE=0 stops the plugins from recording.
 
 update with no host updates this CLI. It looks up the latest @ngosangns/ns-bridge
 on npm and, with --apply, runs npm install -g @ngosangns/ns-bridge@<latest>.
@@ -153,6 +162,13 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
     if (target === "list") return printCatalogs(log, options, vendors, "list");
     return refreshModels(log, err, parsed.apply, vendors, options);
   }
+  if (command === "usage") {
+    if (target) {
+      err(`usage takes flags, not arguments (got ${target})`);
+      return 1;
+    }
+    return runUsage(parsed, log, err, options);
+  }
   if (command === "update" && !target) {
     return runSelfUpdate(parsed, log, err, options);
   }
@@ -169,6 +185,39 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
   err(`unknown command ${command}`);
   err("run ns-bridge help");
   return 1;
+}
+
+function runUsage(
+  parsed: Parsed,
+  log: (line: string) => void,
+  err: (line: string) => void,
+  options: RunOptions,
+): number {
+  if (parsed.vendor && !["kiro", "devin", "grok"].includes(parsed.vendor)) {
+    err(`unknown vendor ${parsed.vendor} (kiro, devin, grok)`);
+    return 1;
+  }
+  if (parsed.day && !/^\d{4}-\d{2}-\d{2}$/.test(parsed.day)) {
+    err("--day needs YYYY-MM-DD");
+    return 1;
+  }
+  const root = options.usageDir ?? usageRoot();
+  const { records, skipped } = readUsage(root, {
+    day: parsed.day,
+    days: parsed.days,
+    vendor: parsed.vendor,
+    session: parsed.session,
+  });
+  if (parsed.json) {
+    for (const record of records) log(JSON.stringify(record));
+  } else if (parsed.session) {
+    for (const line of formatSession(records)) log(line);
+  } else {
+    for (const line of formatSummary(summarize(records, localDay))) log(line);
+    if (records.length === 0) log(`# nothing under ${root}; plugins write there unless NS_BRIDGE_USAGE=0`);
+  }
+  if (skipped > 0) err(`# skipped ${skipped} unreadable line${skipped === 1 ? "" : "s"}`);
+  return 0;
 }
 
 function printCatalogs(
@@ -344,6 +393,11 @@ interface Parsed {
   apply: boolean;
   profile?: string;
   help: boolean;
+  vendor?: string;
+  day?: string;
+  days?: number;
+  session?: string;
+  json: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Parsed | { error: string } {
@@ -351,6 +405,11 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
   let apply = false;
   let profile: string | undefined;
   let help = false;
+  let vendor: string | undefined;
+  let day: string | undefined;
+  let days: number | undefined;
+  let session: string | undefined;
+  let json = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--") {
@@ -382,8 +441,30 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       profile = value;
       continue;
     }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    const valued = ["--vendor", "--day", "--days", "--session"].find(
+      (flag) => arg === flag || arg.startsWith(`${flag}=`),
+    );
+    if (valued) {
+      const value = arg === valued ? argv[index + 1] : arg.slice(valued.length + 1);
+      if (!value || (arg === valued && value.startsWith("-"))) return { error: `${valued} needs a value` };
+      if (arg === valued) index += 1;
+      if (valued === "--vendor") vendor = value;
+      else if (valued === "--day") day = value;
+      else if (valued === "--session") session = value;
+      else {
+        const parsedDays = Number(value);
+        if (!Number.isInteger(parsedDays) || parsedDays < 1)
+          return { error: "--days needs a whole number of at least 1" };
+        days = parsedDays;
+      }
+      continue;
+    }
     if (arg.startsWith("-")) return { error: `unknown flag ${arg}` };
     positionals.push(arg);
   }
-  return { positionals, apply, profile, help };
+  return { positionals, apply, profile, help, vendor, day, days, session, json };
 }

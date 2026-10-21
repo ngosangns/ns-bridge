@@ -5,6 +5,8 @@ import { defineConfig } from "vitest/config";
 // packages bring their own vitest configs.
 export default defineConfig({
   test: {
+    // Streams record usage under ~/.ns-bridge/usage by default. Tests must not touch it.
+    env: { NS_BRIDGE_USAGE: "0" },
     projects: [
       {
         test: {

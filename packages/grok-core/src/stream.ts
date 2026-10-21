@@ -1,6 +1,7 @@
 // ABOUTME: One Responses call against cli-chat-proxy using the Grok CLI login session.
 // ABOUTME: The host owns the transcript, the tool schemas, and the tool loop. This client only speaks HTTP.
 
+import { recordUsage } from "ns-core-utils";
 import { loadGrokAccess } from "./auth.js";
 import { GrokApiError } from "./errors.js";
 import { grokProxyBase, grokResponseHeaders, resolveGrokClientVersion } from "./headers.js";
@@ -85,7 +86,17 @@ async function* eventsFromWire(
 }
 
 /** Stream one model turn. Does not spawn `grok` and does not run a tool. */
-export async function* streamGrok(options: StreamGrokOptions): AsyncGenerator<GrokStreamEvent> {
+export function streamGrok(options: StreamGrokOptions): AsyncGenerator<GrokStreamEvent> {
+  return recordUsage(streamGrokResponse(options), {
+    vendor: "grok",
+    model: options.model,
+    contextWindow: options.contextWindow,
+    effort: options.effort,
+    sessionId: options.promptCacheKey,
+  });
+}
+
+async function* streamGrokResponse(options: StreamGrokOptions): AsyncGenerator<GrokStreamEvent> {
   if (options.signal?.aborted) throw aborted();
   const fetchImpl = options.fetchImpl ?? fetch;
   const access = options.accessToken

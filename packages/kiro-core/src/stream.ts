@@ -2,7 +2,9 @@
 // ABOUTME: Handles request building, retry logic, event parsing, and token counting.
 
 import { createHash } from "node:crypto";
+import { recordUsage } from "ns-core-utils";
 import { applyCacheEstimate } from "./cache-estimator.js";
+import { deriveKiroCacheFromCredits } from "./cache-from-credits.js";
 import {
   pinProfileArnForTests,
   resolveInitialProfileArn,
@@ -240,7 +242,20 @@ function throwOnTerminalWireStop(wireStopReason: string | undefined, stopDetails
  * already been streamed out, which {@link KiroStreamRequest.canDiscardEmittedBlocks}
  * governs.
  */
-export async function* streamKiro(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
+export function streamKiro(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
+  return recordUsage(streamKiroResponse(request), {
+    vendor: "kiro",
+    model: request.model.id,
+    contextWindow: request.model.contextWindow,
+    effort: request.effort,
+    sessionId: request.sessionId,
+    // Kiro sends no cache counters. Its credits are the one number it does send that cache changes.
+    deriveCache: (turn) =>
+      deriveKiroCacheFromCredits({ ...turn, model: request.model.id, rateMultiplier: request.model.rateMultiplier }),
+  });
+}
+
+async function* streamKiroResponse(request: KiroStreamRequest): AsyncGenerator<KiroStreamEvent> {
   const { model, signal } = request;
 
   const initialAccessToken = request.accessToken;

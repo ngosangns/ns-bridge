@@ -12,7 +12,7 @@ import {
   type ReasoningEffortId,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
-import { compactionBudget } from "ns-core-utils";
+import { compactionBudget, setUsageHost } from "ns-core-utils";
 import type { BridgeMessage, BridgeStreamEvent } from "../types.js";
 import { toBridgeMessagesFromDsh } from "./messages.js";
 import { streamToDsh } from "./stream.js";
@@ -184,6 +184,8 @@ export function createDshLlmAdapter<Credentials, Model extends AdapterModelField
   spec: DshLlmAdapterSpec<Credentials, Model>,
   toLlmError: (error: unknown) => LlmError,
 ): LlmAdapter {
+  // Every Harness route is built here, so this is where the process learns its host.
+  setUsageHost("dsh");
   return new (class extends LlmAdapter {
     providerInfo(provider: string): LlmProviderInfo {
       return { id: provider, name: spec.displayName };

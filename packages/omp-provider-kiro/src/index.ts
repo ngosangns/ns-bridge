@@ -2,6 +2,7 @@
 
 import type { Api, OAuthCredentials } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { setUsageHost } from "ns-bridge-core";
 import {
   getCachedModels,
   isCacheStale,
@@ -47,6 +48,7 @@ function catalogForCredentials(credentials: KiroCredentials): Catalog {
 }
 
 export default function (pi: ExtensionAPI) {
+  setUsageHost("omp");
   let current = localCatalog();
 
   const publish = (next: Catalog) => {

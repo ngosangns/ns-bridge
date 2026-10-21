@@ -65,6 +65,40 @@ modes, which each spawned a `grok` process per turn, are gone.
 redirect Kiro, for example to a test server. `refreshDevinToken` is a
 no-request shortcut: Devin issues no refresh token.
 
+### The usage ledger
+
+Every `streamKiro`, `streamDevin`, and `streamGrok` call is wrapped by `recordUsage` in
+`packages/core-utils/src/usage-ledger.ts`. When the stream ends it appends one line to
+`~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl`. It sits in the core, so Pi, OMP, and
+DSH all get it and an adapter does nothing but name its host (`setUsageHost`; the first
+caller wins, so `ns-omp-provider` keeps `omp` even though it bundles the Pi adapter).
+
+- The record is numbers and labels only: no prompt, no tool content, no credentials.
+- A session id comes from the host, so it never picks a path. Plain ids (`[A-Za-z0-9_-]`,
+  up to 80) are the file name; anything else becomes `h-<hash>`. The full id stays in the line.
+- The ledger records provider numbers and never a host plugin's guess. `cacheHitRatio` and
+  `cacheWriteRatio` are `null` when there is nothing to report, never 0. `cacheSource` is `wire`
+  (provider counters), `credits` (derived), or `none`.
+- Kiro sends no cache counters (checked against its raw frames). `dsh-llm-kiro` turns on
+  `estimateCacheUsage` to feed the Harness; `providerUsage` moves those guessed tokens back to
+  `input` before writing. The core then derives the ratio from billed credits instead
+  (`kiro-core/src/cache-from-credits.ts`, passed in as `UsageContext.deriveCache`). Kiro bills
+  `min(cold * P, cached * (P - n) + fresh * n)` per 1k prompt tokens, per `rateMultiplier`, where n is
+  the part of the prompt that was not cached and `fresh` is about ten times `cached`. Under the
+  cold ceiling the bill gives n exactly (`cacheSource: credits`). On the ceiling it gives only an
+  upper bound (`credits-capped`, `cacheHitMax`): appending ~10% to a cached prefix already bills as a
+  cold prompt (~30% for sonnet, whose cold cap is twice haiku/opus). The constants are measurements,
+  not a published price list. If Kiro reprices, re-measure (one fixed prefix, three identical
+  turns, then append known token counts) and edit `KIRO_CREDIT_RATES` and the fixtures in
+  `cache-from-credits.test.ts`. Models other than haiku, sonnet and opus were not measured and are
+  refused. A long answer is refused because the output-token term is itself an estimate.
+- A failed write is swallowed and counted (`usageWriteFailures`). The ledger must not fail a response.
+- Day folders older than 30 days, and the oldest ones beyond 50 MB, are deleted whole. The newest stays.
+- `NS_BRIDGE_USAGE=0` turns it off. The root vitest config sets it, so tests never write to the home directory;
+  the ledger's own tests turn it back on against a temp dir.
+- `ns-bridge usage` (`packages/cli/src/usage.ts`) only reads. It shares no code with the writer, so the
+  line shape is the contract between them.
+
 ### The `kiro` provider id in OMP
 
 `ns-omp-provider-kiro` owns `kiro` in OMP while that plugin is installed.
