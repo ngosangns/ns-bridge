@@ -1,6 +1,7 @@
 // ABOUTME: Devin model discovery — GetCliModelConfigs under the pinned CLI
 // ABOUTME: identity, normalized onto DevinModelSpec with effort-lane collapse.
 
+import { compactionBudget } from "ns-core-utils";
 import { DEVIN_GET_CLI_MODEL_CONFIGS_PATH, type FetchImpl } from "./client.js";
 import {
   type ClientModelConfig,
@@ -374,7 +375,18 @@ function devinModelSpec(
   if (config.isNew) spec.isNew = true;
   if (config.isBeta) spec.isBeta = true;
   if (config.isRecommended) spec.isRecommended = true;
-  return spec;
+  return withCompaction(spec);
+}
+
+/**
+ * Attach the compaction budget the window and ceiling imply.
+ *
+ * Recomputed rather than copied, so a spec built before the field existed still
+ * compacts where the current formula says. No usable budget means no field.
+ */
+function withCompaction(spec: DevinModelSpec): DevinModelSpec {
+  const budget = compactionBudget(spec);
+  return budget ? { ...spec, compaction: budget } : spec;
 }
 
 /**
@@ -462,6 +474,11 @@ function routeDevinFusionLead(spec: DevinModelSpec, lead: DevinModelSpec): void 
   spec.cost = lead.cost;
   spec.contextWindow = lead.contextWindow;
   spec.maxTokens = lead.maxTokens;
+  // The lead's limits are what a caller budgets against, so the compaction
+  // point moves with them rather than staying on the composite card's.
+  const budget = compactionBudget(spec);
+  if (budget) spec.compaction = budget;
+  else delete spec.compaction;
   if (lead.supportsParallelToolCalls === true) spec.supportsParallelToolCalls = true;
   else delete spec.supportsParallelToolCalls;
 }

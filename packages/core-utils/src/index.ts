@@ -3,6 +3,12 @@
 
 export { readJsonFile, writeJsonFileAtomic } from "./cache.js";
 export {
+  COMPACTION_RESERVE_FLOOR,
+  type CompactionBudget,
+  type CompactionBudgetInput,
+  compactionBudget,
+} from "./compaction.js";
+export {
   exponentialBackoff,
   headerRecordSource,
   parseRetryAfterMs,

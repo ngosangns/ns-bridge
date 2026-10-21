@@ -4,16 +4,37 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readJsonFile, writeJsonFileAtomic } from "ns-core-utils";
+import { compactionBudget, readJsonFile, writeJsonFileAtomic } from "ns-core-utils";
 import type { DevinModelSpec } from "./types.js";
 import { DEVIN_DEFAULT_BASE_URL } from "./wire.js";
+
+/**
+ * Attach the compaction budget each entry's window and ceiling imply.
+ *
+ * The budget is derived, so it is recomputed on every write: a refresh
+ * overwrites whatever a hand-edited file or an older writer put there, and an
+ * entry with no usable window keeps the field off.
+ */
+function withCompaction(models: DevinModelSpec[]): DevinModelSpec[] {
+  return models.map((model) => {
+    const budget = compactionBudget(model);
+    if (!budget) return model;
+    // Same numbers already attached: keep the object, so a seed that was built
+    // with its budget is served as-is instead of copied on every read.
+    const current = model.compaction;
+    if (current?.reserveTokens === budget.reserveTokens && current.thresholdTokens === budget.thresholdTokens) {
+      return model;
+    }
+    return { ...model, compaction: budget };
+  });
+}
 
 /**
  * Models a client can offer before discovery has ever succeeded. Mirrors the
  * catalog's published seed — SWE-1.6 is the only family guaranteed reachable
  * without the account-gated `GetCliModelConfigs` call.
  */
-export const devinModels: DevinModelSpec[] = [
+export const devinModels: DevinModelSpec[] = withCompaction([
   {
     id: "swe-1-6",
     name: "SWE-1.6",
@@ -38,7 +59,7 @@ export const devinModels: DevinModelSpec[] = [
     maxTokens: 128_000,
     baseUrl: DEVIN_DEFAULT_BASE_URL,
   },
-];
+]);
 
 export const DEVIN_MODEL_IDS: readonly string[] = devinModels.map((model) => model.id);
 
@@ -93,7 +114,9 @@ function loadCacheFile(): DevinModelCache | undefined {
  * first and re-read.
  */
 export function getCachedModels(): DevinModelSpec[] {
-  return loadCacheFile()?.models ?? devinModels;
+  // Recomputed on read too: a file written before the field existed, or one
+  // hand-edited since, still compacts where the current formula says.
+  return withCompaction(loadCacheFile()?.models ?? devinModels);
 }
 
 /** Whether the on-disk catalog is older than the refresh TTL (or absent). */
@@ -104,7 +127,7 @@ export function isCacheStale(now = Date.now()): boolean {
 
 /** Persist a fetched catalog; returns the list now being served. */
 export function updateDevinModelsCache(models: DevinModelSpec[], now = Date.now()): DevinModelSpec[] {
-  cacheFile = { fetchedAt: now, models };
+  cacheFile = { fetchedAt: now, models: withCompaction(models) };
   try {
     // Atomic: a crash mid-write must not leave a torn catalog for the next host.
     writeJsonFileAtomic(devinModelCachePath(), cacheFile);

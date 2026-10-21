@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { compactionBudget } from "ns-core-utils";
 import { getKiroEffortConfig, type KiroEffortConfig } from "./effort.js";
 import type { KiroModelRate } from "./kiro-cli.js";
 import type { KiroCatalogModel } from "./management.js";
@@ -280,6 +281,10 @@ export const kiroModels: KiroModel[] = bootstrapKiroModels.map((model) => ({
     model.reasoning ? getKiroEffortConfig(model.additionalModelRequestFieldsSchema, model.kiroModelId) : undefined,
   ),
   ...(model.id.startsWith("claude-") ? { recoverTextToolCalls: false } : {}),
+  // The seed is what a machine that never refreshed serves, so it carries the
+  // same budget a refresh would write. `compactionBudget` never returns
+  // undefined for these windows.
+  compaction: compactionBudget(model) ?? { reserveTokens: model.maxTokens, thresholdTokens: model.contextWindow },
 }));
 
 const BOOTSTRAP_KIRO_MODEL_IDS = kiroModels.map((model) => model.kiroModelId);
@@ -338,7 +343,14 @@ function isCachedKiroModel(value: unknown): value is KiroModel {
     (tokenLimits === undefined || isRecord(tokenLimits)) &&
     (value.firstTokenTimeout === undefined || isPositiveNumber(value.firstTokenTimeout)) &&
     (value.rateMultiplier === undefined || isPositiveNumber(value.rateMultiplier)) &&
-    (value.rateUnit === undefined || typeof value.rateUnit === "string")
+    (value.rateUnit === undefined || typeof value.rateUnit === "string") &&
+    // Derived, and optional: a cache written before the field existed still
+    // parses. A present field must be the two numbers the refresh writes.
+    (value.compaction === undefined ||
+      (isRecord(value.compaction) &&
+        isPositiveNumber(value.compaction.reserveTokens) &&
+        typeof value.compaction.thresholdTokens === "number" &&
+        Number.isFinite(value.compaction.thresholdTokens)))
   );
 }
 
@@ -441,10 +453,31 @@ function hasVerifiedImageInput(kiroModelId: string): boolean {
   return kiroModelId.startsWith("claude-") || VERIFIED_IMAGE_MODEL_IDS.has(kiroModelId.toLowerCase());
 }
 
+/**
+ * Attach the compaction budget the window and ceiling imply.
+ *
+ * Recomputed rather than copied, so a cache written before the field existed
+ * still compacts where the current formula says. No usable budget means the
+ * field stays off the entry.
+ */
+function withCompaction<T extends KiroModelSpec>(model: T): T {
+  const budget = compactionBudget(model);
+  if (!budget) return model;
+  // Same numbers already attached: keep the object. Callers compare a served
+  // catalog against the bootstrap seed by identity, and a fresh object on every
+  // read would break that for a cache that was never written.
+  const current = model.compaction;
+  if (current?.reserveTokens === budget.reserveTokens && current.thresholdTokens === budget.thresholdTokens) {
+    return model;
+  }
+  return { ...model, compaction: budget };
+}
+
 /** Correct capability metadata from older caches without rewriting the user's cache file. */
 function applyVerifiedCapabilities(model: KiroModel): KiroModel {
-  if (!hasVerifiedImageInput(model.kiroModelId) || model.input.includes("image")) return model;
-  return { ...model, input: ["text", "image"] };
+  const corrected = withCompaction(model);
+  if (!hasVerifiedImageInput(model.kiroModelId) || model.input.includes("image")) return corrected;
+  return { ...corrected, input: ["text", "image"] };
 }
 
 function validateCatalogMetadata(model: KiroCatalogModel): {
@@ -514,7 +547,7 @@ export function mapKiroCatalogModels(
         ? catalogModel.displayName
         : undefined;
 
-    return {
+    return withCompaction({
       id,
       kiroModelId,
       // Humanize the wire id, not the local one: `toLocalModelId` rewrites
@@ -538,7 +571,7 @@ export function mapKiroCatalogModels(
       ...(existing?.firstTokenTimeout ? { firstTokenTimeout: existing.firstTokenTimeout } : {}),
       ...(schema ? { additionalModelRequestFieldsSchema: schema } : {}),
       ...(tokenLimits ? { tokenLimits } : {}),
-    };
+    });
   });
 }
 

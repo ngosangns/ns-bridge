@@ -91,6 +91,12 @@ export interface DevinModelSpec {
   cost: DevinCost;
   contextWindow: number;
   maxTokens: number;
+  /**
+   * Where compaction should trigger, derived from {@link contextWindow} and
+   * {@link maxTokens}. Absent when those two numbers cannot make a budget.
+   * Hosts read it; the catalog refresh is what writes it.
+   */
+  compaction?: { reserveTokens: number; thresholdTokens: number };
   /** Wire uid Cascade uses to resolve a server-side router (`AssignModel`) rather than chat directly. */
   isModelRouter?: boolean;
   /** Whether the model accepts tool definitions; absent/true means tools are available. */

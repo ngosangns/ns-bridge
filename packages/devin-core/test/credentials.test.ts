@@ -126,5 +126,18 @@ describe("model cache", () => {
     updateDevinModelsCache(fetched);
     expect(getCachedModels().map((m) => m.id)).toEqual(["adaptive"]);
     expect(isCacheStale()).toBe(false);
+
+    // The ceiling is larger than the floor, so the file holds back 16,384 and
+    // a second write recomputes the same numbers rather than keeping old ones.
+    const onDisk = JSON.parse(readFileSync(cachePath, "utf8")) as {
+      models: Array<{ compaction: { reserveTokens: number; thresholdTokens: number } }>;
+    };
+    expect(onDisk.models[0]?.compaction).toEqual({ reserveTokens: 16_384, thresholdTokens: 183_616 });
+
+    updateDevinModelsCache([{ ...fetched[0], contextWindow: 400_000, maxTokens: 4_096 }]);
+    const rewritten = JSON.parse(readFileSync(cachePath, "utf8")) as {
+      models: Array<{ compaction: { reserveTokens: number; thresholdTokens: number } }>;
+    };
+    expect(rewritten.models[0]?.compaction).toEqual({ reserveTokens: 4_096, thresholdTokens: 395_904 });
   });
 });

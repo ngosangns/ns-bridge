@@ -30,11 +30,11 @@ describe("compactionReserveTokens", () => {
     expect(harnessThreshold(200_000, 16_384)).toBe(118_080);
   });
 
-  it("leaves a ceiling that is already at or below the floor on the ceiling", () => {
+  it("reports nothing when the ceiling is already at or below the floor", () => {
     // Kiro's small models. Their ceiling is a fair reservation already, so the
     // caller reports nothing and the Harness keeps using the ceiling.
-    expect(compactionReserveTokens({ contextWindow: 200_000, maxTokens: 8_192 })).toBe(8_192);
-    expect(compactionReserveTokens({ contextWindow: 200_000, maxTokens: 16_384 })).toBe(16_384);
+    expect(compactionReserveTokens({ contextWindow: 200_000, maxTokens: 8_192 })).toBeUndefined();
+    expect(compactionReserveTokens({ contextWindow: 200_000, maxTokens: 16_384 })).toBeUndefined();
     expect(compactionReserveTokens({ contextWindow: 1_000_000, maxTokens: 32_768 })).toBe(16_384);
   });
 

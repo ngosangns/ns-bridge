@@ -28,11 +28,17 @@ export interface GrokAdapterOptions {
 /** Every listed Grok model accepts images. The catalog file stays text-only. */
 const INPUT_MODALITIES = ["text", "image"] as const;
 
-/** Output held back for Harness compaction, when it is below the catalog ceiling. */
-function reserveField(model: { contextWindow: number; maxTokens: number }): {
+/**
+ * Output held back for Harness compaction, when it is below the catalog ceiling.
+ *
+ * The catalog's own `compaction.reserveTokens` wins, so a refreshed file and
+ * the adapter agree. A file written before that field existed falls back to
+ * the same formula the refresh uses.
+ */
+function reserveField(model: { contextWindow: number; maxTokens: number; compaction?: { reserveTokens: number } }): {
   compactionReserveTokens?: number;
 } {
-  const reserve = compactionReserveTokens(model);
+  const reserve = model.compaction?.reserveTokens ?? compactionReserveTokens(model);
   return reserve !== undefined && reserve < model.maxTokens ? { compactionReserveTokens: reserve } : {};
 }
 

@@ -15,9 +15,19 @@ export interface CatalogPaths {
   grok: string;
 }
 
+/** One listed model, with the compaction budget the catalog wrote for it. */
+export interface CatalogEntry {
+  id: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  /** Where compaction triggers, when the catalog recorded one. */
+  thresholdTokens?: number;
+}
+
 export interface CatalogGroup {
   label: string;
   ids: string[];
+  entries: CatalogEntry[];
   fetchedAt?: number;
 }
 
@@ -75,11 +85,12 @@ function parseKiro(raw: string): CatalogGroup[] | undefined {
   const groups: CatalogGroup[] = [];
   for (const [region, entry] of Object.entries(parsed.regions)) {
     if (!isRecord(entry) || !Array.isArray(entry.models)) return undefined;
-    const ids = idsFrom(entry.models);
-    if (ids.length === 0) continue;
+    const entries = entriesFrom(entry.models);
+    if (entries.length === 0) continue;
     groups.push({
       label: region,
-      ids,
+      ids: entries.map((entry) => entry.id),
+      entries,
       ...(typeof entry.fetchedAt === "number" ? { fetchedAt: entry.fetchedAt } : {}),
     });
   }
@@ -94,22 +105,39 @@ function parseModelList(raw: string, label: string): CatalogGroup[] | undefined 
     return undefined;
   }
   if (!isRecord(parsed) || !Array.isArray(parsed.models)) return undefined;
+  const entries = entriesFrom(parsed.models);
   return [
     {
       label,
-      ids: idsFrom(parsed.models),
+      ids: entries.map((entry) => entry.id),
+      entries,
       ...(typeof parsed.fetchedAt === "number" ? { fetchedAt: parsed.fetchedAt } : {}),
     },
   ];
 }
 
-function idsFrom(models: unknown[]): string[] {
-  const ids: string[] = [];
+/** A positive finite number, or nothing. A zero or a string is not a token count. */
+function positive(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function entriesFrom(models: unknown[]): CatalogEntry[] {
+  const entries: CatalogEntry[] = [];
   for (const entry of models) {
     if (!isRecord(entry) || typeof entry.id !== "string" || entry.id.length === 0) continue;
-    ids.push(entry.id);
+    const compaction = isRecord(entry.compaction) ? entry.compaction : undefined;
+    entries.push({
+      id: entry.id,
+      ...(positive(entry.contextWindow) !== undefined ? { contextWindow: positive(entry.contextWindow) } : {}),
+      ...(positive(entry.maxTokens) !== undefined ? { maxTokens: positive(entry.maxTokens) } : {}),
+      // A recorded threshold of 0 is still a threshold: a window no larger than
+      // its reservation compacts immediately.
+      ...(compaction && typeof compaction.thresholdTokens === "number" && Number.isFinite(compaction.thresholdTokens)
+        ? { thresholdTokens: compaction.thresholdTokens }
+        : {}),
+    });
   }
-  return ids;
+  return entries;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,9 +170,20 @@ export function formatCatalog(report: CatalogReport, mode: "list" | "status", no
       const regionWhen = group.fetchedAt === undefined ? "" : `  fetched ${age(group.fetchedAt, now)}`;
       lines.push(`  ${group.label}${regionWhen}`);
     }
-    for (const id of group.ids) lines.push(report.vendor === "kiro" ? `    ${id}` : `  ${id}`);
+    for (const entry of group.entries) {
+      const indent = report.vendor === "kiro" ? "    " : "  ";
+      lines.push(`${indent}${entry.id}  ${budgetOf(entry)}`);
+    }
   }
   return lines;
+}
+
+/** `window 256000  max 128000  compact at 239616`, with a dash for whatever the file omitted. */
+function budgetOf(entry: CatalogEntry): string {
+  const window = entry.contextWindow === undefined ? "—" : String(entry.contextWindow);
+  const max = entry.maxTokens === undefined ? "—" : String(entry.maxTokens);
+  const compact = entry.thresholdTokens === undefined ? "—" : String(entry.thresholdTokens);
+  return `window ${window}  max ${max}  compact at ${compact}`;
 }
 
 function age(fetchedAt: number, now: number): string {

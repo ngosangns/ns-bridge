@@ -38,6 +38,9 @@
     "@deepseek-ai/dsh-attachment": ">=0.1.5-rc.1 <0.3.0",
     "@deepseek-ai/dsh-llm": ">=0.1.0-0"
   },
+  "dependencies": {
+    "ns-core-utils": "workspace:*"
+  },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-attachment": {
       "optional": true

@@ -35,7 +35,16 @@ describe("grokModelsFromCatalogJson", () => {
       models: [{ id: "grok-9", name: "Grok 9", contextWindow: 123, maxTokens: 45, reasoning: false }],
     });
     expect(grokModelsFromCatalogJson(raw)).toEqual([
-      { id: "grok-9", name: "Grok 9", contextWindow: 123, maxTokens: 45, reasoning: false, input: ["text"] },
+      {
+        id: "grok-9",
+        name: "Grok 9",
+        contextWindow: 123,
+        maxTokens: 45,
+        reasoning: false,
+        input: ["text"],
+        // The ceiling is already below the floor, so it is the reservation.
+        compaction: { reserveTokens: 45, thresholdTokens: 78 },
+      },
     ]);
   });
 

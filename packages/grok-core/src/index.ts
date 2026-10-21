@@ -15,6 +15,7 @@ export {
   grokCatalogPath,
   grokModelsFromCatalogJson,
   readGrokCatalog,
+  withGrokCompaction,
 } from "./catalog.js";
 export { GROK_LOGIN_MESSAGE, GrokApiError, GrokAuthError } from "./errors.js";
 export {

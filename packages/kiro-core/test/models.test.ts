@@ -288,6 +288,22 @@ describe("Feature 2: Model Definitions", () => {
       expect(cachedModels.some((model) => model.id === "auto")).toBe(false);
       expect(resolveKiroModel("openai-gpt-5-6")).toBe("openai-gpt-5.6");
       expect(isCacheStale(TEST_REGION)).toBe(false);
+
+      // The compaction point is written into the file, derived from each
+      // entry's own window and ceiling: 16,384 held back, or the ceiling when
+      // that is already smaller.
+      const written = cache.regions[TEST_REGION].models as Array<{
+        id: string;
+        compaction: { reserveTokens: number; thresholdTokens: number };
+      }>;
+      expect(written.find((model) => model.id === "openai-gpt-5-6")?.compaction).toEqual({
+        reserveTokens: 16_384,
+        thresholdTokens: 262_144,
+      });
+      expect(written.find((model) => model.id === "claude-sonnet-4-6")?.compaction).toEqual({
+        reserveTokens: 8_192,
+        thresholdTokens: 191_808,
+      });
     });
 
     it("repairs stale Luna image metadata in memory without rewriting the cache", () => {

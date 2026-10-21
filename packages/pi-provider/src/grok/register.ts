@@ -11,7 +11,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS, grokAuthCandidates } from "ns-grok-core";
+import {
+  GROK_DEFAULT_CONTEXT_WINDOW,
+  GROK_DEFAULT_MAX_TOKENS,
+  grokAuthCandidates,
+  withGrokCompaction,
+} from "ns-grok-core";
 
 import { ensureCacheCost, getDefaultCatalogCache, type CatalogModel } from "../shared/index.js";
 import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "ns-grok-core/cli";
@@ -25,18 +30,20 @@ export const GROK_PROVIDER_ID = "grok";
 export const GROK_API = "grok-cli";
 
 function descriptorsToCatalog(descriptors: GrokModelDescriptor[]): CatalogModel[] {
-  return descriptors.map((d) => ({
-    id: d.id,
-    name: d.name ?? d.id,
-    api: GROK_API,
-    provider: GROK_PROVIDER_ID,
-    baseUrl: "grok-cli://local",
-    reasoning: d.supportsReasoningEffort ?? true,
-    input: ["text"] as Array<"text" | "image">,
-    cost: ensureCacheCost({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }),
-    contextWindow: d.contextWindow ?? GROK_DEFAULT_CONTEXT_WINDOW,
-    maxTokens: d.maxTokens ?? GROK_DEFAULT_MAX_TOKENS,
-  }));
+  return descriptors.map((d) =>
+    withGrokCompaction({
+      id: d.id,
+      name: d.name ?? d.id,
+      api: GROK_API,
+      provider: GROK_PROVIDER_ID,
+      baseUrl: "grok-cli://local",
+      reasoning: d.supportsReasoningEffort ?? true,
+      input: ["text"] as Array<"text" | "image">,
+      cost: ensureCacheCost({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }),
+      contextWindow: d.contextWindow ?? GROK_DEFAULT_CONTEXT_WINDOW,
+      maxTokens: d.maxTokens ?? GROK_DEFAULT_MAX_TOKENS,
+    }),
+  );
 }
 
 function catalogToProviderModels(models: CatalogModel[]): ProviderModelConfig[] {

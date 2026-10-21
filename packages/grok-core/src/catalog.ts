@@ -3,6 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { type CompactionBudget, compactionBudget } from "ns-core-utils";
 
 /**
  * Ids `grok models` printed when this list was last checked. A cold cache still
@@ -52,6 +53,12 @@ export interface GrokModelSpec {
   maxTokens: number;
   reasoning: boolean;
   input: Array<"text" | "image">;
+  /**
+   * Where compaction should trigger for this model, derived from its window and
+   * completion ceiling. Absent when those two numbers cannot make a budget.
+   * Hosts read it; the refresh is what writes it.
+   */
+  compaction?: CompactionBudget;
 }
 
 /** The on-disk snapshot shape the catalog cache writes. */
@@ -62,16 +69,30 @@ export interface GrokCatalogSnapshot {
   models?: unknown;
 }
 
+/**
+ * Attach the compaction budget an entry's window and ceiling imply.
+ *
+ * The budget is derived, so it is recomputed rather than copied off the entry:
+ * a file written before this field existed, or one hand-edited, still compacts
+ * where the current formula says. No usable window or ceiling means no field.
+ */
+export function withGrokCompaction<T extends { contextWindow: number; maxTokens: number }>(model: T): T {
+  const budget = compactionBudget(model);
+  return budget ? { ...model, compaction: budget } : model;
+}
+
 /** The bootstrap list, for a host that has no catalog file yet. */
 export function grokBootstrapModels(): GrokModelSpec[] {
-  return GROK_BOOTSTRAP_MODEL_IDS.map((id) => ({
-    id,
-    name: id,
-    contextWindow: GROK_DEFAULT_CONTEXT_WINDOW,
-    maxTokens: GROK_DEFAULT_MAX_TOKENS,
-    reasoning: true,
-    input: ["text"] as Array<"text" | "image">,
-  }));
+  return GROK_BOOTSTRAP_MODEL_IDS.map((id) =>
+    withGrokCompaction({
+      id,
+      name: id,
+      contextWindow: GROK_DEFAULT_CONTEXT_WINDOW,
+      maxTokens: GROK_DEFAULT_MAX_TOKENS,
+      reasoning: true,
+      input: ["text"] as Array<"text" | "image">,
+    }),
+  );
 }
 
 /**
@@ -94,14 +115,16 @@ export function grokModelsFromCatalogJson(raw: string | undefined): GrokModelSpe
       const input = Array.isArray(row.input)
         ? row.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
         : (["text"] as Array<"text" | "image">);
-      models.push({
-        id: row.id,
-        name: typeof row.name === "string" && row.name.length > 0 ? row.name : row.id,
-        contextWindow: typeof row.contextWindow === "number" ? row.contextWindow : GROK_DEFAULT_CONTEXT_WINDOW,
-        maxTokens: typeof row.maxTokens === "number" ? row.maxTokens : GROK_DEFAULT_MAX_TOKENS,
-        reasoning: row.reasoning !== false,
-        input: input.length > 0 ? input : ["text"],
-      });
+      models.push(
+        withGrokCompaction({
+          id: row.id,
+          name: typeof row.name === "string" && row.name.length > 0 ? row.name : row.id,
+          contextWindow: typeof row.contextWindow === "number" ? row.contextWindow : GROK_DEFAULT_CONTEXT_WINDOW,
+          maxTokens: typeof row.maxTokens === "number" ? row.maxTokens : GROK_DEFAULT_MAX_TOKENS,
+          reasoning: row.reasoning !== false,
+          input: input.length > 0 ? input : ["text"],
+        }),
+      );
     }
     return models.length > 0 ? models : grokBootstrapModels();
   } catch {

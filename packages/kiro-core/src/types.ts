@@ -101,6 +101,12 @@ export interface KiroModelSpec {
   rateUnit?: string;
   contextWindow: number;
   maxTokens: number;
+  /**
+   * Where compaction should trigger, derived from {@link contextWindow} and
+   * {@link maxTokens}. Absent when those two numbers cannot make a budget.
+   * Hosts read it; the catalog refresh is what writes it.
+   */
+  compaction?: { reserveTokens: number; thresholdTokens: number };
   /** Kiro API region this model is served from. */
   region?: string;
   /** Profile the request bills against, when the credential resolved one. */

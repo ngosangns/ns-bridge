@@ -27,6 +27,9 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
   },
+  "dependencies": {
+    "ns-core-utils": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^22.20.4",
     "ns-bridge-core": "workspace:*"

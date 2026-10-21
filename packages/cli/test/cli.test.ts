@@ -128,6 +128,78 @@ describe("ns-bridge", () => {
     expect(io.stdout.join("\n")).not.toContain("grok-4.7");
   });
 
+  it("prints each model's window, ceiling, and compaction point", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const paths = pathsIn(dir);
+    const now = 10_000;
+    writeFileSync(
+      paths.devin,
+      JSON.stringify({
+        fetchedAt: now - 1000,
+        models: [
+          {
+            id: "swe-1-6",
+            contextWindow: 200_000,
+            maxTokens: 128_000,
+            compaction: { reserveTokens: 16_384, thresholdTokens: 183_616 },
+          },
+          { id: "swe-old", contextWindow: 200_000, maxTokens: 128_000 },
+        ],
+      }),
+    );
+    writeFileSync(
+      paths.kiro,
+      JSON.stringify({
+        regions: {
+          "us-east-1": {
+            fetchedAt: now - 1000,
+            models: [
+              {
+                id: "claude-opus-5",
+                contextWindow: 200_000,
+                maxTokens: 8_192,
+                compaction: { reserveTokens: 8_192, thresholdTokens: 191_808 },
+              },
+            ],
+          },
+        },
+      }),
+    );
+    const io = capture();
+    const code = await run(["models", "list"], { ...io, paths, now });
+    expect(code).toBe(0);
+    const out = io.stdout.join("\n");
+    expect(out).toContain("swe-1-6  window 200000  max 128000  compact at 183616");
+    // A file written before the field existed prints a dash, not a guessed number.
+    expect(out).toContain("swe-old  window 200000  max 128000  compact at —");
+    expect(out).toContain("claude-opus-5  window 200000  max 8192  compact at 191808");
+  });
+
+  it("keeps status to one summary line per vendor", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const paths = pathsIn(dir);
+    writeFileSync(
+      paths.devin,
+      JSON.stringify({
+        fetchedAt: 9_000,
+        models: [
+          {
+            id: "swe-1-6",
+            contextWindow: 200_000,
+            maxTokens: 128_000,
+            compaction: { reserveTokens: 16_384, thresholdTokens: 183_616 },
+          },
+        ],
+      }),
+    );
+    const io = capture();
+    const code = await run(["status"], { ...io, paths, now: 10_000 });
+    expect(code).toBe(0);
+    const out = io.stdout.join("\n");
+    expect(out).not.toContain("compact at");
+    expect(out).toContain("swe-1-6");
+  });
+
   it("reports an unreadable catalog", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
     const paths = pathsIn(dir);

@@ -101,6 +101,16 @@ Default model: grok-4.5
     const second = await refreshGrokModels({ binary: undefined, cache });
     expect(second.fromCache).toBe(true);
     expect(second.source).toBe("cache");
+
+    // The file records where compaction triggers, derived from the fallback
+    // window and ceiling: 256k minus the 16,384 held back.
+    const written = JSON.parse(memFs.get(cache.pathFor("grok")) ?? "{}") as {
+      models: Array<{ id: string; compaction?: { reserveTokens: number; thresholdTokens: number } }>;
+    };
+    expect(written.models.find((model) => model.id === "grok-4.7")?.compaction).toEqual({
+      reserveTokens: 16_384,
+      thresholdTokens: 239_616,
+    });
   });
 
   it("serves the fallback on a cache miss when the CLI is not allowed", async () => {

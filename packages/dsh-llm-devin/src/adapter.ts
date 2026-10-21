@@ -16,8 +16,12 @@ import { toLlmError } from "./errors.js";
  * reservation changes: Devin's request builder falls back to the catalog
  * ceiling on its own, and this adapter never forwards the reservation.
  */
-function withCompactionReserve<T extends { contextWindow: number; maxTokens: number }>(model: T): T {
-  const reserve = compactionReserveTokens(model);
+function withCompactionReserve<
+  T extends { contextWindow: number; maxTokens: number; compaction?: { reserveTokens: number } },
+>(model: T): T {
+  // The catalog's own figure wins; a cache written before the field existed
+  // falls back to the formula the refresh now writes.
+  const reserve = model.compaction?.reserveTokens ?? compactionReserveTokens(model);
   return reserve !== undefined && reserve < model.maxTokens ? { ...model, compactionReserveTokens: reserve } : model;
 }
 

@@ -12,6 +12,7 @@ import {
   type ReasoningEffortId,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
+import { compactionBudget } from "ns-core-utils";
 import type { BridgeMessage, BridgeStreamEvent } from "../types.js";
 import { toBridgeMessagesFromDsh } from "./messages.js";
 import { streamToDsh } from "./stream.js";
@@ -64,29 +65,24 @@ type AdapterModelFields = Pick<
  * the ~80% the native harnesses use and the `window − 16,384` Pi uses.
  *
  * The reported reservation is therefore the smaller of the catalog ceiling and
- * {@link COMPACTION_RESERVE_FLOOR}. That is Pi's `reserveTokens`, not a guess
- * at how long one completion runs: it is the output a host already treats as
- * "held back" without clipping a normal turn. A ceiling at or below the floor
- * is already a fair reservation, so it is left untouched.
+ * 16,384, which is what {@link compactionBudget} holds back. That is Pi's
+ * `reserveTokens`, not a guess at how long one completion runs: it is the
+ * output a host already treats as "held back" without clipping a normal turn.
+ * A ceiling at or below that floor is already a fair reservation, so it is
+ * left untouched.
  *
  * This number is only what the Harness holds back. It is not forwarded to a
  * vendor, so the catalog ceiling stays the completion cap on the wire.
- */
-const COMPACTION_RESERVE_FLOOR = 16_384;
-
-/**
- * The output reservation the Harness should see for one catalog entry.
- * Non-positive or non-finite input is not a reservation, so the caller falls
- * back to the catalog ceiling.
+ *
+ * The budget itself is {@link compactionBudget}, shared with the catalog
+ * refresh so the number written next to an entry and the number reported here
+ * are the same one. A window no larger than the floor has no smaller
+ * reservation to offer, and the caller falls back to the catalog ceiling.
  */
 export function compactionReserveTokens(model: { contextWindow: number; maxTokens: number }): number | undefined {
-  const { contextWindow, maxTokens } = model;
-  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return undefined;
-  if (!Number.isFinite(maxTokens) || maxTokens <= 0) return undefined;
-  // A window that cannot hold the floor plus one message token has no room to
-  // reserve less than its ceiling. Leave it on the ceiling.
-  if (contextWindow <= COMPACTION_RESERVE_FLOOR) return undefined;
-  return Math.max(1, Math.min(Math.floor(maxTokens), COMPACTION_RESERVE_FLOOR));
+  const budget = compactionBudget(model);
+  if (!budget || budget.reserveTokens >= model.maxTokens) return undefined;
+  return budget.reserveTokens;
 }
 
 /**
