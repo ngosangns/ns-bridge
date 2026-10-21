@@ -13,7 +13,8 @@ Mutating commands preview. `--apply` runs them. `--dry-run` is the default.
 
 ```bash
 ns-bridge install [pi|omp|dsh|all] [--apply] [--profile <name>]
-ns-bridge update [pi|omp|dsh|all] [--apply] [--profile <name>]
+ns-bridge update [--apply]
+ns-bridge update <pi|omp|dsh|all> [--apply] [--profile <name>]
 ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
 ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
 ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--apply] [--profile <name>]
@@ -30,7 +31,9 @@ ns-bridge status
 | omp | `omp plugin install ns-omp-provider ns-omp-provider-kiro` | `omp plugin upgrade ns-omp-provider ns-omp-provider-kiro` | `omp plugin uninstall ns-omp-provider ns-omp-provider-kiro` |
 | dsh | `dsh plugin --profile <name> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok` | `dsh plugin --profile <name> update …` | `dsh plugin --profile <name> remove …` |
 
-DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it. `install` and `update` without `--profile` skip DSH and still preview Pi and OMP.
+DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it. `install` and `update <host>` without `--profile` skip DSH and still preview Pi and OMP.
+
+`update` with no host updates this CLI, not the host plugins. It asks npm for the latest `@ngosangns/ns-bridge` and, with `--apply`, runs `npm install -g @ngosangns/ns-bridge@<latest>`. Already current prints the version and does not install. A host argument (`pi`, `omp`, `dsh`, or `all`) updates those plugins instead.
 
 `providers enable` and `providers disable` turn one of `kiro`, `devin`, or `grok` on or off. Pi and OMP share `~/.ns-bridge/providers.json` (`NS_BRIDGE_PROVIDERS` overrides the path); the extension reads it at launch. With no file, all three are on. `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds, and `NS_OMP_PROVIDER_DISABLE` removes. DSH writes `disabled: true` on that plugin's id in the profile's `cordis.patch.yml`. In OMP, `kiro` stays with `ns-omp-provider-kiro` while that plugin is installed, unless the file or an env list names it.
 

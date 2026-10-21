@@ -337,6 +337,57 @@ describe("ns-bridge", () => {
     expect(readFileSync(config, "utf8")).toContain("modelRoles:");
   });
 
+  it("previews a self-update and does not install", async () => {
+    const io = capture();
+    const calls: string[][] = [];
+    const runner: Runner = async (argv) => {
+      calls.push(argv);
+      return { code: 0, stdout: "0.2.0\n", stderr: "" };
+    };
+    const code = await run(["update"], { ...io, runner, version: "0.1.12" });
+    expect(code).toBe(0);
+    expect(calls).toEqual([["npm", "view", "@ngosangns/ns-bridge", "version"]]);
+    expect(io.stdout).toEqual([
+      "# dry-run (pass --apply to run)",
+      "@ngosangns/ns-bridge 0.1.12 → 0.2.0",
+      "npm install -g @ngosangns/ns-bridge@0.2.0",
+    ]);
+  });
+
+  it("installs the latest CLI only with --apply", async () => {
+    const io = capture();
+    const calls: string[][] = [];
+    const runner: Runner = async (argv) => {
+      calls.push(argv);
+      return { code: 0, stdout: argv[1] === "view" ? "0.2.0\n" : "added 1 package", stderr: "" };
+    };
+    const code = await run(["update", "--apply"], { ...io, runner, version: "0.1.12" });
+    expect(code).toBe(0);
+    expect(calls[1]).toEqual(["npm", "install", "-g", "@ngosangns/ns-bridge@0.2.0"]);
+    expect(io.stdout.at(-1)).toBe("@ngosangns/ns-bridge updated 0.1.12 → 0.2.0");
+  });
+
+  it("does not install when this CLI is already current", async () => {
+    const io = capture();
+    const calls: string[][] = [];
+    const runner: Runner = async (argv) => {
+      calls.push(argv);
+      return { code: 0, stdout: "0.1.12\n", stderr: "" };
+    };
+    const code = await run(["update", "--apply"], { ...io, runner, version: "0.1.12" });
+    expect(code).toBe(0);
+    expect(calls).toEqual([["npm", "view", "@ngosangns/ns-bridge", "version"]]);
+    expect(io.stdout).toEqual(["@ngosangns/ns-bridge 0.1.12 is already the latest"]);
+  });
+
+  it("reports an npm lookup failure and does not install", async () => {
+    const io = capture();
+    const runner: Runner = async () => ({ code: 1, stdout: "", stderr: "ENOTFOUND" });
+    const code = await run(["update", "--apply"], { ...io, runner, version: "0.1.12" });
+    expect(code).toBe(2);
+    expect(io.stderr.join("\n")).toContain("ENOTFOUND");
+  });
+
   it("refuses agent toggles for hosts without a list", async () => {
     const io = capture();
     expect(await run(["agents", "disable", "pi", "scout"], io)).toBe(1);

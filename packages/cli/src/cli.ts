@@ -12,6 +12,7 @@ import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatal
 import { formatCommand, type HostAction, parseHosts, planHostCommands } from "./hosts.js";
 import { formatProviderPlan, type ProviderPaths, planProviders, providerPaths } from "./providers.js";
 import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.js";
+import { currentVersion, PACKAGE_NAME, parseNpmVersion, planSelfUpdate } from "./self.js";
 
 export interface CommandResult {
   code: number;
@@ -30,6 +31,8 @@ export interface RunOptions {
   now?: number;
   providerPaths?: ProviderPaths;
   ompConfig?: string;
+  /** Installed CLI version. Tests pass this so they do not read package.json. */
+  version?: string;
 }
 
 const HELP = `ns-bridge — install, update, and refresh providers outside Pi, OMP, and DSH.
@@ -39,7 +42,8 @@ Mutating commands preview and do not spawn. Pass --apply to run them.
 
 Usage:
   ns-bridge install [pi|omp|dsh|all] [--apply] [--profile <name>]
-  ns-bridge update [pi|omp|dsh|all] [--apply] [--profile <name>]
+  ns-bridge update [--apply]
+  ns-bridge update <pi|omp|dsh|all> [--apply] [--profile <name>]
   ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
   ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
   ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--apply] [--profile <name>]
@@ -67,8 +71,12 @@ providers enable/disable writes the host's own switch:
 agents enable/disable edits omp's task.disabledAgents. Pi and dsh have no such list.
 
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
-install/update without --profile skips DSH and still previews Pi and OMP.
+install/update <host> without --profile skips DSH and still previews Pi and OMP.
 These commands install the npm packages. A local Pi path stays until that install runs.
+
+update with no host updates this CLI. It looks up the latest @ngosangns/ns-bridge
+on npm and, with --apply, runs npm install -g @ngosangns/ns-bridge@<latest>.
+It does not touch host plugins. A host argument updates those plugins instead.
 
 Model catalogs are files the hosts read. Providers do not refresh them.
 This command writes those files:
@@ -150,6 +158,9 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
     if (target === "list") return printCatalogs(log, options, vendors, "list");
     return refreshModels(log, err, parsed.apply, vendors, options);
   }
+  if (command === "update" && !target) {
+    return runSelfUpdate(parsed, log, err, options);
+  }
   if (command === "install" || command === "update" || command === "uninstall") {
     if (parsed.positionals.length > 2) {
       err(`unexpected argument ${extra}`);
@@ -200,6 +211,52 @@ async function refreshModels(
       return 1;
     }
   }
+  return 0;
+}
+
+async function runSelfUpdate(
+  parsed: Parsed,
+  log: (line: string) => void,
+  err: (line: string) => void,
+  options: RunOptions,
+): Promise<number> {
+  const runner = options.runner ?? spawnRunner();
+  const lookup = await runner(["npm", "view", PACKAGE_NAME, "version"]);
+  if (lookup.code !== 0) {
+    const detail = lookup.stderr.trim() || lookup.stdout.trim() || `exited ${lookup.code}`;
+    err(`could not read the latest version from npm: ${detail}`);
+    return 2;
+  }
+  const latest = parseNpmVersion(lookup.stdout);
+  if (typeof latest !== "string") {
+    err(latest.error);
+    return 2;
+  }
+  const current = options.version ?? currentVersion();
+  const plan = planSelfUpdate(current, latest);
+  if ("error" in plan) {
+    err(plan.error);
+    return 1;
+  }
+  if (plan.currentIsLatest) {
+    log(`${PACKAGE_NAME} ${current} is already the latest`);
+    return 0;
+  }
+  if (!parsed.apply) {
+    log("# dry-run (pass --apply to run)");
+    log(`${PACKAGE_NAME} ${current} → ${latest}`);
+    log(formatCommand(plan.command));
+    return 0;
+  }
+  log(formatCommand(plan.command));
+  const result = await runner(plan.command);
+  if (result.stdout.trim()) log(result.stdout.trimEnd());
+  if (result.code !== 0) {
+    if (result.stderr.trim()) err(result.stderr.trimEnd());
+    err(`${formatCommand(plan.command)} exited ${result.code}`);
+    return 2;
+  }
+  log(`${PACKAGE_NAME} updated ${current} → ${latest}`);
   return 0;
 }
 
