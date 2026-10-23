@@ -24,8 +24,7 @@ try {
     HOME: home,
     USERPROFILE: home,
     PI_CONFIG_DIR: ".omp",
-    // Keep the smoke hermetic: no live credentials / binaries.
-    GROK_BIN: join(home, "no-such-grok"),
+    // Keep the smoke hermetic: no live credentials.
   };
   for (const key of [
     "XAI_API_KEY",
@@ -56,13 +55,12 @@ try {
     const provider = model.provider ?? model.providerId ?? "?";
     byProvider[provider] = (byProvider[provider] ?? 0) + 1;
   }
-  // OMP reports extension load failures as warnings and keeps going, so prove
-  // the extension ran: grok registers with a literal apiKey ("grok-cli") and
-  // fallback models, so it is visible even with no credentials. (kiro/devin
-  // are hidden by OMP until authenticated; tests/bundle.test.ts covers them.)
-  if (!byProvider.grok) {
-    console.error(result.stderr);
-    console.error(`smoke FAILED: grok provider missing; providers: ${JSON.stringify(byProvider)}`);
+  // OMP reports extension load failures as warnings and keeps going. Kiro is
+  // hidden by OMP until authenticated (tests/bundle.test.ts covers it), so the
+  // checks here are: no load errors, and no `grok` provider. OMP ships `devin`,
+  // `xai`, and `xai-oauth` itself; this plugin registers none of them.
+  if (byProvider.grok) {
+    console.error(`smoke FAILED: the plugin must not register grok; providers: ${JSON.stringify(byProvider)}`);
     process.exit(1);
   }
   if (/not found in module|Failed to load extension|registration failed/i.test(result.stderr)) {

@@ -17,7 +17,7 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | vendor core | [`ns-devin-core`](packages/devin-core) | The Devin protocol in this process: Cascade over Connect/protobuf, PKCE login, credentials files, the model catalog cache, usage, error vocabulary, and request/result conversion |
 | vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./cli` — locating the Grok CLI and reading its model list |
 | host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, and `grok` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
-| host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter behind an OMP-compat layer; `kiro` opt-in |
+| host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles only the Pi adapter's Kiro registration behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
 | cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Installs host packages and refreshes model catalogs outside the host process |
@@ -109,7 +109,7 @@ discovery. The Kiro catalog cache (`~/.ns-kiro-provider-models-cache.json`) keep
 ### The `kiro` provider id in OMP
 
 `ns-omp-provider-kiro` owns `kiro` in OMP while that plugin is installed.
-`ns-omp-provider` registers `kiro` too, but skips it in that case unless
+`ns-omp-provider` registers `kiro` too (and nothing else: OMP provides `devin`, `xai`, and `xai-oauth` itself), but skips it in that case unless
 `~/.ns-bridge/providers.json` or `NS_OMP_PROVIDERS` / `NS_OMP_PROVIDER_ENABLE`
 names it. Both run `ns-kiro-core`.
 
@@ -158,7 +158,6 @@ Hermetic tests never touch the network. With real sessions on the machine:
 pi --no-extensions -e ./packages/pi-provider/index.ts --list-models
 pi --no-extensions -e ./packages/pi-provider/index.ts --model kiro/claude-haiku-4-5 -p "hi"
 omp --no-extensions -e ./packages/omp-provider-kiro/dist/index.js --model kiro/claude-haiku-4-5 -p "hi"
-omp --no-extensions -e ./packages/omp-provider/dist/index.js --model devin/swe-1-6 -p "hi"
 NS_PI_LIVE=1 pnpm --filter @ngosangns/ns-pi-provider test:live
 ```
 

@@ -64,7 +64,7 @@ describe("toOmpApiKey", () => {
 
   it("unescapes Pi $$ literals and keeps plain literals / commands", () => {
     expect(toOmpApiKey("ab$$cd$$", {})).toBe("ab$cd$");
-    expect(toOmpApiKey("grok-cli", {})).toBe("grok-cli");
+    expect(toOmpApiKey("plain-literal", {})).toBe("plain-literal");
     expect(toOmpApiKey("!security find-generic-password -w", {})).toBe("!security find-generic-password -w");
     expect(toOmpApiKey("", {})).toBeUndefined();
     expect(toOmpApiKey(undefined, {})).toBeUndefined();

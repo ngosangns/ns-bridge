@@ -1,7 +1,7 @@
 {
   "name": "ns-omp-provider",
   "version": "0.6.3",
-  "description": "No longer developed. OMP plugin for Devin and Grok. Use @ngosangns/ns-bridge.",
+  "description": "No longer developed. OMP plugin for Kiro (OMP has native Devin and Grok). Use @ngosangns/ns-bridge.",
   "type": "module",
   "license": "MIT",
   "author": "ngosangns",
@@ -20,9 +20,6 @@
     "oh-my-pi",
     "pi",
     "kiro",
-    "devin",
-    "grok",
-    "xai",
     "provider",
     "oauth"
   ],

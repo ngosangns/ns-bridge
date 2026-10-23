@@ -1,7 +1,13 @@
 /** Host package commands. Mutating commands are previews until `--apply`. */
 
 export const PI_SOURCE = "npm:@ngosangns/ns-pi-provider";
-export const OMP_PACKAGES = ["ns-omp-provider", "ns-omp-provider-kiro"] as const;
+/**
+ * OMP ships `devin`, `xai`, and `xai-oauth` itself, so only Kiro comes from a
+ * plugin. `ns-omp-provider` (the old plugin that also registered `devin` and
+ * `grok`) is no longer installed or upgraded; uninstall still removes it.
+ */
+export const OMP_PACKAGES = ["ns-omp-provider-kiro"] as const;
+export const OMP_LEGACY_PACKAGES = ["ns-omp-provider"] as const;
 export const DSH_PACKAGES = ["ns-dsh-llm-kiro", "ns-dsh-llm-devin", "ns-dsh-llm-grok"] as const;
 
 export type Host = "pi" | "omp" | "dsh";
@@ -68,7 +74,12 @@ function commandFor(action: HostAction, host: Host, profile: string | undefined)
   }
   if (host === "omp") {
     const verb = action === "update" ? "upgrade" : action === "uninstall" ? "uninstall" : "install";
-    return ["omp", "plugin", verb, ...OMP_PACKAGES];
+    return [
+      "omp",
+      "plugin",
+      verb,
+      ...(action === "uninstall" ? [...OMP_PACKAGES, ...OMP_LEGACY_PACKAGES] : OMP_PACKAGES),
+    ];
   }
   const verb = action === "update" ? "update" : action === "uninstall" ? "remove" : "add";
   return ["dsh", "plugin", "--profile", profile ?? "", verb, ...DSH_PACKAGES];

@@ -31,14 +31,16 @@ ns-bridge status
 | Host | Install | Update | Uninstall |
 | --- | --- | --- | --- |
 | pi | `pi install npm:@ngosangns/ns-pi-provider` | `pi update --extension npm:@ngosangns/ns-pi-provider` | `pi uninstall npm:@ngosangns/ns-pi-provider` |
-| omp | `omp plugin install ns-omp-provider ns-omp-provider-kiro` | `omp plugin upgrade ns-omp-provider ns-omp-provider-kiro` | `omp plugin uninstall ns-omp-provider ns-omp-provider-kiro` |
+| omp | `omp plugin install ns-omp-provider-kiro` | `omp plugin upgrade ns-omp-provider-kiro` | `omp plugin uninstall ns-omp-provider-kiro ns-omp-provider` |
 | dsh | `dsh plugin --profile <name> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok` | `dsh plugin --profile <name> update …` | `dsh plugin --profile <name> remove …` |
+
+OMP ships `devin`, `xai`, and `xai-oauth` itself, so only `kiro` comes from a plugin there (`/login devin`, `/login xai-oauth`). `ns-omp-provider`, the old plugin that also registered `devin` and `grok`, is no longer installed or upgraded; `uninstall omp` still removes it, or run `omp plugin uninstall ns-omp-provider`. Model ids `devin/…` and `grok/…` in OMP's `config.yml` then resolve to OMP's own `devin` and (for Grok) `xai-oauth/…` or `xai/…`.
 
 DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it. `install` and `update <host>` without `--profile` skip DSH and still preview Pi and OMP.
 
 `update` with no host updates this CLI, not the host plugins. It asks npm for the latest `@ngosangns/ns-bridge` and, with `--apply`, runs `npm install -g @ngosangns/ns-bridge@<latest>`. Already current prints the version and does not install. A host argument (`pi`, `omp`, `dsh`, or `all`) updates those plugins instead.
 
-`providers enable` and `providers disable` turn one of `kiro`, `devin`, or `grok` on or off. Pi and OMP share `~/.ns-bridge/providers.json` (`NS_BRIDGE_PROVIDERS` overrides the path); the extension reads it at launch. With no file, all three are on. `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds, and `NS_OMP_PROVIDER_DISABLE` removes. DSH writes `disabled: true` on that plugin's id in the profile's `cordis.patch.yml`. In OMP, `kiro` stays with `ns-omp-provider-kiro` while that plugin is installed, unless the file or an env list names it.
+`providers enable` and `providers disable` turn one of `kiro`, `devin`, or `grok` on or off. Pi and OMP share `~/.ns-bridge/providers.json` (`NS_BRIDGE_PROVIDERS` overrides the path); the extension reads it at launch. With no file, all three are on. OMP only takes `kiro` from it: `providers enable omp devin|grok` is refused with the reason, `providers disable omp devin|grok` changes nothing, `providers status omp` shows them as `not provided`, and `devin` or `grok` in the file or in an env list are ignored by the OMP plugin (they still apply to Pi). `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds, and `NS_OMP_PROVIDER_DISABLE` removes. DSH writes `disabled: true` on that plugin's id in the profile's `cordis.patch.yml`. In OMP, `kiro` stays with `ns-omp-provider-kiro` while that plugin is installed, unless the file or an env list names it.
 
 `usage` reads the ledger the plugins write while they work in Pi, OMP, and DSH. Each model response appends one JSON line to `~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl` (`NS_BRIDGE_USAGE_DIR` moves the root). A response with no session id goes to `_no-session.jsonl`. Plugins record unless `NS_BRIDGE_USAGE=0`. The command makes no network call and writes nothing.
 

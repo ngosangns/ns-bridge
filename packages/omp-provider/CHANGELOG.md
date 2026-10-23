@@ -4,6 +4,13 @@ Development of `ns-omp-provider` stopped at **0.6.3**. npm marks that version de
 
 This file records notes through 0.5.0. Later releases were not appended. The Go sidecar described under 0.5.0 is not in the tree. Kiro and Devin run in the host process, and `ns-bridge models refresh --apply` writes the model catalogs.
 
+## Unreleased
+
+- Removed the `devin` and `grok` providers (and the `/ns-pi` and `/grok`, `/devin-status` commands). OMP ships `devin`, `xai`, and `xai-oauth` itself; the plugin's `devin` shadowed the native one. Only `kiro` is registered, and the bundle no longer contains the Devin or Grok code.
+- Migration: sign in with `/login devin` and `/login xai-oauth` (or `DEVIN_API_KEY` / `XAI_API_KEY`). `devin/<model>` in `config.yml` now resolves to OMP's own catalog (`omp models devin`). Replace `grok/<model>` with `xai-oauth/<model>` or `xai/<model>` (`omp models xai-oauth`).
+- `devin` and `grok` in `NS_OMP_PROVIDERS`, `NS_OMP_PROVIDER_ENABLE`, `NS_OMP_PROVIDER_DISABLE`, or `~/.ns-bridge/providers.json` are ignored here. Pi still reads them.
+- `ns-bridge install|update omp` now installs only `ns-omp-provider-kiro`; `uninstall omp` also removes the old `ns-omp-provider`. `ns-bridge providers enable omp devin|grok` is refused with the reason.
+
 ## 0.5.0
 
 Bundles `@ngosangns/ns-pi-provider@0.4.0`.

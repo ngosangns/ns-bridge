@@ -14,7 +14,7 @@
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@ngosangns/ns-pi-provider": ["./src/types/ns-pi-provider.d.ts"]
+      "@ngosangns/ns-pi-provider/kiro": ["./src/types/ns-pi-provider-kiro.d.ts"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],

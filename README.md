@@ -19,7 +19,7 @@ ns-bridge install --apply  # pi + omp; DSH needs --profile
 ns-bridge update --apply       # this CLI, from npm
 ns-bridge models list
 ns-bridge usage                # cache hit and tokens the plugins recorded
-ns-bridge providers disable omp grok --apply
+ns-bridge providers disable pi grok --apply
 ns-bridge models refresh --apply
 ```
 
@@ -33,7 +33,7 @@ refreshes it, and writes the refresh back so that CLI stays on the same token.
 
 ```bash
 kiro-cli login        # Builder ID, IAM Identity Center, Google, GitHub, enterprise OIDC
-devin auth login      # or: /login devin inside Pi / OMP
+devin auth login      # or: /login devin inside Pi
 grok login            # Grok runs through the local grok CLI (or XAI_API_KEY)
 ```
 
@@ -55,7 +55,11 @@ point at `ns-bridge models refresh --apply`.
 ns-bridge install omp --apply
 ```
 
-Registers `kiro`, `devin`, and `grok`. One plugin owns the `kiro` id.
+Registers `kiro` only. OMP ships `devin`, `xai`, and `xai-oauth` itself, so ns-bridge no
+longer provides `devin` or `grok` there: sign in with `/login devin` and `/login xai-oauth`
+(or `DEVIN_API_KEY` / `XAI_API_KEY`). Moving from the old plugin: replace `devin/…` and
+`grok/…` model ids in OMP's `config.yml` with OMP's own (`devin/…` from `omp models devin`,
+`xai-oauth/…` or `xai/…` for Grok), then `omp plugin uninstall ns-omp-provider`.
 
 ## DeepSeek Harness
 

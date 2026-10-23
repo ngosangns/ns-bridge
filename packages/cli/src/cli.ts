@@ -66,15 +66,18 @@ Hosts:
   pi   pi install npm:@ngosangns/ns-pi-provider
        pi update --extension npm:@ngosangns/ns-pi-provider
        pi uninstall npm:@ngosangns/ns-pi-provider
-  omp  omp plugin install ns-omp-provider ns-omp-provider-kiro
-       omp plugin upgrade ns-omp-provider ns-omp-provider-kiro
-       omp plugin uninstall ns-omp-provider ns-omp-provider-kiro
+  omp  omp plugin install ns-omp-provider-kiro
+       omp plugin upgrade ns-omp-provider-kiro
+       omp plugin uninstall ns-omp-provider-kiro ns-omp-provider
+       OMP has its own devin, xai, and xai-oauth providers (/login devin, /login xai-oauth),
+       so only kiro comes from here. Remove the old plugin with: omp plugin uninstall ns-omp-provider
   dsh  dsh plugin --profile <name> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok
        dsh plugin --profile <name> update …
        dsh plugin --profile <name> remove …
 
 providers enable/disable writes the host's own switch:
-  pi, omp   ~/.ns-bridge/providers.json (the extension reads it at launch)
+  pi        ~/.ns-bridge/providers.json (the extension reads it at launch)
+  omp       the same file, kiro only; devin and grok are OMP's own, so they are not offered
   dsh       disabled: true on the plugin id in the profile's cordis.patch.yml
 
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.

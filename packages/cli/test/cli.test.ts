@@ -46,7 +46,7 @@ describe("ns-bridge", () => {
     expect(io.stdout).toEqual([
       "# dry-run (pass --apply to run)",
       "pi install npm:@ngosangns/ns-pi-provider",
-      "omp plugin install ns-omp-provider ns-omp-provider-kiro",
+      "omp plugin install ns-omp-provider-kiro",
       "# dsh skipped: pass --profile <name>",
     ]);
     expect(runner).not.toHaveBeenCalled();
@@ -56,10 +56,20 @@ describe("ns-bridge", () => {
     const io = capture();
     const code = await run(["update", "all", "--profile", "headless"], io);
     expect(code).toBe(0);
-    expect(io.stdout).toContain("omp plugin upgrade ns-omp-provider ns-omp-provider-kiro");
+    expect(io.stdout).toContain("omp plugin upgrade ns-omp-provider-kiro");
     expect(io.stdout).toContain(
       "dsh plugin --profile headless update ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok",
     );
+  });
+
+  it("uninstalls the old ns-omp-provider along with the kiro plugin, but never installs or upgrades it", async () => {
+    const io = capture();
+    expect(await run(["uninstall", "omp"], io)).toBe(0);
+    expect(io.stdout).toContain("omp plugin uninstall ns-omp-provider-kiro ns-omp-provider");
+    expect(io.stdout.join("\n")).not.toMatch(/(install|upgrade) ns-omp-provider( |$)/);
+    const help = capture();
+    await run(["help"], help);
+    expect(help.stdout.join("\n")).toContain("OMP has its own devin, xai, and xai-oauth providers");
   });
 
   it("runs host commands only with --apply", async () => {
@@ -263,7 +273,7 @@ describe("ns-bridge", () => {
     const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
     const io = capture();
     const selection = join(dir, "providers.json");
-    const code = await run(["providers", "disable", "omp", "grok"], {
+    const code = await run(["providers", "disable", "pi", "grok"], {
       ...io,
       providerPaths: { selection, piSettings: join(dir, "missing.json"), dshHome: dir },
     });
@@ -273,20 +283,80 @@ describe("ns-bridge", () => {
     expect(() => readFileSync(selection, "utf8")).toThrow();
   });
 
-  it("writes the provider selection for omp and reports pi status from it", async () => {
+  it("writes the provider selection for omp kiro and reports pi status from it", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
     const selection = join(dir, "providers.json");
     const piSettings = join(dir, "settings.json");
     writeFileSync(piSettings, JSON.stringify({ packages: ["npm:@ngosangns/ns-pi-provider"] }));
     const paths = { selection, piSettings, dshHome: dir };
     const io = capture();
-    expect(await run(["providers", "disable", "omp", "devin", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+    expect(await run(["providers", "disable", "pi", "devin", "--apply"], { ...io, providerPaths: paths })).toBe(0);
     expect(JSON.parse(readFileSync(selection, "utf8"))).toMatchObject({ devin: false, grok: true });
+    expect(await run(["providers", "disable", "omp", "kiro", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+    expect(JSON.parse(readFileSync(selection, "utf8"))).toMatchObject({ kiro: false, devin: false, grok: true });
     const status = capture();
     expect(await run(["providers", "status", "pi"], { ...status, providerPaths: paths })).toBe(0);
     expect(status.stdout.join("\n")).toContain("pi devin off");
     expect(status.stdout.join("\n")).toContain("pi grok on");
-    expect(status.stdout.join("\n")).toContain("pi kiro on");
+    expect(status.stdout.join("\n")).toContain("pi kiro off");
+  });
+
+  describe("omp has native devin and xai, so only kiro is a choice", () => {
+    function setup() {
+      const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+      const selection = join(dir, "providers.json");
+      return { selection, paths: { selection, piSettings: join(dir, "missing.json"), dshHome: dir } };
+    }
+
+    it("refuses to enable devin or grok for omp, says why, and writes nothing", async () => {
+      const { selection, paths } = setup();
+      for (const provider of ["devin", "grok"]) {
+        const io = capture();
+        expect(await run(["providers", "enable", "omp", provider, "--apply"], { ...io, providerPaths: paths })).toBe(1);
+        expect(io.stderr.join("\n")).toContain(`omp does not use ns-bridge for ${provider}`);
+        expect(io.stdout).toEqual([]);
+      }
+      const io = capture();
+      await run(["providers", "enable", "omp", "devin"], { ...io, providerPaths: paths });
+      expect(io.stderr.join("\n")).toContain("/login devin");
+      const grok = capture();
+      await run(["providers", "enable", "omp", "grok"], { ...grok, providerPaths: paths });
+      expect(grok.stderr.join("\n")).toContain("/login xai-oauth");
+      expect(() => readFileSync(selection, "utf8")).toThrow();
+    });
+
+    it("treats disable of devin or grok for omp as already done and leaves the file alone", async () => {
+      const { selection, paths } = setup();
+      writeFileSync(selection, JSON.stringify({ kiro: true, devin: true, grok: true }));
+      const io = capture();
+      expect(await run(["providers", "disable", "omp", "devin", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+      expect(await run(["providers", "disable", "omp", "grok", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+      expect(io.stdout.join("\n")).toContain("omp devin off (nothing to change");
+      expect(io.stdout.join("\n")).toContain("omp grok off (nothing to change");
+      expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ kiro: true, devin: true, grok: true });
+    });
+
+    it("reports omp devin and grok as not provided, even when the shared file turns them on", async () => {
+      const { selection, paths } = setup();
+      writeFileSync(selection, JSON.stringify({ kiro: true, devin: true, grok: true }));
+      const io = capture();
+      expect(await run(["providers", "status", "omp"], { ...io, providerPaths: paths })).toBe(0);
+      const out = io.stdout.join("\n");
+      expect(out).toContain("omp kiro on");
+      expect(out).toContain("omp devin off (not provided: OMP has its own devin provider");
+      expect(out).toContain("omp grok off (not provided: OMP has its own xai and xai-oauth providers");
+    });
+
+    it("keeps devin and grok for pi", async () => {
+      const { paths } = setup();
+      const piSettings = join(paths.dshHome, "settings.json");
+      writeFileSync(piSettings, JSON.stringify({ packages: ["npm:@ngosangns/ns-pi-provider"] }));
+      const io = capture();
+      expect(
+        await run(["providers", "enable", "pi", "devin"], { ...io, providerPaths: { ...paths, piSettings } }),
+      ).toBe(0);
+      expect(io.stdout.join("\n")).toContain("devin on");
+    });
   });
 
   it("sets disabled on a dsh plugin and clears it again", async () => {

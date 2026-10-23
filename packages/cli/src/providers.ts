@@ -4,6 +4,10 @@
  * Pi and OMP register from one file, `~/.ns-bridge/providers.json`. The
  * extensions read it at launch; this command writes it. DSH has no such
  * file: the profile patch carries `disabled: true` on the plugin id.
+ *
+ * OMP ships `devin`, `xai`, and `xai-oauth` itself and only takes `kiro` from
+ * this project, so devin and grok are not a choice for `omp`. Their keys in
+ * the shared file stay for Pi and are ignored by the OMP plugin.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -36,6 +40,12 @@ const DSH_ID: Record<ProviderName, string> = {
 };
 
 const PI_SOURCE = "npm:@ngosangns/ns-pi-provider";
+
+/** Why `omp` has no devin or grok here, and what to use in OMP instead. */
+const OMP_NATIVE: Partial<Record<ProviderName, string>> = {
+  devin: "OMP has its own devin provider; use /login devin or DEVIN_API_KEY",
+  grok: "OMP has its own xai and xai-oauth providers; use /login xai-oauth or XAI_API_KEY",
+};
 
 export interface ProviderStep {
   host: Host;
@@ -85,6 +95,14 @@ export function planProviders(
     provider = parsed;
   } else if (action !== "status") {
     return { steps: [], skipDsh: false, error: "enable and disable need a provider: kiro, devin, or grok" };
+  }
+
+  if (action === "enable" && provider && hosts.includes("omp") && OMP_NATIVE[provider]) {
+    return {
+      steps: [],
+      skipDsh: false,
+      error: `omp does not use ns-bridge for ${provider}: ${OMP_NATIVE[provider]}`,
+    };
   }
 
   const wantsDsh = hosts.includes("dsh");
@@ -141,6 +159,7 @@ function readHostProvider(
   paths: ProviderPaths,
 ): { on: boolean; note?: string } {
   if (host === "dsh") return readDshProvider(provider, profile, paths.dshHome);
+  if (host === "omp" && OMP_NATIVE[provider]) return { on: false, note: `not provided: ${OMP_NATIVE[provider]}` };
   if (host === "pi" && !piPackageInstalled(paths.piSettings)) {
     return { on: false, note: "package not installed" };
   }
@@ -185,6 +204,11 @@ function mutateStep(
   paths: ProviderPaths,
 ): ProviderStep | undefined {
   const enabled = action === "enable";
+  const native = host === "omp" ? OMP_NATIVE[provider] : undefined;
+  if (native) {
+    const line = `omp ${provider} off (nothing to change: ${native})`;
+    return { host, line, apply: () => line };
+  }
   if (host === "dsh") {
     if (!profile) return undefined;
     const patch = join(paths.dshHome, "profiles", profile, "cordis.patch.yml");
