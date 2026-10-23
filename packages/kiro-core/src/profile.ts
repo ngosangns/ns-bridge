@@ -13,10 +13,9 @@ import { dirname, join } from "node:path";
 export const KIRO_PROFILE_SELECTION_PATH = join(homedir(), ".ns-bridge", "kiro-profile.json");
 
 /**
- * Explicit user override for which Kiro profile to resolve/use. When set, it
- * wins over the saved pick and any token-carried or network-discovered
- * profile, fixing #110's "wrong profile picked among several -> reduced model
- * catalog" for users who have multiple profiles and know which one they want.
+ * Env override for which Kiro profile to resolve. When set, it wins over the
+ * saved pin and over any token-carried or discovered profile, for users with
+ * several profiles who know which one they want.
  */
 export const KIRO_PROFILE_ARN_ENV = "KIRO_PROFILE_ARN";
 

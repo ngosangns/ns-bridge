@@ -7,6 +7,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatalogs, type Vendor } from "./catalog.js";
 import { formatCommand, type HostAction, parseHosts, planHostCommands } from "./hosts.js";
 import { defaultKiroProfiles, findKiroProfile, formatKiroProfiles, type KiroProfileOps } from "./kiro-profile.js";
@@ -385,9 +386,15 @@ async function runKiroProfile(
 
   const ops = options.kiroProfiles ?? (await defaultKiroProfiles());
   if (action === "reset") {
+    const pinned = existsSync(ops.selectionPath);
+    const noPin = `no pin at ${ops.selectionPath}; Kiro already follows the login's profile`;
     if (!parsed.apply) {
       log("# dry-run (pass --apply to run)");
-      log(`remove ${ops.selectionPath}`);
+      log(pinned ? `remove ${ops.selectionPath}` : noPin);
+      return 0;
+    }
+    if (!pinned) {
+      log(noPin);
       return 0;
     }
     ops.select(undefined);
@@ -422,6 +429,11 @@ async function runKiroProfile(
   ops.select({ arn: match.arn, ...(match.name ? { name: match.name } : {}) });
   log(`pinned ${label} in ${ops.selectionPath}`);
   warnProfileEnv(err);
+  // A fetch would catalog whichever profile the env var names, not this pin.
+  if (process.env.KIRO_PROFILE_ARN?.trim()) {
+    log("# the pin takes effect once KIRO_PROFILE_ARN is unset");
+    return 0;
+  }
   // A profile seen before switches with no fetch; a new one needs its catalog once.
   if (!ops.hasCatalog(match.arn)) {
     const refreshers = options.refreshers ?? (await defaultModelRefresh());

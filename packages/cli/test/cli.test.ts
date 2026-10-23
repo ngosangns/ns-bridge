@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -645,13 +645,62 @@ describe("kiro profile", () => {
     expect(second.kiro).not.toHaveBeenCalled();
   });
 
+  it("saves the pin and skips the catalog while KIRO_PROFILE_ARN is set", async () => {
+    vi.stubEnv("KIRO_PROFILE_ARN", euArn);
+    try {
+      const io = capture();
+      const { ops, selections } = fakeOps();
+      const { kiro, refreshers } = fakeRefreshers();
+      expect(
+        await run(["kiro", "profile", "use", "us-east-1", "--apply"], {
+          ...io,
+          kiroProfiles: ops,
+          refreshers,
+        }),
+      ).toBe(0);
+      expect(selections).toEqual([{ arn: usArn, name: "KiroProfile-us-east-1" }]);
+      expect(kiro).not.toHaveBeenCalled();
+      expect(io.stdout).toContain("# the pin takes effect once KIRO_PROFILE_ARN is unset");
+      expect(io.stderr).toContain("# KIRO_PROFILE_ARN is set and outranks the pin");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("drops the pin on reset --apply", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-kiro-profile-"));
+    const selectionPath = join(dir, "kiro-profile.json");
+    writeFileSync(selectionPath, "{}\n");
     const io = capture();
     const { ops, selections } = fakeOps();
-    expect(await run(["kiro", "profile", "reset"], { ...io, kiroProfiles: ops })).toBe(0);
-    expect(selections).toEqual([]);
-    expect(await run(["kiro", "profile", "reset", "--apply"], { ...io, kiroProfiles: ops })).toBe(0);
-    expect(selections).toEqual([undefined]);
+    ops.selectionPath = selectionPath;
+    try {
+      expect(await run(["kiro", "profile", "reset"], { ...io, kiroProfiles: ops })).toBe(0);
+      expect(selections).toEqual([]);
+      expect(io.stdout).toContain(`remove ${selectionPath}`);
+      expect(await run(["kiro", "profile", "reset", "--apply"], { ...io, kiroProfiles: ops })).toBe(0);
+      expect(selections).toEqual([undefined]);
+      expect(io.stdout).toContain(`removed ${selectionPath}; Kiro follows the login's profile again`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("says there is no pin when the file is absent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-kiro-profile-"));
+    const selectionPath = join(dir, "kiro-profile.json");
+    const io = capture();
+    const { ops, selections } = fakeOps();
+    ops.selectionPath = selectionPath;
+    try {
+      expect(await run(["kiro", "profile", "reset"], { ...io, kiroProfiles: ops })).toBe(0);
+      expect(await run(["kiro", "profile", "reset", "--apply"], { ...io, kiroProfiles: ops })).toBe(0);
+      expect(selections).toEqual([]);
+      const line = `no pin at ${selectionPath}; Kiro already follows the login's profile`;
+      expect(io.stdout.filter((printed) => printed === line)).toHaveLength(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("rejects an unknown profile and malformed commands", async () => {

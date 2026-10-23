@@ -99,6 +99,13 @@ caller wins, so `ns-omp-provider` keeps `omp` even though it bundles the Pi adap
 - `ns-bridge usage` (`packages/cli/src/usage.ts`) only reads. It shares no code with the writer, so the
   line shape is the contract between them.
 
+### The Kiro profile pin
+
+`ns-bridge kiro profile use` writes `~/.ns-bridge/kiro-profile.json`. kiro-core reads it on every
+profile resolution. Precedence is `KIRO_PROFILE_ARN`, then the pin, then kiro-cli's pick, then
+discovery. The Kiro catalog cache (`~/.ns-kiro-provider-models-cache.json`) keeps a per-profile
+`profiles` map keyed by a hash of the ARN.
+
 ### The `kiro` provider id in OMP
 
 `ns-omp-provider-kiro` owns `kiro` in OMP while that plugin is installed.
