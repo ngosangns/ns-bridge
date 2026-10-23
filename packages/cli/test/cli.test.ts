@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { CatalogPaths } from "../src/catalog.js";
 import { type Runner, run } from "../src/cli.js";
+import type { KiroProfileListing, KiroProfileOps } from "../src/kiro-profile.js";
 import type { ModelRefresh } from "../src/refresh.js";
 
 function capture() {
@@ -562,5 +563,112 @@ describe("ns-bridge", () => {
         expect(await run(argv, { ...io, usageDir })).toBe(1);
       }
     });
+  });
+});
+
+describe("kiro profile", () => {
+  const usArn = "arn:aws:codewhisperer:us-east-1:123456789012:profile/US";
+  const euArn = "arn:aws:codewhisperer:eu-central-1:123456789012:profile/EU";
+
+  function fakeOps(options: { cached?: string[]; active?: KiroProfileListing["active"] } = {}) {
+    const selections: Array<{ arn: string; name?: string } | undefined> = [];
+    const ops: KiroProfileOps = {
+      list: async () => ({
+        profiles: [
+          { arn: usArn, name: "KiroProfile-us-east-1", region: "us-east-1" },
+          { arn: euArn, name: "KiroProfile-eu-central-1", region: "eu-central-1" },
+        ],
+        active: options.active ?? { arn: euArn, source: "login" },
+        loginArn: euArn,
+      }),
+      select: (selection) => selections.push(selection),
+      hasCatalog: (arn) => options.cached?.includes(arn) ?? false,
+      selectionPath: "/home/me/.ns-bridge/kiro-profile.json",
+    };
+    return { ops, selections };
+  }
+
+  function fakeRefreshers() {
+    const kiro = vi.fn(async () => ({ count: 3, detail: "region=us-east-1" }));
+    const refreshers: ModelRefresh = { kiro, devin: vi.fn(), grok: vi.fn() };
+    return { kiro, refreshers };
+  }
+
+  it("lists the login's profiles and marks the active one", async () => {
+    const io = capture();
+    const { ops } = fakeOps();
+    expect(await run(["kiro", "profile"], { ...io, kiroProfiles: ops })).toBe(0);
+    expect(io.stdout).toEqual([
+      `  KiroProfile-us-east-1     us-east-1     ${usArn}`,
+      `* KiroProfile-eu-central-1  eu-central-1  ${euArn}  (kiro-cli)`,
+      "# active from the login (kiro-cli's pick, or the first profile Kiro lists)",
+    ]);
+  });
+
+  it("previews a pin without writing it", async () => {
+    const io = capture();
+    const { ops, selections } = fakeOps();
+    expect(await run(["kiro", "profile", "use", "us-east-1"], { ...io, kiroProfiles: ops })).toBe(0);
+    expect(io.stdout).toEqual([
+      "# dry-run (pass --apply to run)",
+      "pin KiroProfile-us-east-1 (us-east-1) in /home/me/.ns-bridge/kiro-profile.json",
+    ]);
+    expect(selections).toEqual([]);
+  });
+
+  it("pins by name and fetches the catalog only when the profile has none", async () => {
+    const io = capture();
+    const { ops, selections } = fakeOps();
+    const { kiro, refreshers } = fakeRefreshers();
+    expect(
+      await run(["kiro", "profile", "use", "kiroprofile-us-east-1", "--apply"], {
+        ...io,
+        kiroProfiles: ops,
+        refreshers,
+      }),
+    ).toBe(0);
+    expect(selections).toEqual([{ arn: usArn, name: "KiroProfile-us-east-1" }]);
+    expect(kiro).toHaveBeenCalledOnce();
+    expect(io.stdout).toContain("kiro: 3 model(s) region=us-east-1");
+
+    const again = capture();
+    const cached = fakeOps({ cached: [usArn] });
+    const second = fakeRefreshers();
+    expect(
+      await run(["kiro", "profile", "use", usArn, "--apply"], {
+        ...again,
+        kiroProfiles: cached.ops,
+        refreshers: second.refreshers,
+      }),
+    ).toBe(0);
+    expect(cached.selections).toEqual([{ arn: usArn, name: "KiroProfile-us-east-1" }]);
+    expect(second.kiro).not.toHaveBeenCalled();
+  });
+
+  it("drops the pin on reset --apply", async () => {
+    const io = capture();
+    const { ops, selections } = fakeOps();
+    expect(await run(["kiro", "profile", "reset"], { ...io, kiroProfiles: ops })).toBe(0);
+    expect(selections).toEqual([]);
+    expect(await run(["kiro", "profile", "reset", "--apply"], { ...io, kiroProfiles: ops })).toBe(0);
+    expect(selections).toEqual([undefined]);
+  });
+
+  it("rejects an unknown profile and malformed commands", async () => {
+    const { ops } = fakeOps();
+    const unknown = capture();
+    expect(await run(["kiro", "profile", "use", "ap-south-1"], { ...unknown, kiroProfiles: ops })).toBe(1);
+    expect(unknown.stderr[0]).toContain("no Kiro profile named ap-south-1");
+
+    for (const argv of [
+      ["kiro"],
+      ["kiro", "profile", "switch"],
+      ["kiro", "profile", "use"],
+      ["kiro", "profile", "list", "extra"],
+      ["kiro", "profile", "use", "us-east-1", "--profile", "headless"],
+    ]) {
+      const io = capture();
+      expect(await run(argv, { ...io, kiroProfiles: ops })).toBe(1);
+    }
   });
 });

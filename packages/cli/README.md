@@ -22,6 +22,9 @@ ns-bridge usage [--vendor <kiro|devin|grok>] [--day YYYY-MM-DD] [--days <n>] [--
 ns-bridge usage --session <id> [--vendor <name>] [--json]
 ns-bridge models list [kiro|devin|grok|all]
 ns-bridge models refresh [kiro|devin|grok|all] [--apply]
+ns-bridge kiro profile [list]
+ns-bridge kiro profile use <name|region|arn> [--apply]
+ns-bridge kiro profile reset [--apply]
 ns-bridge status
 ```
 
@@ -50,3 +53,5 @@ The default view groups the newest 10 days by day and vendor. `--session <id>` l
 `models refresh --apply` writes those files from the bundled refresh. A missing file is reported as missing. The command does not print the in-memory fallback list.
 
 Pi, OMP, and DSH read those files while they run. They do not refresh them.
+
+`kiro profile` lists the Kiro profiles your login can use (it asks Kiro in `us-east-1`, `eu-central-1`, and the login's own region) and marks the one requests run on. `(kiro-cli)` tags the profile kiro-cli picked at `kiro-cli login`, which is what Kiro uses when nothing is pinned. `use` takes a profile name, a region that holds exactly one profile, or an ARN, and pins it in `~/.ns-bridge/kiro-profile.json`. With `--apply` it also fetches that profile's catalog the first time. The Kiro cache keeps one catalog per profile, so switching back and forth later needs no fetch. `reset --apply` removes the pin. Pi, OMP, and DSH read the pin on every request, so a switch applies from the next turn. A host's model list reloads when the host restarts. `KIRO_PROFILE_ARN` outranks the pin.

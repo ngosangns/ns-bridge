@@ -81,7 +81,8 @@ retries, tokenizer, login) lives in this package:
 | `streamKiro` | Resolve the model id and profile, stream one turn, apply the cache-read estimate |
 | `resolveKiroCredentials` / `refreshKiroToken` | Pick the local store (kiro-cli or Kiro IDE), refresh the token, write the result back |
 | `getKiroCliCredentials` / `getKiroIdeCredentials` | Read the kiro-cli SQLite store / the IDE token file |
-| `updateKiroModelsCache` / `getCachedModels` | Write the authenticated catalog (`ns-bridge models refresh`) and read the on-disk cache |
+| `updateKiroModelsCache` / `getCachedModels` | Write the authenticated catalog (`ns-bridge models refresh`) and read the on-disk cache, one entry per profile |
+| `listKiroProfiles` / `writeKiroProfileSelection` | List the profiles a login can run on and pin one (`ns-bridge kiro profile`); `KIRO_PROFILE_ARN` outranks the pin |
 | `applyCacheEstimate` | Cross-turn cache-read estimation |
 | `loginKiroWithApiKey` | Accept a `ksk_` key and call GetProfile |
 

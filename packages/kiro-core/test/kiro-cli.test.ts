@@ -62,6 +62,39 @@ describe("tryKiroCliToken (#110)", () => {
   });
 });
 
+describe("kiro-cli's selected profile", () => {
+  const selectedArn = "arn:aws:codewhisperer:eu-central-1:123456789012:profile/selected";
+
+  function selectProfile(dbPath: string, arn: string): void {
+    const db = new DatabaseSync(dbPath);
+    db.exec(`CREATE TABLE state (key TEXT PRIMARY KEY, value BLOB)`);
+    db.prepare(`INSERT INTO state (key, value) VALUES (?, ?)`).run(
+      "api.codewhisperer.profile",
+      JSON.stringify({ arn, profile_name: "KiroProfile-eu-central-1" }),
+    );
+    db.close();
+  }
+
+  it("is the profile an IDC login runs on when the token names none", () => {
+    const dbPath = makeTokenDb(undefined, "idc");
+    selectProfile(dbPath, selectedArn);
+    expect(tryKiroCliToken(dbPath, "kirocli:odic:token", "idc")?.profileArn).toBe(selectedArn);
+  });
+
+  it("outranks a profile_arn written back onto an IDC token", () => {
+    const dbPath = makeTokenDb("arn:aws:codewhisperer:us-east-1:123456789012:profile/stale", "idc");
+    selectProfile(dbPath, selectedArn);
+    expect(tryKiroCliToken(dbPath, "kirocli:odic:token", "idc")?.profileArn).toBe(selectedArn);
+  });
+
+  it("leaves a social token's own profile alone", () => {
+    const desktopArn = "arn:aws:codewhisperer:us-east-1:123456789012:profile/desktop";
+    const dbPath = makeTokenDb(desktopArn, "desktop");
+    selectProfile(dbPath, selectedArn);
+    expect(tryKiroCliToken(dbPath, "kirocli:social:token", "desktop")?.profileArn).toBe(desktopArn);
+  });
+});
+
 describe("external IdP tokens", () => {
   function makeExternalIdpDb(token: Record<string, unknown>): string {
     tempDir = mkdtempSync(join(tmpdir(), "kiro-cli-test-"));
