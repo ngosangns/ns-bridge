@@ -74,9 +74,9 @@ export async function resolveInitialProfileArn(
   auth: KiroManagementAuth,
   hintedArn: string | undefined,
 ): Promise<string> {
-  if (hintedArn) return hintedArn;
+  if (hintedArn) return resolveProfileArn(auth, hintedArn);
   const stored = getKiroCliCredentials() ?? getKiroCliCredentialsAllowExpired();
-  if (stored?.access === auth.accessToken && stored.profileArn) return stored.profileArn;
+  if (stored?.access === auth.accessToken && stored.profileArn) return resolveProfileArn(auth, stored.profileArn);
   return resolveProfileArn(auth);
 }
 
@@ -95,9 +95,9 @@ export async function resolveRotatedProfileArn(
   rotated: KiroRotatedCredential,
 ): Promise<string> {
   invalidateKiroProfileArn({ accessToken: rejectedAccessToken, region: auth.region });
-  if (rotated.profileArn) return rotated.profileArn;
+  if (rotated.profileArn) return resolveProfileArn(auth, rotated.profileArn);
   if (rotated.source !== "unchanged" && sameDesktopLogin(rejectedAccessToken, rotated.accessToken)) {
-    return rejectedProfileArn;
+    return resolveProfileArn(auth, rejectedProfileArn);
   }
   return resolveProfileArn(auth);
 }
@@ -117,7 +117,12 @@ function desktopCredentialFor(accessToken: string): KiroCredentials | undefined 
   return credential;
 }
 
-function resolveProfileArn(auth: KiroManagementAuth): Promise<string> {
-  if (pinnedProfileArn) return Promise.resolve(pinnedProfileArn);
-  return resolveKiroProfileArn(auth);
+/**
+ * A carried ARN (from the model, the request, or a credential) skips discovery,
+ * but still goes through {@link resolveKiroProfileArn} so a profile the user
+ * pinned outranks it there as everywhere else.
+ */
+function resolveProfileArn(auth: KiroManagementAuth, carriedArn?: string): Promise<string> {
+  if (!carriedArn && pinnedProfileArn) return Promise.resolve(pinnedProfileArn);
+  return resolveKiroProfileArn(auth, carriedArn);
 }

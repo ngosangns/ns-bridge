@@ -26,8 +26,10 @@ export {
 } from "./host-auth.js";
 export { toKiroModelForHost } from "./host-model.js";
 export { getKiroCliModelRates } from "./kiro-cli.js";
+export { type KiroProfile, listKiroProfiles, resolveKiroProfileArn } from "./management.js";
 export {
   getCachedModels,
+  hasCachedKiroProfileCatalog,
   isCacheStale,
   KIRO_MANAGEMENT_CACHE_PATH,
   type KiroModel,
@@ -35,6 +37,16 @@ export {
   updateKiroModelsCache,
 } from "./models.js";
 export { isExpired, type KiroCredentials, readKiroSession, refreshKiroToken, resolveKiroCredentials } from "./oauth.js";
+export {
+  getKiroProfileOverride,
+  KIRO_PROFILE_ARN_ENV,
+  KIRO_PROFILE_SELECTION_PATH,
+  type KiroProfileOverride,
+  type KiroProfileOverrideSource,
+  type KiroProfileSelection,
+  readKiroProfileSelection,
+  writeKiroProfileSelection,
+} from "./profile.js";
 export {
   type BuildKiroRequestParams,
   type BuiltKiroRequest,

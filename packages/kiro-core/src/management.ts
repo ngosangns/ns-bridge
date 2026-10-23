@@ -3,9 +3,10 @@
 
 import { createHash } from "node:crypto";
 import { debugLog, redactSensitiveText } from "./debug.js";
-import { getKiroEndpoints } from "./endpoints.js";
+import { getKiroEndpoints, getKiroRegionFromProfileArn } from "./endpoints.js";
 import { kiroManagementFetch } from "./http.js";
 import { fetchApiKeyGetProfile, isApiKey } from "./oauth.js";
+import { getKiroProfileOverride } from "./profile.js";
 
 const LIST_PROFILES_PATH = "List-Available-Profiles";
 const LIST_MODELS_PATH = "List-Available-Models";
@@ -45,7 +46,14 @@ export interface KiroGetUsageLimitsRequest {
 }
 
 interface KiroListAvailableProfilesResponse {
-  profiles?: Array<{ arn?: string; [key: string]: unknown }>;
+  profiles?: Array<{ arn?: string; profileName?: string; [key: string]: unknown }>;
+}
+
+/** One profile a login can run on. */
+export interface KiroProfile {
+  arn: string;
+  name?: string;
+  region: string;
 }
 
 interface KiroGetProfileResponse {
@@ -82,14 +90,6 @@ function candidateManagementRegions(primary: string): string[] {
   }
   return candidates;
 }
-
-/**
- * Explicit user override for which Kiro profile to resolve/use. When set, it
- * wins over any token-carried or network-discovered profile, fixing #110's
- * "wrong profile picked among several -> reduced model catalog" for users who
- * have multiple profiles and know which one they want.
- */
-const ENV_PROFILE_ARN = "KIRO_PROFILE_ARN";
 
 export class KiroManagementHttpError extends Error {
   constructor(
@@ -210,13 +210,13 @@ export function invalidateKiroProfileArn(auth: KiroManagementAuth): void {
 }
 
 export async function resolveKiroProfileArn(auth: KiroManagementAuth, providedArn?: string): Promise<string> {
-  // Explicit user override (#110). Highest precedence: a user who pins
-  // KIRO_PROFILE_ARN knows which profile they want, even if the token or the
-  // profile list contains several candidates.
-  const envArn = process.env[ENV_PROFILE_ARN]?.trim();
-  if (envArn) {
-    debugLog("profile.resolve", { source: "env", arn: envArn });
-    return envArn;
+  // Explicit user override (#110): KIRO_PROFILE_ARN, then the profile saved by
+  // `ns-bridge kiro profile use`. Highest precedence: a user who pins one knows
+  // which profile they want, even if the token or the profile list names others.
+  const override = getKiroProfileOverride();
+  if (override) {
+    debugLog("profile.resolve", { source: override.source, arn: override.arn });
+    return override.arn;
   }
   if (providedArn) {
     debugLog("profile.resolve", { source: "provided", arn: providedArn });
@@ -296,6 +296,48 @@ export async function resolveKiroProfileArn(auth: KiroManagementAuth, providedAr
   }
 }
 
+/**
+ * Every profile this login can run on, across the canonical management regions.
+ * ListAvailableProfiles is regional, so one region only ever shows its own
+ * profiles; a region that answers 403 holds none for this login. An API key
+ * has exactly one profile, the one GetProfile returns.
+ */
+export async function listKiroProfiles(auth: KiroManagementAuth): Promise<KiroProfile[]> {
+  if (isApiKey(auth.accessToken)) {
+    return [{ arn: await getApiKeyProfileArn(auth.accessToken), region: API_KEY_REGION }];
+  }
+  const profiles = new Map<string, KiroProfile>();
+  let lastHttpError: KiroManagementHttpError | undefined;
+  for (const region of candidateManagementRegions(auth.region)) {
+    let response: KiroListAvailableProfilesResponse;
+    try {
+      response = await requestManagement<KiroListAvailableProfilesResponse>(
+        { ...auth, region },
+        "ListAvailableProfiles",
+        LIST_PROFILES_PATH,
+        "POST",
+        {},
+      );
+    } catch (error) {
+      if (error instanceof KiroManagementHttpError && error.status === 403) {
+        lastHttpError = error;
+        continue;
+      }
+      throw error;
+    }
+    for (const profile of response.profiles ?? []) {
+      if (!profile.arn || profiles.has(profile.arn)) continue;
+      profiles.set(profile.arn, {
+        arn: profile.arn,
+        ...(typeof profile.profileName === "string" && profile.profileName ? { name: profile.profileName } : {}),
+        region: getKiroRegionFromProfileArn(profile.arn) ?? region,
+      });
+    }
+  }
+  if (profiles.size === 0 && lastHttpError) throw lastHttpError;
+  return [...profiles.values()];
+}
+
 export async function listAvailableModels(
   auth: KiroManagementAuth,
   profileArn: string,
@@ -326,18 +368,23 @@ export async function fetchKiroModelCatalog(
   providedProfileArn?: string,
 ): Promise<KiroListAvailableModelsResponse> {
   const profileArn = await resolveKiroProfileArn(auth, providedProfileArn);
-  // Route the models query to the region where the profile actually lives — it
-  // may differ from the SSO-derived region (#104), and ListAvailableModels is
-  // regional to the profile too, not to the login region. An API key's profile
-  // always lives in the key-issuing region, even when a pinned KIRO_PROFILE_ARN
-  // skipped discovery and left no cached region behind.
+  // ListAvailableModels is regional to the profile, not to the login region.
+  return listAvailableModels(kiroProfileAuth(auth, profileArn), profileArn);
+}
+
+/**
+ * The management auth for calls about one profile (ListAvailableModels,
+ * GetUsageLimits). Those are regional to where the profile lives, which may
+ * differ from the SSO-derived region (#104). An API key's profile always lives
+ * in the key-issuing region; any other profile's ARN names its region, which
+ * covers a pinned profile or kiro-cli's selected profile that skipped
+ * discovery and left no cached region behind.
+ */
+export function kiroProfileAuth(auth: KiroManagementAuth, profileArn: string): KiroManagementAuth {
   const region = isApiKey(auth.accessToken)
     ? API_KEY_REGION
-    : (profileRegionCache.get(profileCacheKey(auth)) ?? auth.region);
-  if (region !== auth.region) {
-    return listAvailableModels({ ...auth, region }, profileArn);
-  }
-  return listAvailableModels(auth, profileArn);
+    : (getKiroRegionFromProfileArn(profileArn) ?? profileRegionCache.get(profileCacheKey(auth)) ?? auth.region);
+  return region === auth.region ? auth : { ...auth, region };
 }
 
 export async function getUsageLimits<TResponse>(

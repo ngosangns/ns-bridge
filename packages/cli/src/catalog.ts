@@ -85,16 +85,28 @@ function parseKiro(raw: string): CatalogGroup[] | undefined {
   const groups: CatalogGroup[] = [];
   for (const [region, entry] of Object.entries(parsed.regions)) {
     if (!isRecord(entry) || !Array.isArray(entry.models)) return undefined;
-    const entries = entriesFrom(entry.models);
-    if (entries.length === 0) continue;
-    groups.push({
-      label: region,
-      ids: entries.map((entry) => entry.id),
-      entries,
-      ...(typeof entry.fetchedAt === "number" ? { fetchedAt: entry.fetchedAt } : {}),
-    });
+    const group = kiroGroup(region, entry.models, entry.fetchedAt);
+    if (group) groups.push(group);
+  }
+  // One catalog per profile, keyed by a hash of its ARN; the file never names the account.
+  for (const [key, entry] of Object.entries(isRecord(parsed.profiles) ? parsed.profiles : {})) {
+    if (!isRecord(entry) || !Array.isArray(entry.models)) continue;
+    const where = typeof entry.profileRegion === "string" ? `${entry.profileRegion} ` : "";
+    const group = kiroGroup(`profile ${where}#${key}`, entry.models, entry.fetchedAt);
+    if (group) groups.push(group);
   }
   return groups;
+}
+
+function kiroGroup(label: string, models: unknown[], fetchedAt: unknown): CatalogGroup | undefined {
+  const entries = entriesFrom(models);
+  if (entries.length === 0) return undefined;
+  return {
+    label,
+    ids: entries.map((entry) => entry.id),
+    entries,
+    ...(typeof fetchedAt === "number" ? { fetchedAt } : {}),
+  };
 }
 
 function parseModelList(raw: string, label: string): CatalogGroup[] | undefined {

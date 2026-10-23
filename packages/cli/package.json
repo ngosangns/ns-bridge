@@ -45,6 +45,7 @@
     "@ngosangns/ns-pi-provider": "workspace:*",
     "@types/node": "^22.18.6",
     "esbuild": "^0.28.2",
+    "ns-kiro-core": "workspace:*",
     "typescript": "^5.9.2"
   }
 }

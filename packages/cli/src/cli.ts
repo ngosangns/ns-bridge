@@ -9,6 +9,7 @@
 import { spawn } from "node:child_process";
 import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatalogs, type Vendor } from "./catalog.js";
 import { formatCommand, type HostAction, parseHosts, planHostCommands } from "./hosts.js";
+import { defaultKiroProfiles, findKiroProfile, formatKiroProfiles, type KiroProfileOps } from "./kiro-profile.js";
 import { formatProviderPlan, type ProviderPaths, planProviders, providerPaths } from "./providers.js";
 import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.js";
 import { currentVersion, PACKAGE_NAME, parseNpmVersion, planSelfUpdate } from "./self.js";
@@ -27,6 +28,8 @@ export interface RunOptions {
   err?: (line: string) => void;
   runner?: Runner;
   refreshers?: ModelRefresh;
+  /** Kiro profile listing and pinning. Tests pass fakes; production loads the refresh bundle. */
+  kiroProfiles?: KiroProfileOps;
   paths?: CatalogPaths;
   now?: number;
   providerPaths?: ProviderPaths;
@@ -52,6 +55,9 @@ Usage:
   ns-bridge usage --session <id> [--vendor <name>] [--json]
   ns-bridge models list [kiro|devin|grok|all]
   ns-bridge models refresh [kiro|devin|grok|all] [--apply]
+  ns-bridge kiro profile [list]
+  ns-bridge kiro profile use <name|region|arn> [--apply]
+  ns-bridge kiro profile reset [--apply]
   ns-bridge status
   ns-bridge help
 
@@ -81,6 +87,11 @@ per-step ratios. NS_BRIDGE_USAGE=0 stops the plugins from recording.
 update with no host updates this CLI. It looks up the latest @ngosangns/ns-bridge
 on npm and, with --apply, runs npm install -g @ngosangns/ns-bridge@<latest>.
 It does not touch host plugins. A host argument updates those plugins instead.
+
+kiro profile lists the Kiro profiles your login can use and marks the active one.
+use pins one in ~/.ns-bridge/kiro-profile.json and fetches its catalog if it has
+none yet; reset drops the pin so the login's own profile (kiro-cli's pick) applies.
+Hosts read the pin on every request. KIRO_PROFILE_ARN outranks it.
 
 Model catalogs are files the hosts read. Providers do not refresh them.
 This command writes those files:
@@ -181,6 +192,9 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
   }
   if (command === "providers") {
     return runProviders(parsed, log, err, options);
+  }
+  if (command === "kiro") {
+    return runKiroProfile(parsed, log, err, options);
   }
   err(`unknown command ${command}`);
   err("run ns-bridge help");
@@ -341,6 +355,90 @@ async function runHost(
   }
   if (plan.skipDsh) log("# dsh skipped: pass --profile <name>");
   return 0;
+}
+
+async function runKiroProfile(
+  parsed: Parsed,
+  log: (line: string) => void,
+  err: (line: string) => void,
+  options: RunOptions,
+): Promise<number> {
+  const [, area, action = "list", query] = parsed.positionals;
+  const usage = "usage: ns-bridge kiro profile [list] | use <name|region|arn> | reset";
+  if (area !== "profile" || (action !== "list" && action !== "use" && action !== "reset")) {
+    err(usage);
+    return 1;
+  }
+  const allowed = action === "use" ? 4 : 3;
+  if (parsed.positionals.length > allowed) {
+    err(`unexpected argument ${parsed.positionals[allowed]}`);
+    return 1;
+  }
+  if (action === "use" && !query) {
+    err("kiro profile use needs a profile name, region, or ARN");
+    return 1;
+  }
+  if (parsed.profile) {
+    err("--profile names a DSH profile; pass the Kiro profile as an argument");
+    return 1;
+  }
+
+  const ops = options.kiroProfiles ?? (await defaultKiroProfiles());
+  if (action === "reset") {
+    if (!parsed.apply) {
+      log("# dry-run (pass --apply to run)");
+      log(`remove ${ops.selectionPath}`);
+      return 0;
+    }
+    ops.select(undefined);
+    log(`removed ${ops.selectionPath}; Kiro follows the login's profile again`);
+    warnProfileEnv(err);
+    return 0;
+  }
+
+  let listing: Awaited<ReturnType<KiroProfileOps["list"]>>;
+  try {
+    listing = await ops.list();
+  } catch (error) {
+    err(`kiro: ${error instanceof Error ? error.message : String(error)}`);
+    return 2;
+  }
+  if (action === "list") {
+    for (const line of formatKiroProfiles(listing)) log(line);
+    return 0;
+  }
+
+  const match = findKiroProfile(listing.profiles, query ?? "");
+  if ("error" in match) {
+    err(match.error);
+    return 1;
+  }
+  const label = `${match.name ?? match.arn} (${match.region})`;
+  if (!parsed.apply) {
+    log("# dry-run (pass --apply to run)");
+    log(`pin ${label} in ${ops.selectionPath}`);
+    return 0;
+  }
+  ops.select({ arn: match.arn, ...(match.name ? { name: match.name } : {}) });
+  log(`pinned ${label} in ${ops.selectionPath}`);
+  warnProfileEnv(err);
+  // A profile seen before switches with no fetch; a new one needs its catalog once.
+  if (!ops.hasCatalog(match.arn)) {
+    const refreshers = options.refreshers ?? (await defaultModelRefresh());
+    try {
+      log(refreshLine("kiro", await refreshers.kiro()));
+    } catch (error) {
+      err(`kiro: ${error instanceof Error ? error.message : String(error)}`);
+      err("the pin is saved; run ns-bridge models refresh kiro --apply to fetch its catalog");
+      return 2;
+    }
+  }
+  log("# requests use it from the next turn; restart the host to reload its model list");
+  return 0;
+}
+
+function warnProfileEnv(err: (line: string) => void): void {
+  if (process.env.KIRO_PROFILE_ARN?.trim()) err("# KIRO_PROFILE_ARN is set and outranks the pin");
 }
 
 async function runProviders(

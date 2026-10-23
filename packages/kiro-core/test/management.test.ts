@@ -242,6 +242,20 @@ describe("Kiro management control plane", () => {
     }
   });
 
+  it("sends ListAvailableModels to the region a provided profile ARN names", async () => {
+    const euArn = "arn:aws:codewhisperer:eu-central-1:123456789012:profile/selected";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ models: [{ modelId: "claude-sonnet-4-5" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchKiroModelCatalog(auth, euArn);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toContain("https://management.eu-central-1.kiro.dev/List-Available-Models?");
+  });
+
   it("falls back to the token-carried ARN when no env override is set (#110)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

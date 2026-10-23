@@ -1,13 +1,15 @@
 // Model catalog: the bootstrap list, the authenticated catalog, and its cache.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { compactionBudget } from "ns-core-utils";
 import { getKiroEffortConfig, type KiroEffortConfig } from "./effort.js";
+import { getKiroRegionFromProfileArn } from "./endpoints.js";
 import type { KiroModelRate } from "./kiro-cli.js";
 import type { KiroCatalogModel } from "./management.js";
+import { getKiroProfileOverride } from "./profile.js";
 import { KIRO_EFFORT_ORDER, type KiroEffort, type KiroModelSpec } from "./types.js";
 
 export { resolveApiRegion } from "./endpoints.js";
@@ -55,10 +57,24 @@ interface ManagementCacheRegion {
   models: KiroModel[];
 }
 
+interface ManagementCacheProfile extends ManagementCacheRegion {
+  /** Where the profile lives, for `ns-bridge models list`. */
+  profileRegion?: string;
+}
+
+/**
+ * `regions` holds the catalog of the profile each login resolves to on its own,
+ * keyed by the login's API region. `profiles` holds every catalog fetched, keyed
+ * by {@link kiroProfileCacheKey}, so switching between pinned profiles needs no
+ * refetch. It is a separate field rather than more `regions` keys because older
+ * readers require each `regions` key to equal its entry's region and would
+ * throw the whole file away.
+ */
 interface ManagementModelsCache {
   version: typeof KIRO_MANAGEMENT_CACHE_VERSION;
   source: typeof KIRO_MANAGEMENT_CACHE_SOURCE;
   regions: Record<string, ManagementCacheRegion>;
+  profiles?: Record<string, ManagementCacheProfile>;
 }
 
 type BootstrapModel = Omit<KiroModel, "efforts" | "effortMap" | "supportsSummarizedThinking">;
@@ -372,29 +388,70 @@ function parseManagementCache(raw: string): ManagementModelsCache | undefined {
 
   const regions: Record<string, ManagementCacheRegion> = {};
   for (const [region, rawEntry] of Object.entries(value.regions)) {
-    if (
-      !isRecord(rawEntry) ||
-      rawEntry.region !== region ||
-      !isPositiveNumber(rawEntry.fetchedAt) ||
-      !Array.isArray(rawEntry.models) ||
-      rawEntry.models.length === 0 ||
-      !rawEntry.models.every(isCachedKiroModel)
-    ) {
-      return undefined;
-    }
-    const modelIds = new Set<string>();
-    for (const model of rawEntry.models) {
-      if (modelIds.has(model.id)) return undefined;
-      modelIds.add(model.id);
-    }
-    regions[region] = rawEntry as unknown as ManagementCacheRegion;
+    if (!isCacheEntry(rawEntry) || rawEntry.region !== region) return undefined;
+    regions[region] = rawEntry;
+  }
+
+  // A malformed profile entry costs only that profile a refetch.
+  const profiles: Record<string, ManagementCacheProfile> = {};
+  for (const [key, rawEntry] of Object.entries(isRecord(value.profiles) ? value.profiles : {})) {
+    if (isCacheEntry(rawEntry)) profiles[key] = rawEntry;
   }
 
   return {
     version: KIRO_MANAGEMENT_CACHE_VERSION,
     source: KIRO_MANAGEMENT_CACHE_SOURCE,
     regions,
+    ...(Object.keys(profiles).length > 0 ? { profiles } : {}),
   };
+}
+
+function isCacheEntry(value: unknown): value is ManagementCacheRegion {
+  if (
+    !isRecord(value) ||
+    typeof value.region !== "string" ||
+    !isPositiveNumber(value.fetchedAt) ||
+    !Array.isArray(value.models) ||
+    value.models.length === 0 ||
+    !value.models.every(isCachedKiroModel)
+  ) {
+    return false;
+  }
+  const modelIds = new Set<string>();
+  for (const model of value.models) {
+    if (modelIds.has(model.id)) return false;
+    modelIds.add(model.id);
+  }
+  return true;
+}
+
+/** Every cached catalog, the login defaults and the per-profile ones alike. */
+function allCacheEntries(cache: ManagementModelsCache | undefined): ManagementCacheRegion[] {
+  if (!cache) return [];
+  return [...Object.values(cache.regions), ...Object.values(cache.profiles ?? {})];
+}
+
+/**
+ * The cache key for one profile's catalog. A hash, not the ARN: the file has
+ * never held an account identifier, and a pin needs only to find its entry.
+ */
+export function kiroProfileCacheKey(profileArn: string): string {
+  return createHash("sha256").update(profileArn).digest("base64url").slice(0, 16);
+}
+
+/** Whether the disk cache already holds this profile's catalog, fresh or not. */
+export function hasCachedKiroProfileCatalog(profileArn: string): boolean {
+  return readManagementCache()?.profiles?.[kiroProfileCacheKey(profileArn)] !== undefined;
+}
+
+/**
+ * The catalog a login in `region` runs on now: the pinned profile's when the
+ * user pinned one, otherwise the login's own. A pinned profile that was never
+ * fetched has no entry, which reads as stale and triggers a refresh.
+ */
+function activeCacheEntry(cache: ManagementModelsCache | undefined, region: string): ManagementCacheRegion | undefined {
+  const override = getKiroProfileOverride();
+  return override ? cache?.profiles?.[kiroProfileCacheKey(override.arn)] : cache?.regions[region];
 }
 
 function readManagementCache(): ManagementModelsCache | undefined {
@@ -578,8 +635,7 @@ export function mapKiroCatalogModels(
 function refreshKnownModelIds(cache: ManagementModelsCache | undefined): void {
   KIRO_MODEL_IDS.clear();
   for (const modelId of BOOTSTRAP_KIRO_MODEL_IDS) KIRO_MODEL_IDS.add(modelId);
-  if (!cache) return;
-  for (const entry of Object.values(cache.regions)) {
+  for (const entry of allCacheEntries(cache)) {
     for (const model of entry.models) KIRO_MODEL_IDS.add(model.kiroModelId);
   }
 }
@@ -588,11 +644,15 @@ export function loadCachedModelIds(): void {
   refreshKnownModelIds(readManagementCache());
 }
 
-/** Return the authenticated regional catalog, or the static list only as a pre-discovery bootstrap. */
+/**
+ * Return the authenticated catalog of the profile a login in `region` runs on,
+ * then the login's own catalog while a newly pinned profile has none yet, and
+ * the static list only as a pre-discovery bootstrap.
+ */
 export function getCachedModels(region: string): KiroModel[] {
   const cache = readManagementCache();
   refreshKnownModelIds(cache);
-  const models = cache?.regions[region]?.models ?? kiroModels;
+  const models = activeCacheEntry(cache, region)?.models ?? cache?.regions[region]?.models ?? kiroModels;
   let changed = false;
   const corrected = models.map((model) => {
     const result = applyVerifiedCapabilities(model);
@@ -603,21 +663,23 @@ export function getCachedModels(region: string): KiroModel[] {
 }
 
 export function isCacheStale(region: string): boolean {
-  const entry = readManagementCache()?.regions[region];
+  const entry = activeCacheEntry(readManagementCache(), region);
   return !entry || Date.now() - entry.fetchedAt > CACHE_MAX_AGE_MS;
 }
 
 /**
- * Refresh one region's catalog into the disk cache that {@link getCachedModels}
- * reads synchronously.
+ * Refresh the catalog of the profile a login in `region` runs on into the disk
+ * cache that {@link getCachedModels} reads synchronously.
  */
 export async function updateKiroModelsCache(accessToken: string, region: string, profileArn?: string): Promise<void> {
   // The management client and the kiro-cli rate reader stay off the import
   // graph. Registration only reads the disk cache below; this refresh is the
   // first point that talks to either.
-  const { fetchKiroModelCatalog } = await import("./management.js");
+  const { fetchKiroModelCatalog, resolveKiroProfileArn } = await import("./management.js");
   const { getKiroCliModelRates } = await import("./kiro-cli.js");
-  const response = await fetchKiroModelCatalog({ accessToken, region }, profileArn);
+  const auth = { accessToken, region };
+  const resolvedProfileArn = await resolveKiroProfileArn(auth, profileArn);
+  const response = await fetchKiroModelCatalog(auth, resolvedProfileArn);
   // Billing weights come from kiro-cli, the only source that publishes them.
   // Absent when it is not installed, which leaves the catalog rate-less rather
   // than failing the refresh.
@@ -628,7 +690,14 @@ export async function updateKiroModelsCache(accessToken: string, region: string,
     regions: {},
   };
 
-  cache.regions[region] = { region, fetchedAt: Date.now(), models };
+  const entry = { region, fetchedAt: Date.now(), models };
+  const profileRegion = getKiroRegionFromProfileArn(resolvedProfileArn);
+  cache.profiles = {
+    ...cache.profiles,
+    [kiroProfileCacheKey(resolvedProfileArn)]: { ...entry, ...(profileRegion ? { profileRegion } : {}) },
+  };
+  // `regions` keeps the login's own profile, so dropping a pin falls back to it.
+  if (!getKiroProfileOverride()) cache.regions[region] = entry;
   writeManagementCache(cache);
   refreshKnownModelIds(cache);
 }
@@ -636,7 +705,7 @@ export async function updateKiroModelsCache(accessToken: string, region: string,
 export function resolveKiroModel(modelId: string, exactKiroModelId?: string): string {
   if (exactKiroModelId) return exactKiroModelId;
 
-  const cachedModel = Object.values(readManagementCache()?.regions ?? {})
+  const cachedModel = allCacheEntries(readManagementCache())
     .flatMap((entry) => entry.models)
     .find((model) => model.id === modelId);
   if (cachedModel) {

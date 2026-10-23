@@ -2,7 +2,7 @@
 // ABOUTME: Maps the response into a host-neutral shape each adapter projects for its own UI.
 
 import { resolveApiRegion } from "./endpoints.js";
-import { getUsageLimits, type KiroManagementAuth, resolveKiroProfileArn } from "./management.js";
+import { getUsageLimits, type KiroManagementAuth, kiroProfileAuth, resolveKiroProfileArn } from "./management.js";
 import type { KiroCredentials } from "./oauth.js";
 
 const MANAGE_USAGE_URL = "https://app.kiro.dev/account/usage";
@@ -146,7 +146,7 @@ function mapBucket(bucket: KiroUsageBreakdown, index: number): KiroProviderUsage
 
 async function fetchRawUsage(auth: KiroManagementAuth, profileArn?: string): Promise<KiroGetUsageLimitsResponse> {
   const resolvedProfileArn = await resolveKiroProfileArn(auth, profileArn);
-  return getUsageLimits<KiroGetUsageLimitsResponse>(auth, {
+  return getUsageLimits<KiroGetUsageLimitsResponse>(kiroProfileAuth(auth, resolvedProfileArn), {
     profileArn: resolvedProfileArn,
     origin: "KIRO_CLI",
     resourceType: "CREDIT",
