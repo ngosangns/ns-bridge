@@ -225,9 +225,10 @@ the former ns-kiro-provider `v*` tags are kept and mirrored as
 
 ### Trusted publisher for `@ngosangns/ns-bridge`
 
-The publisher is registered. The `0.1.1` publish validated it, and `0.1.2`
-(workflow `39284264937`), `0.1.3` (workflow `39363250503`), `0.1.4`
-(workflow `39382637599`), `0.1.5` (workflow `39396872195`), `0.1.6` (workflow `39457751796`), `0.1.7`, and `0.1.8` published from the same workflow. Settings →
+The publisher is registered. The `0.1.1` publish validated it, and every
+release since has published from the same workflow (`0.1.2` was workflow
+`39284264937`). `npm view @ngosangns/ns-bridge versions` lists them, and
+`gh run list -R ngosangns/ns-bridge -w publish.yml` shows the runs. Settings →
 Trusted Publisher → GitHub Actions, with
 
 | Field | Value |
@@ -256,7 +257,7 @@ npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bri
 ```
 
 That sequence already ran for this CLI: `0.1.0` from a logged-in machine, then
-`0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, and `0.1.8` from the workflow. A later release is a
+every later version from the workflow. A later release is a
 version bump and a new `ns-bridge@<version>` tag.
 
 A trusted publisher that has never published expires 48 hours after it is
