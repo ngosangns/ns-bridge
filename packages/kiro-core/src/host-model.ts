@@ -11,6 +11,8 @@ export interface KiroHostModel {
   input: readonly ("text" | "image")[];
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
   contextWindow?: number | null;
+  /** The full Kiro window when the host runs the model in a smaller standard-price window. */
+  maxContextWindow?: number | null;
   maxTokens?: number | null;
   kiroModelId?: string;
   kiroProfileArn?: string;
@@ -42,7 +44,9 @@ export function toKiroModelForHost(model: KiroHostModel, region: string): KiroMo
       reasoning: model.reasoning,
       input: [...model.input],
       cost: { ...model.cost },
-      contextWindow: model.contextWindow ?? 200_000,
+      // Kiro reports context use as a share of its own window, so the request
+      // needs that window, not the standard-price one a host may run in.
+      contextWindow: model.maxContextWindow ?? model.contextWindow ?? 200_000,
       maxTokens: model.maxTokens ?? 8_192,
     }),
     region,

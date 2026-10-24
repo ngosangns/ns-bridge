@@ -26,6 +26,7 @@ export {
 } from "./host-auth.js";
 export { toKiroModelForHost } from "./host-model.js";
 export { getKiroCliModelRates } from "./kiro-cli.js";
+export { KIRO_LONG_CONTEXT_THRESHOLDS, kiroStandardContextWindow } from "./long-context.js";
 export { type KiroProfile, listKiroProfiles, resolveKiroProfileArn } from "./management.js";
 export {
   getCachedModels,

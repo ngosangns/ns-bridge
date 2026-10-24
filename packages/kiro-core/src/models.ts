@@ -8,6 +8,7 @@ import { compactionBudget } from "ns-core-utils";
 import { getKiroEffortConfig, type KiroEffortConfig } from "./effort.js";
 import { getKiroRegionFromProfileArn } from "./endpoints.js";
 import type { KiroModelRate } from "./kiro-cli.js";
+import { kiroStandardContextWindow } from "./long-context.js";
 import type { KiroCatalogModel } from "./management.js";
 import { getKiroProfileOverride } from "./profile.js";
 import { KIRO_EFFORT_ORDER, type KiroEffort, type KiroModelSpec } from "./types.js";
@@ -300,7 +301,7 @@ export const kiroModels: KiroModel[] = bootstrapKiroModels.map((model) => ({
   // The seed is what a machine that never refreshed serves, so it carries the
   // same budget a refresh would write. `compactionBudget` never returns
   // undefined for these windows.
-  compaction: compactionBudget(model) ?? { reserveTokens: model.maxTokens, thresholdTokens: model.contextWindow },
+  compaction: kiroCompactionBudget(model) ?? { reserveTokens: model.maxTokens, thresholdTokens: model.contextWindow },
 }));
 
 const BOOTSTRAP_KIRO_MODEL_IDS = kiroModels.map((model) => model.kiroModelId);
@@ -511,6 +512,15 @@ function hasVerifiedImageInput(kiroModelId: string): boolean {
 }
 
 /**
+ * The compaction budget for a Kiro model, taken inside its standard-price
+ * window so compaction fires before a turn crosses into a long-context tier
+ * (see {@link kiroStandardContextWindow}).
+ */
+function kiroCompactionBudget(model: { id: string; contextWindow: number; maxTokens: number }) {
+  return compactionBudget({ contextWindow: kiroStandardContextWindow(model), maxTokens: model.maxTokens });
+}
+
+/**
  * Attach the compaction budget the window and ceiling imply.
  *
  * Recomputed rather than copied, so a cache written before the field existed
@@ -518,7 +528,7 @@ function hasVerifiedImageInput(kiroModelId: string): boolean {
  * field stays off the entry.
  */
 function withCompaction<T extends KiroModelSpec>(model: T): T {
-  const budget = compactionBudget(model);
+  const budget = kiroCompactionBudget(model);
   if (!budget) return model;
   // Same numbers already attached: keep the object. Callers compare a served
   // catalog against the bootstrap seed by identity, and a fresh object on every
