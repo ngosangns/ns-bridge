@@ -26,6 +26,22 @@
  * - The cache is keyed by prompt content, not by conversation id, and a prefix
  *   expired somewhere between 245 and 404 seconds of idle time.
  *
+ * gpt-5-6-luna follows a different shape, fitted 2026-10-24 from 2,491 OMP turns in the
+ * usage ledger (`~/.ns-bridge/usage`, 2026-10-21..24). There is no cold cap: a first turn
+ * of 61k-145k tokens bills 0.01657-0.01667 per 1k per multiplier unit, which is `fresh`,
+ * and warm turns floor at 0.00162-0.00167, which is `cached`. Past a long-context
+ * boundary every rate doubles: prompts of 250k-270k tokens floor at 0.00167, prompts from
+ * 275k up floor at 0.00334 and top out at 0.03325. Between 270k and 275k the two tiers mix
+ * (token counts here are tiktoken estimates, not Kiro's), so that band is refused.
+ * See {@link KIRO_UNCAPPED_MODELS}.
+ *
+ * A model in neither table is refused, and the ledger records `cacheSource: "none"` for
+ * it. To add one, read its turns from the ledger and normalise each bill as
+ * `(credits - output * perOutputToken * rateMultiplier) / rateMultiplier / (promptTokens / 1000)`.
+ * Warm turns should floor on `cached`. Large cold first turns (`step: 1`) sit either on a
+ * cap (enter it in `coldPer1k`) or on `fresh` (enter it in `KIRO_UNCAPPED_MODELS`). Bucket
+ * by prompt size to find a long-context tier. Never enter a number nobody measured.
+ *
  * Kiro publishes no price list, so these are fitted constants. If Kiro reprices the
  * ledger keeps reporting from stale numbers: re-measure (one fixed prefix, three
  * identical turns, then append known token counts), then edit this block and the
@@ -48,6 +64,17 @@ export const KIRO_CREDIT_RATES = {
   /** Credits per output token, per multiplier unit. Output counts are tiktoken estimates, not Kiro's. */
   perOutputToken: 0.00011,
 } as const;
+
+/**
+ * Models that bill an uncached prompt at `fresh` with no cold cap, by exact model id.
+ * From `longContextFrom` tokens every rate is multiplied by `longContextFactor`. Prompts
+ * in `[ambiguousFrom, longContextFrom)` could be billed in either tier and are refused.
+ */
+export const KIRO_UNCAPPED_MODELS: Readonly<
+  Record<string, { ambiguousFrom: number; longContextFrom: number; longContextFactor: number }>
+> = {
+  "gpt-5-6-luna": { ambiguousFrom: 270_000, longContextFrom: 275_000, longContextFactor: 2 },
+};
 
 /** Below this the fixed per-request cost swamps the prompt term and the split is noise. */
 export const KIRO_MIN_PROMPT_TOKENS = 2000;
@@ -97,15 +124,29 @@ export function deriveKiroCacheFromCredits(input: KiroCreditInput): KiroDerivedC
   if (typeof rateMultiplier !== "number" || !Number.isFinite(rateMultiplier) || rateMultiplier <= 0) return undefined;
   if (input.creditUnit !== undefined && !/^credits?$/i.test(input.creditUnit)) return undefined;
   const capPer1k = coldCap(input.model);
-  if (capPer1k === undefined) return undefined;
+  const uncapped = Object.hasOwn(KIRO_UNCAPPED_MODELS, input.model) ? KIRO_UNCAPPED_MODELS[input.model] : undefined;
+  if (capPer1k === undefined && uncapped === undefined) return undefined;
 
   const output = Math.max(0, Number.isFinite(outputTokens) ? outputTokens : 0);
   const outputCredits = output * KIRO_CREDIT_RATES.perOutputToken * rateMultiplier;
   if (outputCredits > credits * KIRO_MAX_OUTPUT_SHARE) return undefined;
 
-  const { cachedPer1k: cached, freshPer1k: fresh } = KIRO_CREDIT_RATES;
   const prompt = promptTokens / 1000;
   const bill = (credits - outputCredits) / rateMultiplier;
+
+  if (uncapped) {
+    if (promptTokens >= uncapped.ambiguousFrom && promptTokens < uncapped.longContextFrom) return undefined;
+    const factor = promptTokens >= uncapped.longContextFrom ? uncapped.longContextFactor : 1;
+    const cachedRate = KIRO_CREDIT_RATES.cachedPer1k * factor;
+    const freshRate = KIRO_CREDIT_RATES.freshPer1k * factor;
+    if (bill > freshRate * prompt * (1 + OVER_CAP_TOLERANCE)) return undefined;
+    if (bill < cachedRate * prompt * (1 - UNDER_CACHED_TOLERANCE)) return undefined;
+    const uncachedShare = Math.min(prompt, Math.max(0, (bill - cachedRate * prompt) / (freshRate - cachedRate)));
+    return { exact: true, cacheRead: Math.round((1 - uncachedShare / prompt) * promptTokens) };
+  }
+  if (capPer1k === undefined) return undefined;
+
+  const { cachedPer1k: cached, freshPer1k: fresh } = KIRO_CREDIT_RATES;
   const cap = capPer1k * prompt;
 
   if (bill > cap * (1 + OVER_CAP_TOLERANCE)) return undefined;
@@ -119,4 +160,49 @@ export function deriveKiroCacheFromCredits(input: KiroCreditInput): KiroDerivedC
   const uncached = Math.min(prompt, Math.max(0, (bill - cached * prompt) / (fresh - cached)));
   const ratio = 1 - uncached / prompt;
   return { exact: true, cacheRead: Math.round(ratio * promptTokens) };
+}
+
+/** What a turn's usage needs for {@link applyCreditDerivedCache}. */
+interface CreditDerivableUsage {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cacheEstimated?: boolean;
+  cacheDerived?: "credits";
+  credits?: number;
+  creditUnit?: string;
+}
+
+/**
+ * Put the credits-derived cached share of a turn on the usage event the host sees.
+ *
+ * Kiro sends no cache counters, so without this every host shows `cacheRead: 0`.
+ * Real wire counters always win and are left alone. A repeated-prefix guess from the
+ * opt-in estimator is replaced, because the bill is evidence and the guess is not. Only
+ * an exact derivation is applied: a bill on the cold cap says only "at most", and that
+ * stays unreported. Total tokens do not change. Returns the tokens moved to `cacheRead`.
+ */
+export function applyCreditDerivedCache(
+  usage: CreditDerivableUsage,
+  model: { id: string; rateMultiplier?: number },
+): number {
+  if (usage.cacheWrite !== undefined) return 0;
+  if (usage.cacheRead !== undefined && !usage.cacheEstimated) return 0;
+  const guessed = usage.cacheEstimated ? (usage.cacheRead ?? 0) : 0;
+  const promptTokens = usage.input + guessed;
+  const derived = deriveKiroCacheFromCredits({
+    model: model.id,
+    promptTokens,
+    outputTokens: usage.output,
+    credits: usage.credits,
+    creditUnit: usage.creditUnit,
+    rateMultiplier: model.rateMultiplier,
+  });
+  if (!derived?.exact) return 0;
+  usage.input = promptTokens - derived.cacheRead;
+  usage.cacheRead = derived.cacheRead;
+  delete usage.cacheEstimated;
+  usage.cacheDerived = "credits";
+  return derived.cacheRead;
 }

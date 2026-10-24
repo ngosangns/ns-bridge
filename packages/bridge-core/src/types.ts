@@ -89,6 +89,8 @@ export interface BridgeUsage {
   creditUnit?: string;
   /** Set when {@link cacheRead} is an estimate rather than a wire counter. */
   cacheEstimated?: boolean;
+  /** Set when {@link cacheRead} was derived from what the vendor billed, not counted on the wire. */
+  cacheDerived?: "credits";
   cost: BridgeCostBreakdown;
 }
 

@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { recordUsage } from "ns-core-utils";
 import { applyCacheEstimate } from "./cache-estimator.js";
-import { deriveKiroCacheFromCredits } from "./cache-from-credits.js";
+import { applyCreditDerivedCache, deriveKiroCacheFromCredits } from "./cache-from-credits.js";
 import {
   pinProfileArnForTests,
   resolveInitialProfileArn,
@@ -718,6 +718,9 @@ async function* streamKiroResponse(request: KiroStreamRequest): AsyncGenerator<K
           cacheRead: usage.cacheRead,
         });
       }
+      // After the opt-in guess, so the guess keeps its baseline and the bill still replaces it.
+      const derivedRead = applyCreditDerivedCache(usage, model);
+      if (derivedRead > 0) debugLog("usage.credits", { conversationId, derivedRead, input: usage.input });
       const estimatedCost = estimateKiroCreditCost(usageTracking, metering);
       if (estimatedCost !== undefined) usage.cost.total = estimatedCost;
     }

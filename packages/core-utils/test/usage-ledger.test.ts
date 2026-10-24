@@ -179,6 +179,17 @@ describe("deriveCache", () => {
     expect(seen).toBe(20000);
   });
 
+  it("re-derives a core's credits figure from the bill instead of recording it as a wire counter", () => {
+    const record = buildUsageRecord({
+      ...base,
+      context: { ...context, deriveCache: derive },
+      usage: { ...kiro, input: 1000, cacheRead: 19000, cacheDerived: "credits" },
+    });
+    expect(record.cacheSource).toBe("credits");
+    expect(record.promptTokens).toBe(20000);
+    expect(record.cacheRead).toBe(18000);
+  });
+
   it("records a capped derivation as an upper bound and puts nothing in cacheRead", () => {
     const record = buildUsageRecord({
       ...base,

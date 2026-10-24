@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { streamToDsh } from "../src/dsh/index.js";
-import { HOST_TURN_BUDGET_MS, streamToPi, toPiThinkingLevelMap } from "../src/pi/index.js";
+import {
+  applyBridgeUsage,
+  HOST_TURN_BUDGET_MS,
+  streamToPi,
+  toPiThinkingLevelMap,
+  zeroPiUsage,
+} from "../src/pi/index.js";
 import type { BridgeStreamEvent } from "../src/types.js";
 
 class FakeStream {
@@ -503,5 +509,22 @@ describe("toPiThinkingLevelMap", () => {
       max: null,
     });
     expect(toPiThinkingLevelMap(undefined)).toBeUndefined();
+  });
+});
+
+describe("applyBridgeUsage", () => {
+  it("carries a credits-derived cache read and its label onto Pi's usage", () => {
+    const target = zeroPiUsage();
+    applyBridgeUsage(target, {
+      input: 794,
+      output: 1,
+      totalTokens: 32795,
+      cacheRead: 32000,
+      cacheDerived: "credits",
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    });
+    expect(target.cacheRead).toBe(32000);
+    expect(target.input).toBe(794);
+    expect(target.cacheDerived).toBe("credits");
   });
 });

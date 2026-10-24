@@ -79,6 +79,7 @@ interface UsageLike {
   cacheRead?: number;
   cacheWrite?: number;
   cacheEstimated?: boolean;
+  cacheDerived?: string;
   credits?: number;
   creditUnit?: string;
   contextPercent?: number;
@@ -148,8 +149,10 @@ function ratio(part: number | undefined, whole: number): number | null {
  * here is entirely the guess.
  */
 function providerUsage(usage: UsageLike): UsageLike {
-  if (!usage.cacheEstimated) return usage;
-  const { cacheRead, cacheEstimated: _guess, ...rest } = usage;
+  if (!usage.cacheEstimated && usage.cacheDerived === undefined) return usage;
+  // A core's credits-derived figure is moved back too: `deriveCache` recomputes it
+  // from the same bill, and keeping it would mislabel the record as `wire`.
+  const { cacheRead, cacheEstimated: _guess, cacheDerived: _derived, ...rest } = usage;
   return { ...rest, input: usage.input + (cacheRead ?? 0) };
 }
 

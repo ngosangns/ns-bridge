@@ -142,6 +142,11 @@ export interface KiroUsage {
    * than a wire counter — a host may render it differently or not at all.
    */
   cacheEstimated?: boolean;
+  /**
+   * Set when {@link cacheRead} was worked out from the credits Kiro billed for the
+   * turn: a calculation from a real bill, not a wire counter and not a guess.
+   */
+  cacheDerived?: "credits";
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 }
 

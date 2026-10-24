@@ -725,7 +725,7 @@ describe("streamKiro — text-dialect tool-call recovery", () => {
   });
 
   it("recovers the XML-dialect leak byte-exactly", async () => {
-    stubFetch(makeOkResponse(JSON.stringify({ content: RECORD_279_TEXT }) + '{"contextUsagePercentage":10}'));
+    stubFetch(makeOkResponse(`${JSON.stringify({ content: RECORD_279_TEXT })}{"contextUsagePercentage":10}`));
     const events = await collect(streamKiro(makeRequest({ model: makeModel({ id: "qwen3-coder" }) })));
 
     const end = events.find((e) => e.type === "tool_call_end") as {
@@ -798,7 +798,7 @@ describe("streamKiro — text-dialect tool-call recovery", () => {
   });
 
   it("does not lift quoted XML syntax into a shell call a native-tool-call model never made", async () => {
-    stubFetch(makeOkResponse(JSON.stringify({ content: RECORD_279_TEXT }) + '{"contextUsagePercentage":10}'));
+    stubFetch(makeOkResponse(`${JSON.stringify({ content: RECORD_279_TEXT })}{"contextUsagePercentage":10}`));
     const events = await collect(streamKiro(makeRequest({ model: makeModel({ recoverTextToolCalls: false }) })));
 
     expect(events.some((e) => e.type === "tool_call_end")).toBe(false);
@@ -1135,6 +1135,49 @@ describe("streamKiro — stop reason and usage", () => {
 
     const usage = (events.find((e) => e.type === "usage") as { usage: { cost: { total: number } } }).usage;
     expect(usage.cost.total).toBe(0);
+  });
+
+  it("puts the credits-derived cache read on the usage event the host sees", async () => {
+    stubFetch(
+      makeFramesResponse(
+        concatMessages(
+          encodeEventMessage({ content: "Hi" }),
+          encodeEventMessage({ usage: 0.07183, unit: "credit", unitPlural: "credits" }),
+          encodeEventMessage({ contextUsagePercentage: 3.2794 }),
+        ),
+      ),
+    );
+    const model = makeModel({ id: "claude-sonnet-5-5", contextWindow: 1_000_000, rateMultiplier: 1.3 });
+    const events = await collect(streamKiro(makeRequest({ model })));
+
+    const usage = (
+      events.find((e) => e.type === "usage") as {
+        usage: { input: number; output: number; totalTokens: number; cacheRead?: number; cacheDerived?: string };
+      }
+    ).usage;
+    expect(usage.cacheDerived).toBe("credits");
+    expect(usage.cacheRead).toBeGreaterThan(32794 * 0.99);
+    expect(usage.input + (usage.cacheRead ?? 0)).toBe(32794);
+    expect(usage.totalTokens).toBe(32794 + usage.output);
+  });
+
+  it("leaves the cache unreported when the model's pricing was never measured", async () => {
+    stubFetch(
+      makeFramesResponse(
+        concatMessages(
+          encodeEventMessage({ content: "Hi" }),
+          encodeEventMessage({ usage: 0.07183, unit: "credit", unitPlural: "credits" }),
+          encodeEventMessage({ contextUsagePercentage: 3.2794 }),
+        ),
+      ),
+    );
+    const model = makeModel({ id: "gpt-5-6-terra", contextWindow: 1_000_000, rateMultiplier: 1 });
+    const events = await collect(streamKiro(makeRequest({ model })));
+
+    const usage = (events.find((e) => e.type === "usage") as { usage: { cacheRead?: number; cacheDerived?: string } })
+      .usage;
+    expect(usage.cacheRead).toBeUndefined();
+    expect(usage.cacheDerived).toBeUndefined();
   });
 
   it("estimates a repeated prompt as a cache read on the second turn of a session", async () => {

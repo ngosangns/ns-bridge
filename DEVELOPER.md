@@ -90,8 +90,16 @@ caller wins, so `ns-omp-provider` keeps `omp` even though it bundles the Pi adap
   cold prompt (~30% for sonnet, whose cold cap is twice haiku/opus). The constants are measurements,
   not a published price list. If Kiro reprices, re-measure (one fixed prefix, three identical
   turns, then append known token counts) and edit `KIRO_CREDIT_RATES` and the fixtures in
-  `cache-from-credits.test.ts`. Models other than haiku, sonnet and opus were not measured and are
-  refused. A long answer is refused because the output-token term is itself an estimate.
+  `cache-from-credits.test.ts`. `gpt-5-6-luna` has no cold cap (a cold prompt bills at `fresh`) and
+  doubles every rate from about 275k prompt tokens; it was fitted from ledger turns and sits in
+  `KIRO_UNCAPPED_MODELS`, with 270k-275k refused because the two tiers mix there. Any other model was
+  not measured and is refused (`cacheSource: none`); the comment above `KIRO_CREDIT_RATES` says how to
+  fit one from the ledger. A long answer is refused because the output-token term is itself an estimate.
+- The same derivation reaches the host. `streamKiro` runs `applyCreditDerivedCache` on the usage event
+  after the opt-in estimator: an exact result moves the cached share from `input` to `cacheRead`,
+  replaces the estimator's guess, and sets `cacheDerived: "credits"`. Wire counters are never touched,
+  and a capped bill stays unreported. `providerUsage` strips the figure back out before the ledger
+  re-derives it, so the ledger still labels it `credits`, not `wire`.
 - A failed write is swallowed and counted (`usageWriteFailures`). The ledger must not fail a response.
 - Day folders older than 30 days, and the oldest ones beyond 50 MB, are deleted whole. The newest stays.
 - `NS_BRIDGE_USAGE=0` turns it off. The root vitest config sets it, so tests never write to the home directory;

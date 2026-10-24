@@ -92,6 +92,7 @@ export function applyBridgeUsage(target: PiAssistantMessageLike["usage"], usage:
   if (usage.credits !== undefined) target.credits = usage.credits;
   if (usage.creditUnit !== undefined) target.creditUnit = usage.creditUnit;
   if (usage.cacheEstimated !== undefined) target.cacheEstimated = usage.cacheEstimated;
+  if (usage.cacheDerived !== undefined) target.cacheDerived = usage.cacheDerived;
 }
 
 /**

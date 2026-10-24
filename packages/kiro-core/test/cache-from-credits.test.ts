@@ -2,7 +2,11 @@
 // ABOUTME: Fixtures are real turns measured against live Kiro on 2026-10-21; each states the truth the experiment fixed.
 
 import { describe, expect, it } from "vitest";
-import { deriveKiroCacheFromCredits, KIRO_MIN_PROMPT_TOKENS } from "../src/cache-from-credits.js";
+import {
+  applyCreditDerivedCache,
+  deriveKiroCacheFromCredits,
+  KIRO_MIN_PROMPT_TOKENS,
+} from "../src/cache-from-credits.js";
 
 const unit = "credit";
 const HAIKU = { model: "claude-haiku-4-5", rateMultiplier: 0.4, creditUnit: unit };
@@ -138,5 +142,94 @@ describe("deriveKiroCacheFromCredits", () => {
   it("refuses a bill far outside the model: well under the cached rate, or well over the cap", () => {
     expect(appended({ ...HAIKU, rateMultiplier: 1 }, 20000, 1, 0.001)).toBeUndefined();
     expect(appended(HAIKU, 20000, 1, 0.2)).toBeUndefined();
+  });
+});
+
+// Real OMP turns from the usage ledger, 2026-10-21..24: [prompt, output, credits].
+const LUNA = { model: "gpt-5-6-luna", rateMultiplier: 0.6, creditUnit: unit };
+
+describe("deriveKiroCacheFromCredits — gpt-5-6-luna (no cold cap, long-context tier)", () => {
+  it("reads a cold first turn as uncached instead of capping it", () => {
+    for (const [prompt, output, credits] of [
+      [61150, 20, 0.6127957382089552],
+      [63593, 17, 0.6360337737313432],
+    ] as const) {
+      const out = appended(LUNA, prompt, output, credits);
+      expect(out?.exact, `${prompt}`).toBe(true);
+      if (out?.exact) expect(out.cacheRead / prompt).toBeLessThan(0.01);
+    }
+  });
+
+  it("reads a warm turn under the long-context boundary as almost fully cached", () => {
+    const out = appended(LUNA, 203137, 42, 0.2102973573134329);
+    expect(out?.exact).toBe(true);
+    if (out?.exact) expect(out.cacheRead / 203137).toBeGreaterThan(0.99);
+  });
+
+  it("doubles every rate past the boundary, so a doubled floor is still a cache hit and a doubled fresh bill is not", () => {
+    const warm = appended(LUNA, 301140, 63, 0.613076810348259);
+    expect(warm?.exact).toBe(true);
+    if (warm?.exact) expect(warm.cacheRead / 301140).toBeGreaterThan(0.98);
+    const cold = appended(LUNA, 285095, 70, 5.679954871442786);
+    expect(cold?.exact).toBe(true);
+    if (cold?.exact) expect(cold.cacheRead / 285095).toBeLessThan(0.01);
+  });
+
+  it("refuses the band where the two tiers mix", () => {
+    expect(appended(LUNA, 270506, 183, 0.3384181169154229)).toBeUndefined();
+    expect(appended(LUNA, 274999, 20, 0.28)).toBeUndefined();
+  });
+});
+
+describe("applyCreditDerivedCache", () => {
+  const sonnet = { id: "claude-sonnet-5-5", rateMultiplier: 1.3 };
+  type TurnUsage = {
+    input: number;
+    output: number;
+    credits?: number;
+    creditUnit?: string;
+    cacheRead?: number;
+    cacheEstimated?: boolean;
+    cacheDerived?: "credits";
+  };
+  const fullyCached = (): TurnUsage => ({ input: 32794, output: 1, credits: 0.07183, creditUnit: unit });
+
+  it("moves the derived share from input to cacheRead and labels it, leaving the total alone", () => {
+    const usage = fullyCached();
+    const moved = applyCreditDerivedCache(usage, sonnet);
+    expect(moved).toBeGreaterThan(32794 * 0.99);
+    expect(usage.cacheRead).toBe(moved);
+    expect(usage.input + (usage.cacheRead ?? 0)).toBe(32794);
+    expect(usage.cacheDerived).toBe("credits");
+  });
+
+  it("never touches counters the wire sent", () => {
+    const usage = { ...fullyCached(), input: 794, cacheRead: 32000 };
+    expect(applyCreditDerivedCache(usage, sonnet)).toBe(0);
+    expect(usage).toMatchObject({ input: 794, cacheRead: 32000 });
+    expect(usage).not.toHaveProperty("cacheDerived");
+  });
+
+  it("replaces the repeated-prefix guess with what the bill says", () => {
+    const usage: TurnUsage = {
+      ...fullyCached(),
+      input: 2794,
+      cacheRead: 30000,
+      cacheEstimated: true,
+    };
+    applyCreditDerivedCache(usage, sonnet);
+    expect(usage.cacheEstimated).toBeUndefined();
+    expect(usage.cacheDerived).toBe("credits");
+    expect(usage.input + (usage.cacheRead ?? 0)).toBe(32794);
+    expect(usage.cacheRead).toBeGreaterThan(32794 * 0.99);
+  });
+
+  it("reports nothing for a capped bill, an unmeasured model, or a missing multiplier", () => {
+    const capped: TurnUsage = { input: 34341, output: 1, credits: 0.04345, creditUnit: unit };
+    expect(applyCreditDerivedCache(capped, { id: "claude-haiku-4-5", rateMultiplier: 0.4 })).toBe(0);
+    expect(capped).not.toHaveProperty("cacheRead");
+    const unknown = fullyCached();
+    expect(applyCreditDerivedCache(unknown, { id: "gpt-5-6-terra", rateMultiplier: 1 })).toBe(0);
+    expect(applyCreditDerivedCache(fullyCached(), { id: "claude-sonnet-5-5" })).toBe(0);
   });
 });
