@@ -2,13 +2,14 @@
  * Optional live smoke — gated on NS_PI_LIVE=1 and cred files present.
  * Never prints secret material.
  */
-import { describe, it, expect } from "vitest";
+
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
-import { refreshKiroModels } from "../../src/kiro/register.js";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { refreshDevinModels, resolveDevinToken } from "../../src/devin/register.js";
-import { refreshGrokModels, grokAuthPresent } from "../../src/grok/register.js";
+import { grokAuthPresent, refreshGrokModels } from "../../src/grok/register.js";
+import { refreshKiroModels } from "../../src/kiro/register.js";
 
 const LIVE = process.env.NS_PI_LIVE === "1";
 

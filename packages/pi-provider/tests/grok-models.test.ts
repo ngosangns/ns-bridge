@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const child = vi.hoisted(() => ({
   execFile: vi.fn(),
@@ -29,9 +29,9 @@ vi.mock("node:child_process", async () => {
   return { ...actual, ...child };
 });
 
-import { CatalogCache } from "../src/shared/catalog-cache.js";
-import { parseGrokModelsOutput, fallbackModels, toProviderModels } from "../src/grok/models.js";
+import { fallbackModels, parseGrokModelsOutput, toProviderModels } from "../src/grok/models.js";
 import { refreshGrokModels } from "../src/grok/register.js";
+import { CatalogCache } from "../src/shared/catalog-cache.js";
 import { ensureCacheCost } from "../src/shared/types.js";
 
 describe("grok models + cache", () => {

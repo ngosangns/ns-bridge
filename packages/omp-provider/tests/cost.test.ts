@@ -26,7 +26,15 @@ describe("calculateCost", () => {
   it("uses the highest matching tier", () => {
     const u = usage(300_000, 0);
     calculateCost(
-      { cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, tiers: [{ inputTokensAbove: 200_000, input: 2, output: 2, cacheRead: 0, cacheWrite: 0 }] } },
+      {
+        cost: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          tiers: [{ inputTokensAbove: 200_000, input: 2, output: 2, cacheRead: 0, cacheWrite: 0 }],
+        },
+      },
       u,
     );
     expect(u.cost.input).toBeCloseTo(0.6);

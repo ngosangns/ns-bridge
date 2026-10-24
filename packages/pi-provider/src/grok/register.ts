@@ -17,13 +17,12 @@ import {
   grokAuthCandidates,
   withGrokCompaction,
 } from "ns-grok-core";
-
-import { ensureCacheCost, getDefaultCatalogCache, type CatalogModel } from "../shared/index.js";
+import type { GrokModelDescriptor } from "ns-grok-core/cli";
 import { getGrokVersion, probeGrokAuth, resolveGrokBinary } from "ns-grok-core/cli";
+import { type CatalogModel, ensureCacheCost, getDefaultCatalogCache } from "../shared/index.js";
 import { CLIENT_NAME, CLIENT_VERSION } from "./config.js";
 import { discoverModels, fallbackModels, toProviderModels } from "./models.js";
 import { streamGrokForPi } from "./provider.js";
-import type { GrokModelDescriptor } from "ns-grok-core/cli";
 
 /** Unified provider id requested by ns-pi-provider. */
 export const GROK_PROVIDER_ID = "grok";
@@ -82,13 +81,15 @@ export function grokAuthPresent(env: NodeJS.ProcessEnv = process.env, home = hom
   return grokAuthCandidates(env, home).some((path) => sessionFileHasAccessToken(path));
 }
 
-export async function refreshGrokModels(options: {
-  force?: boolean;
-  /** When false, a cache miss returns the static fallback and does not spawn `grok models`. */
-  allowCli?: boolean;
-  binary?: string;
-  cache?: ReturnType<typeof getDefaultCatalogCache>;
-} = {}): Promise<{ models: ProviderModelConfig[]; fromCache: boolean; source: "live" | "fallback" | "cache" }> {
+export async function refreshGrokModels(
+  options: {
+    force?: boolean;
+    /** When false, a cache miss returns the static fallback and does not spawn `grok models`. */
+    allowCli?: boolean;
+    binary?: string;
+    cache?: ReturnType<typeof getDefaultCatalogCache>;
+  } = {},
+): Promise<{ models: ProviderModelConfig[]; fromCache: boolean; source: "live" | "fallback" | "cache" }> {
   const cache = options.cache ?? getDefaultCatalogCache();
 
   if (!options.force) {

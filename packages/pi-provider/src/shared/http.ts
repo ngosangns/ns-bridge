@@ -28,18 +28,10 @@ export class HttpError extends Error {
   }
 }
 
-export async function httpRequest(
-  url: string,
-  options: HttpRequestOptions = {},
-): Promise<Response> {
+export async function httpRequest(url: string, options: HttpRequestOptions = {}): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const timeout = options.timeoutMs
-    ? AbortSignal.timeout(options.timeoutMs)
-    : undefined;
-  const signal =
-    options.signal && timeout
-      ? AbortSignal.any([options.signal, timeout])
-      : (options.signal ?? timeout);
+  const timeout = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
+  const signal = options.signal && timeout ? AbortSignal.any([options.signal, timeout]) : (options.signal ?? timeout);
 
   return fetchImpl(url, {
     method: options.method ?? "GET",

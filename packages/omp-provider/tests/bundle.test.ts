@@ -31,7 +31,8 @@ class FakeOmpApi {
 let extension: (pi: object) => Promise<void>;
 
 beforeAll(async () => {
-  if (!existsSync(dist)) execFileSync(process.execPath, [join(root, "scripts/build.mjs")], { cwd: root, stdio: "inherit" });
+  if (!existsSync(dist))
+    execFileSync(process.execPath, [join(root, "scripts/build.mjs")], { cwd: root, stdio: "inherit" });
   const home = mkdtempSync(join(tmpdir(), "ns-omp-bundle-"));
   process.env.HOME = home;
   process.env.USERPROFILE = home;

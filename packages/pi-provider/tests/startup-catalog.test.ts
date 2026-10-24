@@ -1,8 +1,8 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { devinModels } from "ns-devin-core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const child = vi.hoisted(() => ({
   execFile: vi.fn(),
@@ -135,9 +135,7 @@ describe("catalog refresh does not block host startup", () => {
     const config = api.registerProvider.mock.calls[0]?.[1] as { models: { id: string }[] };
     expect(config.models.map((model) => model.id)).toContain("swe-1-6");
     await finishes(
-      Promise.resolve(
-        handlers[0]?.({}, { modelRegistry: { getApiKeyForProvider: () => new Promise(() => {}) } }),
-      ),
+      Promise.resolve(handlers[0]?.({}, { modelRegistry: { getApiKeyForProvider: () => new Promise(() => {}) } })),
     );
     expect(api.registerProvider).toHaveBeenCalledTimes(1);
     expect(child.execFile).not.toHaveBeenCalled();
@@ -156,10 +154,7 @@ describe("catalog refresh does not block host startup", () => {
     await expect(fetchDynamicModels()).resolves.toBeNull();
 
     const fromDisk = { ...devinModels[0], id: "from-disk-only", name: "From disk" };
-    writeFileSync(
-      process.env.NS_DEVIN_MODEL_CACHE,
-      JSON.stringify({ fetchedAt: Date.now(), models: [fromDisk] }),
-    );
+    writeFileSync(process.env.NS_DEVIN_MODEL_CACHE, JSON.stringify({ fetchedAt: Date.now(), models: [fromDisk] }));
     const latest = (await fetchDynamicModels()) as { id: string }[];
     expect(latest).not.toEqual([]);
     expect(latest.map((model) => model.id)).toContain("from-disk-only");

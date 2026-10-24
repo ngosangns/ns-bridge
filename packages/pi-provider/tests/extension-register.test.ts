@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
-import { registerAllProviders } from "../src/extension.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { registerAllProviders } from "../src/extension.js";
 import { resolveProviderSelection } from "../src/selection.js";
 
 function mockPi() {

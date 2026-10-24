@@ -8,13 +8,13 @@ export const CLIENT_VERSION = "0.5.3";
 
 /** Map pi thinking levels onto Grok reasoning effort values. */
 export const THINKING_LEVEL_MAP = {
-	off: "none",
-	minimal: "minimal",
-	low: "low",
-	medium: "medium",
-	high: "high",
-	xhigh: "xhigh",
-	max: "max",
+  off: "none",
+  minimal: "minimal",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
 } as const;
 
 // The catalog defaults are the core's, so the Pi catalog and the Harness

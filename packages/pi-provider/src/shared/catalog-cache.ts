@@ -4,9 +4,9 @@
  * does not re-hit the network.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import type { CatalogSnapshot } from "./types.js";
 
 export interface CatalogCacheOptions {
@@ -67,11 +67,16 @@ export class CatalogCache {
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
     this.now = options.now ?? Date.now;
     this.fs = {
-      readFileSync: (options.fs?.readFileSync ?? (readFileSync as unknown as (path: string, encoding?: string) => string)),
-      writeFileSync: (options.fs?.writeFileSync ?? ((path, data) => writeFileSync(path, data, "utf8"))),
-      mkdirSync: (options.fs?.mkdirSync ?? ((path, opts) => { mkdirSync(path, opts); })),
-      renameSync: (options.fs?.renameSync ?? renameSync),
-      existsSync: (options.fs?.existsSync ?? existsSync),
+      readFileSync:
+        options.fs?.readFileSync ?? (readFileSync as unknown as (path: string, encoding?: string) => string),
+      writeFileSync: options.fs?.writeFileSync ?? ((path, data) => writeFileSync(path, data, "utf8")),
+      mkdirSync:
+        options.fs?.mkdirSync ??
+        ((path, opts) => {
+          mkdirSync(path, opts);
+        }),
+      renameSync: options.fs?.renameSync ?? renameSync,
+      existsSync: options.fs?.existsSync ?? existsSync,
     };
   }
 

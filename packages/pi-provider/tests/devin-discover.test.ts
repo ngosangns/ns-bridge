@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
-import { refreshDevinModels, resolveDevinToken, toPiDevinModel } from "../src/devin/register.js";
 import { devinModels } from "ns-devin-core";
+import { describe, expect, it, vi } from "vitest";
+import { refreshDevinModels, resolveDevinToken, toPiDevinModel } from "../src/devin/register.js";
 
 describe("devin catalog (devin-core) for Pi", () => {
   it("resolveDevinToken prefers env", () => {
@@ -61,9 +61,7 @@ describe("devin CLI credentials.toml auth", () => {
     const { tmpdir } = await import("node:os");
     const { resolveDevinApiKeyConfig } = await import("../src/devin/register.js");
 
-    expect(resolveDevinApiKeyConfig({ DEVIN_API_KEY: "from-env" }, { readFiles: false })).toBe(
-      "$DEVIN_API_KEY",
-    );
+    expect(resolveDevinApiKeyConfig({ DEVIN_API_KEY: "from-env" }, { readFiles: false })).toBe("$DEVIN_API_KEY");
 
     const dir = mkdtempSync(join(tmpdir(), "ns-pi-devin-apikey-"));
     const credPath = join(dir, "credentials.toml");

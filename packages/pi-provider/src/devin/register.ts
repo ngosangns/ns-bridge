@@ -31,8 +31,8 @@ import {
   type DevinModelSpec,
   type DevinProviderUsage,
   devinCredentialsPath,
-  devinTokenFromToml,
   devinModels,
+  devinTokenFromToml,
   fetchDevinModels,
   fetchDevinUsage,
   getCachedModels,
@@ -72,7 +72,6 @@ export function toPiDevinModel(spec: DevinModelSpec): PiDevinModel {
 export function defaultDevinCredentialPaths(): string[] {
   return [devinCredentialsPath()];
 }
-
 
 export type ResolveDevinTokenOptions = {
   /** Override credential file paths (tests); default is devin-core's store. */

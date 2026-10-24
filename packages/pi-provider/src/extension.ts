@@ -4,13 +4,12 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-import { registerKiroProvider, refreshKiroModels, kiroCatalogStatus, KIRO_PROVIDER_ID } from "./kiro/register.js";
-import { registerDevinProvider, refreshDevinModels, devinCatalogStatus, DEVIN_PROVIDER_ID } from "./devin/register.js";
-import { registerGrokProvider, refreshGrokModels, GROK_PROVIDER_ID } from "./grok/register.js";
-import { getDefaultCatalogCache } from "./shared/index.js";
-import { resolveProviderSelection } from "./selection.js";
 import { setUsageHost } from "ns-bridge-core";
+import { DEVIN_PROVIDER_ID, devinCatalogStatus, refreshDevinModels, registerDevinProvider } from "./devin/register.js";
+import { GROK_PROVIDER_ID, refreshGrokModels, registerGrokProvider } from "./grok/register.js";
+import { KIRO_PROVIDER_ID, kiroCatalogStatus, refreshKiroModels, registerKiroProvider } from "./kiro/register.js";
+import { resolveProviderSelection } from "./selection.js";
+import { getDefaultCatalogCache } from "./shared/index.js";
 
 export interface NsPiProviderOptions {
   /** Skip individual providers when false. Default: all enabled. */
@@ -19,10 +18,7 @@ export interface NsPiProviderOptions {
   grok?: boolean;
 }
 
-export async function registerAllProviders(
-  pi: ExtensionAPI,
-  options: NsPiProviderOptions = {},
-): Promise<void> {
+export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProviderOptions = {}): Promise<void> {
   // First caller wins, so ns-omp-provider keeps its own label.
   setUsageHost("pi");
   const enableKiro = options.kiro !== false;
@@ -33,27 +29,21 @@ export async function registerAllProviders(
     try {
       await registerKiroProvider(pi);
     } catch (err) {
-      console.warn(
-        `[ns-pi-provider] kiro registration failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      console.warn(`[ns-pi-provider] kiro registration failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   if (enableDevin) {
     try {
       await registerDevinProvider(pi);
     } catch (err) {
-      console.warn(
-        `[ns-pi-provider] devin registration failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      console.warn(`[ns-pi-provider] devin registration failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   if (enableGrok) {
     try {
       await registerGrokProvider(pi);
     } catch (err) {
-      console.warn(
-        `[ns-pi-provider] grok registration failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      console.warn(`[ns-pi-provider] grok registration failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -96,13 +86,13 @@ export default async function nsPiProviderExtension(pi: ExtensionAPI): Promise<v
 }
 
 export {
-  registerKiroProvider,
-  registerDevinProvider,
-  registerGrokProvider,
-  refreshKiroModels,
-  refreshDevinModels,
-  refreshGrokModels,
-  KIRO_PROVIDER_ID,
   DEVIN_PROVIDER_ID,
   GROK_PROVIDER_ID,
+  KIRO_PROVIDER_ID,
+  refreshDevinModels,
+  refreshGrokModels,
+  refreshKiroModels,
+  registerDevinProvider,
+  registerGrokProvider,
+  registerKiroProvider,
 };

@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { CatalogCache, resetDefaultCatalogCache } from "../src/shared/catalog-cache.js";
-import { ensureCacheCost, ZERO_COST } from "../src/shared/types.js";
 import type { CatalogModel } from "../src/shared/types.js";
+import { ensureCacheCost, ZERO_COST } from "../src/shared/types.js";
 
 function sampleModels(n = 2): CatalogModel[] {
   return Array.from({ length: n }, (_, i) => ({

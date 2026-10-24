@@ -34,9 +34,9 @@ import {
   type KiroModel,
   kiroModels,
   loginKiroFromSession,
+  readKiroSession,
   refreshKiroToken,
   resolveApiRegion,
-  readKiroSession,
   resolveKiroCredentials,
   resolveKiroRequestCredentials,
   streamKiro,
@@ -81,7 +81,6 @@ export function toPiKiroModel(model: KiroModel): PiKiroModelConfig {
 function hasEnvKey(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.KIRO_API_KEY?.trim());
 }
-
 
 async function storedSession(): Promise<KiroCredentials | undefined> {
   try {

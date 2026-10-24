@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 /**
  * Hermetic stream adapter smoke: verify mocked async iterator protocol

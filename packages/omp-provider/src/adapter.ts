@@ -63,9 +63,7 @@ export function toPiContext<T extends OmpLikeContext>(context: T): T {
     // OMP "developer" messages are host-injected instructions (reminders,
     // auto-continue prompts). The wrapped providers have no developer/system
     // turn, so deliver them as user turns rather than silently dropping them.
-    next.messages = messages.map((message) =>
-      message?.role === "developer" ? { ...message, role: "user" } : message,
-    );
+    next.messages = messages.map((message) => (message?.role === "developer" ? { ...message, role: "user" } : message));
   }
   return next as T;
 }
@@ -174,7 +172,7 @@ export function wrapExtensionApi<T extends object>(pi: T, options: WrapOptions =
 
   return new Proxy(pi, {
     get(target, prop) {
-      if (Object.prototype.hasOwnProperty.call(overrides, prop)) return overrides[prop];
+      if (Object.hasOwn(overrides, prop)) return overrides[prop];
       const value = Reflect.get(target, prop, target);
       return typeof value === "function" ? value.bind(target) : value;
     },

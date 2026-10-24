@@ -8,7 +8,14 @@ describe("Pi 1.0 transcript helpers", () => {
   const piTranscript = [
     { role: "system", content: "base prompt", toolsAdded: [tool("read"), tool("bash")], timestamp: 0 },
     { role: "user", content: "hi", timestamp: 1 },
-    { role: "system", content: [{ type: "text", text: "later note" }], toolsRemoved: [{ name: "bash" }], toolsAdded: [tool("edit")], sections: { env: "cwd=/x" }, timestamp: 2 },
+    {
+      role: "system",
+      content: [{ type: "text", text: "later note" }],
+      toolsRemoved: [{ name: "bash" }],
+      toolsAdded: [tool("edit")],
+      sections: { env: "cwd=/x" },
+      timestamp: 2,
+    },
     { role: "assistant", content: [], timestamp: 3 },
   ];
 

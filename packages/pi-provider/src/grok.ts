@@ -1,8 +1,8 @@
 export {
-  registerGrokProvider,
-  refreshGrokModels,
-  grokAuthPresent,
-  GROK_PROVIDER_ID,
+  default,
   GROK_API,
+  GROK_PROVIDER_ID,
+  grokAuthPresent,
+  refreshGrokModels,
+  registerGrokProvider,
 } from "./grok/register.js";
-export { default } from "./grok/register.js";

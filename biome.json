@@ -4,10 +4,10 @@
     "includes": [
       "packages/*/src/**",
       "packages/*/test/**",
+      "packages/*/tests/**",
       "*.ts",
       "*.json",
-      "!packages/pi-provider/**",
-      "!packages/omp-provider/**"
+      "!**/tests/fixtures"
     ]
   },
   "formatter": {

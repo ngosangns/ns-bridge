@@ -1,6 +1,7 @@
 export {
   DEVIN_API,
   DEVIN_PROVIDER_ID,
+  default,
   defaultDevinCredentialPaths,
   devinCatalogStatus,
   escapeDevinApiKeyLiteral,
@@ -13,4 +14,3 @@ export {
   streamDevinForPi,
   toPiDevinModel,
 } from "./devin/register.js";
-export { default } from "./devin/register.js";
