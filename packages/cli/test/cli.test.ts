@@ -291,9 +291,10 @@ describe("ns-bridge", () => {
     const paths = { selection, piSettings, dshHome: dir };
     const io = capture();
     expect(await run(["providers", "disable", "pi", "devin", "--apply"], { ...io, providerPaths: paths })).toBe(0);
-    expect(JSON.parse(readFileSync(selection, "utf8"))).toMatchObject({ devin: false, grok: true });
+    // Only the choice is written. Defaults stay out of the file, so no reader mistakes one for a choice.
+    expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ devin: false });
     expect(await run(["providers", "disable", "omp", "kiro", "--apply"], { ...io, providerPaths: paths })).toBe(0);
-    expect(JSON.parse(readFileSync(selection, "utf8"))).toMatchObject({ kiro: false, devin: false, grok: true });
+    expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ kiro: false, devin: false });
     const status = capture();
     expect(await run(["providers", "status", "pi"], { ...status, providerPaths: paths })).toBe(0);
     expect(status.stdout.join("\n")).toContain("pi devin off");

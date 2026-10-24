@@ -117,9 +117,12 @@ discovery. The Kiro catalog cache (`~/.ns-kiro-provider-models-cache.json`) keep
 ### The `kiro` provider id in OMP
 
 `ns-omp-provider-kiro` owns `kiro` in OMP while that plugin is installed.
-`ns-omp-provider` registers `kiro` too (and nothing else: OMP provides `devin`, `xai`, and `xai-oauth` itself), but skips it in that case unless
-`~/.ns-bridge/providers.json` or `NS_OMP_PROVIDERS` / `NS_OMP_PROVIDER_ENABLE`
-names it. Both run `ns-kiro-core`.
+`ns-omp-provider` registers `kiro` too (and nothing else: OMP provides `devin`, `xai`, and `xai-oauth` itself), but never
+while `ns-omp-provider-kiro` sits in the active plugin dir (`shouldRegisterKiro`,
+`omp-provider/src/config.ts`), whatever `~/.ns-bridge/providers.json` or the env lists
+say: two registrations of one id leave the winner to plugin load order. Without the
+dedicated plugin the file and env lists decide. `ns-bridge providers` writes only the
+key it changes, never the defaults. Both plugins run `ns-kiro-core`.
 
 ### Inside ns-kiro-core
 

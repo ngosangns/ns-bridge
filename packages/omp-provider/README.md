@@ -56,20 +56,18 @@ Then `/login kiro` as needed.
 ### Choosing providers
 
 `kiro` is the only provider here. While `ns-omp-provider-kiro` is installed it owns
-the `kiro` id and this package stays out of the way, unless `~/.ns-bridge/providers.json`
-or an env list names `kiro`:
+the `kiro` id and this package never registers it, whatever `~/.ns-bridge/providers.json`
+or an env list says. Without it, these decide:
 
 ```bash
-export NS_OMP_PROVIDER_ENABLE=kiro       # register kiro from this package too
+export NS_OMP_PROVIDER_ENABLE=kiro       # register kiro from this package
 export NS_OMP_PROVIDERS=kiro             # allow-list
 export NS_OMP_PROVIDER_DISABLE=kiro      # deny-list, applied last
 ```
 
 `devin` and `grok` in those lists, or as keys in `providers.json`, are accepted and
-ignored (the Pi adapter reads the same file and still uses them). Don't opt in to
-`kiro` while `ns-omp-provider-kiro` is installed — both would register the same
-`kiro` provider id. Both run the same `ns-kiro-core`, so the dedicated plugin loses
-nothing.
+ignored (the Pi adapter reads the same file and still uses them). Both plugins run the
+same `ns-kiro-core`, so deferring to the dedicated plugin loses nothing.
 
 ## How the wrapper works
 
@@ -96,8 +94,8 @@ nothing.
 
 - **`session_info_changed`** — OMP has no equivalent; it is a documented no-op
   (name changes do not re-key the agent pool).
-- **Duplicate `kiro`** — don't name `kiro` in the env lists or `providers.json` while
-  `ns-omp-provider-kiro` is installed.
+- **No duplicate `kiro`** — while `ns-omp-provider-kiro` is installed this package does
+  not register `kiro` at all.
 - **No `/ns-pi` or `/grok` commands** — they went with the Devin and Grok registration.
   `ns-bridge models list` and `ns-bridge providers status omp` cover the status.
 - **Catalog files** — the models OMP shows are the ones already on disk.

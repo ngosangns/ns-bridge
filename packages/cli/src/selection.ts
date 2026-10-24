@@ -75,15 +75,20 @@ export function resolveSelection(file: Partial<ProviderSelection>, env: Selectio
   return selection;
 }
 
-/** Write one provider. Other keys already in the file stay. */
+/**
+ * Write one provider. Other keys already in the file stay, and defaults are not
+ * written: a key in the file is a choice someone made, and readers act on that
+ * (ns-omp-provider used to register `kiro` next to ns-omp-provider-kiro because
+ * a disable of devin had written `kiro: true`). Returns the resolved selection.
+ */
 export function writeProvider(path: string, provider: ProviderName, enabled: boolean): ProviderSelection {
-  const next: ProviderSelection = { ...DEFAULT_SELECTION, ...readSelectionFile(path), [provider]: enabled };
+  const next: Partial<ProviderSelection> = { ...readSelectionFile(path), [provider]: enabled };
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.providers.${process.pid}.tmp`);
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   renameSync(tmp, path);
-  return next;
+  return { ...DEFAULT_SELECTION, ...next };
 }
 
 /** `undefined` means the env var was absent, so the file decides. */
