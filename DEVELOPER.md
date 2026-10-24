@@ -199,8 +199,8 @@ The workflow accepts only a `ns-bridge@<version>` tag.
    git tag ns-bridge@<version> && git push origin ns-bridge@<version>
    ```
 
-The CLI on npm is `0.1.8`, tagged `ns-bridge@0.1.8`. That tag is already
-published. Do not republish `0.1.0` through `0.1.7`. The next release is a new
+`npm view @ngosangns/ns-bridge versions` lists what is published; never
+republish one of those or push its tag again. The next release is a new
 version in `packages/cli/package.json`.
 
 The workflow re-runs lint, build, typecheck and tests, then
