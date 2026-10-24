@@ -22,7 +22,10 @@ const BUDGET_MS = Number(process.env.NS_BRIDGE_IMPORT_BUDGET_MS ?? 150);
 
 // Host registration imports these built entries. A static import of the
 // cl100k ranks, or a cold import slower than the budget, fails the gate.
-// CI may widen NS_BRIDGE_IMPORT_BUDGET_MS. The test stays on.
+// CI may widen NS_BRIDGE_IMPORT_BUDGET_MS. The test stays on, but on a machine
+// with more runnable work than cores the budget widens by load per core: cold
+// imports are CPU-bound, so a 150 ms import under 3x oversubscription is noise,
+// not a regression. The ranks check never widens.
 const ENTRIES: Record<string, string> = {
   "ns-kiro-core": join(ROOT, "packages/kiro-core/dist/index.js"),
   "ns-devin-core": join(ROOT, "packages/devin-core/dist/index.js"),
@@ -85,12 +88,13 @@ describe("registration import graph", () => {
     expect(ranks, "cl100k ranks or Smithy loaded during import").toEqual([]);
     const load = loadavg()[0];
     const cores = availableParallelism();
+    const budget = BUDGET_MS * Math.max(1, load / cores);
     for (const name of Object.keys(ENTRIES)) {
       const medianMs = median(samples.map((sample) => sample[name]));
       expect(
         medianMs,
-        `${name} median ${medianMs.toFixed(1)}ms over ${RUNS} processes; loadavg=${load.toFixed(2)} cores=${cores}`,
-      ).toBeLessThanOrEqual(BUDGET_MS);
+        `${name} median ${medianMs.toFixed(1)}ms over ${RUNS} processes; budget=${budget.toFixed(0)}ms loadavg=${load.toFixed(2)} cores=${cores}`,
+      ).toBeLessThanOrEqual(budget);
     }
   }, 120_000);
 });

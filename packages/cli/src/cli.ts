@@ -424,6 +424,9 @@ async function runKiroProfile(
     return 1;
   }
   const label = `${match.name ?? match.arn} (${match.region})`;
+  if (match.unlisted) {
+    err(`# ${match.arn} is not in this login's listing; Kiro rejects requests if the login cannot use it`);
+  }
   if (!parsed.apply) {
     log("# dry-run (pass --apply to run)");
     log(`pin ${label} in ${ops.selectionPath}`);

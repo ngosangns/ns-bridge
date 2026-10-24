@@ -11,7 +11,16 @@ export interface KiroProfileRow {
   arn: string;
   name?: string;
   region: string;
+  /** Set when a well-formed ARN was passed that the listing did not show. */
+  unlisted?: true;
 }
+
+/**
+ * A Kiro profile ARN: `arn:<partition>:codewhisperer:<region>:<account>:profile/<id>`.
+ * Listing only probes the login's region and the two canonical ones, so a
+ * profile elsewhere is real but absent from the listing.
+ */
+const KIRO_PROFILE_ARN = /^arn:aws[a-z-]*:codewhisperer:([a-z]{2}(?:-[a-z]+)+-\d):\d{12}:profile\/[A-Za-z0-9]+$/;
 
 export type KiroProfileSource = "env" | "ns-bridge" | "login";
 
@@ -19,7 +28,10 @@ export interface KiroProfileListing {
   profiles: KiroProfileRow[];
   /** The profile requests run on now, and what decided it. */
   active: { arn: string; source: KiroProfileSource };
-  /** The profile the login carries on its own (kiro-cli's pick), when it names one. */
+  /**
+   * The profile the login carries on its own, when it names one: kiro-cli's
+   * pick for a kiro-cli login, the token's own profile for a social login.
+   */
   loginArn?: string;
 }
 
@@ -40,13 +52,18 @@ export async function defaultKiroProfiles(): Promise<KiroProfileOps> {
   return loaded.createBundledKiroProfiles();
 }
 
-/** Match by ARN, then by name, then by region when that region has one profile. */
+/**
+ * Match by ARN, then by name, then by region when that region has one profile.
+ * A well-formed ARN the listing lacks passes through, marked `unlisted`.
+ */
 export function findKiroProfile(
   profiles: readonly KiroProfileRow[],
   query: string,
 ): KiroProfileRow | { error: string } {
   const byArn = profiles.find((profile) => profile.arn === query);
   if (byArn) return byArn;
+  const arnRegion = KIRO_PROFILE_ARN.exec(query)?.[1];
+  if (arnRegion) return { arn: query, region: arnRegion, unlisted: true };
   const lowered = query.toLowerCase();
   const byName = profiles.filter((profile) => profile.name?.toLowerCase() === lowered);
   if (byName.length === 1 && byName[0]) return byName[0];
@@ -63,7 +80,7 @@ export function formatKiroProfiles(listing: KiroProfileListing): string[] {
   const regionWidth = Math.max(6, ...listing.profiles.map((profile) => profile.region.length));
   const lines = listing.profiles.map((profile) => {
     const mark = profile.arn === listing.active.arn ? "*" : " ";
-    const tags = profile.arn === listing.loginArn ? "  (kiro-cli)" : "";
+    const tags = profile.arn === listing.loginArn ? "  (login)" : "";
     return `${mark} ${(profile.name ?? "—").padEnd(nameWidth)}  ${profile.region.padEnd(regionWidth)}  ${profile.arn}${tags}`;
   });
   if (!listing.profiles.some((profile) => profile.arn === listing.active.arn)) {

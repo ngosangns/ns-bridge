@@ -670,7 +670,7 @@ describe("kiro profile", () => {
     expect(await run(["kiro", "profile"], { ...io, kiroProfiles: ops })).toBe(0);
     expect(io.stdout).toEqual([
       `  KiroProfile-us-east-1     us-east-1     ${usArn}`,
-      `* KiroProfile-eu-central-1  eu-central-1  ${euArn}  (kiro-cli)`,
+      `* KiroProfile-eu-central-1  eu-central-1  ${euArn}  (login)`,
       "# active from the login (kiro-cli's pick, or the first profile Kiro lists)",
     ]);
   });
@@ -713,6 +713,29 @@ describe("kiro profile", () => {
     ).toBe(0);
     expect(cached.selections).toEqual([{ arn: usArn, name: "KiroProfile-us-east-1" }]);
     expect(second.kiro).not.toHaveBeenCalled();
+  });
+
+  it("pins a well-formed ARN the listing does not show, with a warning", async () => {
+    const io = capture();
+    const { ops, selections } = fakeOps({ cached: [] });
+    const { refreshers } = fakeRefreshers();
+    const apArn = "arn:aws:codewhisperer:ap-southeast-1:123456789012:profile/AP";
+    expect(await run(["kiro", "profile", "use", apArn, "--apply"], { ...io, kiroProfiles: ops, refreshers })).toBe(0);
+    expect(selections).toEqual([{ arn: apArn }]);
+    expect(io.stdout).toContain(`pinned ${apArn} (ap-southeast-1) in /home/me/.ns-bridge/kiro-profile.json`);
+    expect(io.stderr).toContain(
+      `# ${apArn} is not in this login's listing; Kiro rejects requests if the login cannot use it`,
+    );
+
+    const malformed = capture();
+    const bad = fakeOps();
+    expect(
+      await run(["kiro", "profile", "use", "arn:aws:codewhisperer:nowhere:1:profile/X"], {
+        ...malformed,
+        kiroProfiles: bad.ops,
+      }),
+    ).toBe(1);
+    expect(bad.selections).toEqual([]);
   });
 
   it("saves the pin and skips the catalog while KIRO_PROFILE_ARN is set", async () => {
