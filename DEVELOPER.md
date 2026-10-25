@@ -167,6 +167,55 @@ The wire protocol and the per-process state both live in this package.
 | [`stream.ts`](packages/kiro-core/src/stream.ts) | `streamKiro`: resolve the model and profile, stream one turn, apply the cache-read estimate |
 | [`cache-estimator.ts`](packages/kiro-core/src/cache-estimator.ts), [`usage.ts`](packages/kiro-core/src/usage.ts) | Cross-turn cache-read estimation and `fetchKiroUsage` |
 
+## ZCode
+
+`ns-bridge serve` and `ns-bridge zcode setup|status|remove` point the ZCode app
+at kiro, devin, and grok without a host adapter.
+
+| Piece | Owns |
+| --- | --- |
+| [`packages/bridge-core/src/anthropic/`](packages/bridge-core/src/anthropic) | The translation the local server needs: `request.ts` reads the Anthropic Messages body into a bridge request (`toBridgeRequest`), `stream.ts` writes the reply as SSE or one message (`toAnthropicSse`, `collectAnthropicMessage`), `server.ts` is the HTTP server — one mount per vendor as the first path segment, `x-api-key`/Bearer token on every route but `/healthz` |
+| [`packages/cli/src/serve.ts`](packages/cli/src/serve.ts) | The `serve` command: loads the vendored backends from the esbuild bundle (`dist/serve-entry.js`, built by `scripts/build.mjs`), reads port and token from `~/.ns-bridge/zcode.json`, binds loopback unless `--allow-remote`, and names the usage host — `setUsageHost("zcode")`, so records from the server carry `host=zcode` |
+| [`packages/cli/src/zcode.ts`](packages/cli/src/zcode.ts) | The `zcode` commands: plan the providers from the catalogs, merge them into ZCode's personal provider config, install/remove the darwin launch agent |
+
+The merge (`applyZcodeProviders`) is idempotent and slot-preserving:
+`ns-bridge-*` provider and model rules are replaced where they stand, stale
+`ns-bridge-*` rules are dropped (manual model rules are pruned only), new ones
+are appended, vendors whose catalog was skipped keep their entries
+(`keepProviderIds`), and foreign rules, `providerOrder` slots, and unknown keys
+pass through untouched. `defaultModelSelection` changes only when `--default`
+names one. It throws rather than editing a file whose shape it does not
+recognize.
+
+Model rules carry what ZCode needs to compact on ns-bridge's policy. Every rule
+publishes `reasoningLevel` values `low`, `medium`, `high`, `xhigh`, `max`
+(ZCode ignores a `defaultModelSelection` whose level is missing from the
+selected model's values), and the reported window is
+`threshold + 13000 + min(maxOutputTokens, 21000)` capped at the real window:
+ZCode compacts at `window - 13000 - min(maxOutputTokens, 21000)`, which lands
+the compaction on the threshold the catalog recorded, or on
+`derivedThresholdTokens` where the catalog recorded none.
+
+### Live-testing ZCode safely
+
+Point setup at temp files so nothing real is touched, skip the launch agent,
+and let `--force` skip the running-ZCode check:
+
+```bash
+pnpm --filter @ngosangns/ns-bridge build   # dist/serve-entry.js must exist
+tmp=$(mktemp -d)
+export NS_BRIDGE_ZCODE_CONFIG=$tmp/zcode.json
+export ZCODE_PERSONAL_PROVIDER_CONFIG_FILE=$tmp/provider_config.json
+node packages/cli/dist/main.js zcode setup --no-service --force --apply
+node packages/cli/dist/main.js serve       # reads the same temp config
+```
+
+`curl http://127.0.0.1:47821/healthz` should answer `ok`; a `/kiro/v1/messages`
+call presents the token from the temp serve config as `x-api-key`. ZCode can
+then be pointed at the temp provider config the same way. The serve config
+(with its token) and the provider config both live under the temp dir, so the
+real `~/.ns-bridge/zcode.json` and `~/.zcode` are untouched.
+
 ## Prerequisites
 
 - Node >=22 (`engines.node` in `package.json`)

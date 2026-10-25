@@ -91,6 +91,58 @@ profile's `cordis.patch.yml`:
     model: claude-sonnet-4-6
 ```
 
+## ZCode
+
+ZCode runs `kiro`, `devin`, and `grok` through a local Anthropic-Messages
+server. `ns-bridge serve` is that server, and `ns-bridge zcode` registers its
+endpoints (`/<vendor>/v1/messages`, `/<vendor>/v1/models`) as personal
+providers in the ZCode app, so its model picker lists them like any other
+provider.
+
+```bash
+ns-bridge serve                    # http://127.0.0.1:47821/<vendor>/v1/messages
+ns-bridge zcode setup --apply      # register the providers + install the launch agent
+ns-bridge zcode status
+ns-bridge zcode remove --apply     # strips them again; ~/.ns-bridge/zcode.json stays
+```
+
+`serve` binds loopback only and reads its port and token from
+`~/.ns-bridge/zcode.json`, created on first run (`NS_BRIDGE_ZCODE_CONFIG` moves
+the file, `NS_BRIDGE_SERVE_TOKEN` overrides the token). A non-loopback
+`--host` needs `--allow-remote`.
+
+`setup` merges the providers into ZCode's personal provider config
+(`~/.zcode/v2/provider_config.json`; `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`
+moves it) from the model catalogs. Only `ns-bridge-*` entries are touched —
+other providers pass through — and every write is backed up as
+`provider_config.json.bak-ns-bridge-<timestamp>`. Vendors switched off in
+`~/.ns-bridge/providers.json` are not registered; `--vendors kiro,devin`
+narrows further. `--default <vendor>/<model>` also makes that model ZCode's
+default, at reasoning level `high`. Compaction windows follow ns-bridge's
+per-model policy, so ZCode compacts where the other hosts do.
+
+**Quit ZCode before `setup --apply` or `remove --apply`** — the app keeps the
+provider config in memory and rewrites it on its next save — and restart ZCode
+afterwards. `--force` skips that check. With `--apply` on macOS, setup also
+installs a launch agent (`dev.ngosangns.ns-bridge.serve`) that keeps `serve`
+running; it pins the `ns-bridge` on `PATH`, so install this CLI globally
+first, and logs land in `~/.ns-bridge/logs/serve.log`. `--no-service` skips
+the agent.
+
+Running ZCode's headless CLI outside the app
+(`/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs -p …`) also needs
+`ZCODE_BUILTIN_PROVIDER_CONFIG_FILE=/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json`.
+
+Example flow:
+
+```bash
+npm install -g @ngosangns/ns-bridge
+ns-bridge models refresh --apply
+# quit ZCode, then:
+ns-bridge zcode setup --default kiro/claude-sonnet-4-6 --apply
+# restart ZCode and pick an ns-bridge model
+```
+
 ## Development
 
 ```bash

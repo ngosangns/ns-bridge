@@ -25,8 +25,15 @@ ns-bridge models refresh [kiro|devin|grok|all] [--apply]
 ns-bridge kiro profile [list]
 ns-bridge kiro profile use <name|region|arn> [--apply]
 ns-bridge kiro profile reset [--apply]
+ns-bridge serve [--port N] [--host H] [--allow-remote]
+ns-bridge zcode setup [--apply] [--vendors <list>] [--default <vendor>/<model>]
+           [--force] [--no-service]
+ns-bridge zcode status
+ns-bridge zcode remove [--apply] [--force]
 ns-bridge status
 ```
+
+`serve` and `zcode` register the same vendors for the ZCode app through a local Anthropic-Messages server; see the root [README](https://github.com/ngosangns/ns-bridge#zcode).
 
 | Host | Install | Update | Uninstall |
 | --- | --- | --- | --- |
