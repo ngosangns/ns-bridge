@@ -3,6 +3,7 @@
 
 import { abortableDelay, exponentialBackoff, parseRetryAfterMs, recordUsage } from "ns-core-utils";
 import { loadArnictApiKey } from "./auth.js";
+import { arnictNativeContextWindow } from "./catalog.js";
 import { ArnictApiError, arnictApiErrorFromResponse } from "./errors.js";
 import { buildChatCompletionsBody } from "./request.js";
 import {
@@ -92,7 +93,9 @@ export function streamArnict(options: StreamArnictOptions): AsyncGenerator<Arnic
   return recordUsage(streamArnictResponse(options), {
     vendor: "arnict",
     model: options.model,
-    contextWindow: options.contextWindow,
+    // The ledger fills against the window Arnict serves, not the smaller
+    // standard window a host may compact inside.
+    contextWindow: options.contextWindow ?? arnictNativeContextWindow(options.model),
     effort: options.effort,
     sessionId: options.sessionId,
   });

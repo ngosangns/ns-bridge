@@ -19,6 +19,7 @@ export {
   ARNICT_DEFAULT_CONTEXT_WINDOW,
   ARNICT_DEFAULT_MAX_TOKENS,
   ARNICT_DEFAULT_MODEL_ID,
+  ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
   ARNICT_KNOWN_MODELS,
   type ArnictCatalogSnapshot,
   type ArnictModelSpec,
@@ -28,6 +29,7 @@ export {
   arnictModelSpec,
   arnictModelsFromCatalogJson,
   arnictModelsFromModelIds,
+  arnictNativeContextWindow,
   readArnictCatalog,
   withArnictCompaction,
 } from "./catalog.js";

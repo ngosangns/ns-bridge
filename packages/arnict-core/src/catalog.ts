@@ -31,7 +31,19 @@ export interface ArnictRates {
 export interface ArnictModelSpec {
   id: string;
   name: string;
+  /**
+   * The standard window hosts run and compact inside. For GLM-5.3 ids this is
+   * the smaller of the two windows, the vendor's own agentic context — see
+   * `ARNICT_GLM_STANDARD_CONTEXT_WINDOW`; `nativeContextWindow` is the larger
+   * window Arnict actually serves.
+   */
   contextWindow: number;
+  /**
+   * The window Arnict serves the id against — what the usage ledger records
+   * context fill against. Equal to `contextWindow` unless the model carries a
+   * standard-window policy.
+   */
+  nativeContextWindow: number;
   maxTokens: number;
   reasoning: boolean;
   input: Array<"text" | "image">;
@@ -49,15 +61,58 @@ export interface ArnictModelSpec {
 }
 
 /**
+ * Where every model id starting with "zai/glm-5.3" should compact, in input
+ * tokens: the standard window hosts see for those ids, against a native window
+ * twice as large.
+ *
+ * The facts behind the choice:
+ *
+ * - Arnict serves both GLM models with a 1,048,576-token window, 131,072 max
+ *   output, flat per-token rates with no long-context tier; cached input is
+ *   still billed: flash $0.125 in / $0.05 cached / $0.50 out, glm-5.3 $1.25 /
+ *   $0.30 / $2.25 per 1M (arnict.com/docs/pricing, 2026-10-25).
+ * - Z.ai's own host ZCode
+ *   (/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json,
+ *   rule modelMatch ".*glm-5\\.3.*": contextWindow 1000000, maxOutputTokens
+ *   128000) auto-compacts at contextWindow - min(maxOutputTokens, 21000) -
+ *   13000 (glm/zcode.cjs getAutoCompactThreshold: reserve cap 21000,
+ *   bufferTokens 13000) = 966,000. That is window-driven, not cost-driven.
+ * - Z.ai runs its own agentic coding evaluations of GLM-5.3 at a 400K context
+ *   (DeepSWE "400K context", Terminal-Bench 3.0 "400K context") and HLE with
+ *   tools at 300K with context management (z.ai/blog/glm-5.3); only ALE runs
+ *   at 1M.
+ * - Z.ai's API also bills GLM flat with cached input charged
+ *   (docs.z.ai/guides/overview/pricing: GLM-5.3 $1.4/$0.26/$4.4).
+ * - Cost: with cached input billed per token, a warm turn's cached-context
+ *   cost grows linearly with context: at Arnict rates the cached part of one
+ *   turn is context x cachedRate, e.g. flash 383,616 tokens = $0.0192 vs
+ *   1,032,192 = $0.0516; glm-5.3 $0.1151 vs $0.3097. A session that compacts
+ *   at T averages about T/2 context, so compacting near 384K instead of
+ *   ~1.03M cuts the per-session cached-context spend by about 2.7x (arithmetic
+ *   from published rates; assumes high cache hit).
+ *
+ * No price cliff forces the stop — both vendors bill flat — so the number is
+ * Z.ai's own agentic evaluation context. Hosts compact via the entry's
+ * `compaction` budget: 400,000 with the shared 16,384 reserve triggers at
+ * 383,616.
+ */
+export const ARNICT_GLM_STANDARD_CONTEXT_WINDOW = 400_000;
+
+/**
  * Models known as of 2026-10-25, from arnict.com/models and arnict.com/docs/pricing.
  * The live `/v1/models` list stays the source of truth for what exists; this table
  * only adds names, windows, and rates a bare id list does not carry.
+ *
+ * `contextWindow` is the standard window from `ARNICT_GLM_STANDARD_CONTEXT_WINDOW`
+ * because both ids start with "zai/glm-5.3"; `nativeContextWindow` is the window
+ * Arnict actually serves.
  */
 export const ARNICT_KNOWN_MODELS: ArnictModelSpec[] = [
   {
     id: "zai/glm-5.3-flash-uncensored",
     name: "GLM 5.3 Flash Abliterated",
-    contextWindow: 1_048_576,
+    contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+    nativeContextWindow: 1_048_576,
     maxTokens: 131_072,
     reasoning: true,
     input: ["text", "image"],
@@ -66,7 +121,8 @@ export const ARNICT_KNOWN_MODELS: ArnictModelSpec[] = [
   {
     id: "zai/glm-5.3-uncensored",
     name: "GLM 5.3 Abliterated",
-    contextWindow: 1_048_576,
+    contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+    nativeContextWindow: 1_048_576,
     maxTokens: 131_072,
     reasoning: true,
     input: ["text"],
@@ -88,6 +144,18 @@ export const ARNICT_DEFAULT_MODEL_ID = "zai/glm-5.3-flash-uncensored";
 const knownById = new Map(ARNICT_KNOWN_MODELS.map((model) => [model.id, model]));
 
 /**
+ * The window Arnict serves `id` against: the published spec's native window for
+ * a known id, the default window for one the table does not know.
+ *
+ * The usage ledger records this as the turn's context window, so context fill
+ * reads against what the vendor can actually fill rather than the smaller
+ * standard window hosts compact inside.
+ */
+export function arnictNativeContextWindow(id: string): number {
+  return knownById.get(id)?.nativeContextWindow ?? ARNICT_DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
  * Attach the compaction budget an entry's window and ceiling imply.
  *
  * Arnict bills flat per token with no long-context tier and publishes no
@@ -107,6 +175,7 @@ export function arnictModelSpec(id: string): ArnictModelSpec {
     id,
     name: id,
     contextWindow: ARNICT_DEFAULT_CONTEXT_WINDOW,
+    nativeContextWindow: ARNICT_DEFAULT_CONTEXT_WINDOW,
     maxTokens: ARNICT_DEFAULT_MAX_TOKENS,
     reasoning: false,
     input: ["text"] as Array<"text" | "image">,
@@ -151,6 +220,10 @@ export interface ArnictCatalogSnapshot {
  *
  * Rates never come from the file: a known id keeps its published rates, and an
  * unknown id gets none, so a stale or wrong file cannot invent a price.
+ *
+ * The window policy is recomputed by id the same way: a known id keeps its
+ * published standard and native windows whatever the file says, and an unknown
+ * id keeps whatever window the file reports as both of its own.
  */
 export function arnictModelsFromCatalogJson(raw: string | undefined): ArnictModelSpec[] {
   if (!raw?.trim()) return arnictBootstrapModels();
@@ -165,15 +238,20 @@ export function arnictModelsFromCatalogJson(raw: string | undefined): ArnictMode
       const input = Array.isArray(row.input)
         ? row.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
         : (["text"] as Array<"text" | "image">);
+      const known = knownById.get(row.id);
+      const contextWindow =
+        known?.contextWindow ??
+        (typeof row.contextWindow === "number" ? row.contextWindow : ARNICT_DEFAULT_CONTEXT_WINDOW);
       models.push(
         withArnictCompaction({
           id: row.id,
           name: typeof row.name === "string" && row.name.length > 0 ? row.name : row.id,
-          contextWindow: typeof row.contextWindow === "number" ? row.contextWindow : ARNICT_DEFAULT_CONTEXT_WINDOW,
+          contextWindow,
+          nativeContextWindow: known?.nativeContextWindow ?? contextWindow,
           maxTokens: typeof row.maxTokens === "number" ? row.maxTokens : ARNICT_DEFAULT_MAX_TOKENS,
           reasoning: row.reasoning === true,
           input: input.length > 0 ? input : ["text"],
-          rates: knownById.get(row.id)?.rates,
+          rates: known?.rates,
         }),
       );
     }

@@ -9,12 +9,14 @@ import {
   ARNICT_DEFAULT_CONTEXT_WINDOW,
   ARNICT_DEFAULT_MAX_TOKENS,
   ARNICT_DEFAULT_MODEL_ID,
+  ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
   ARNICT_KNOWN_MODELS,
   arnictBootstrapModels,
   arnictCatalogPath,
   arnictModelSpec,
   arnictModelsFromCatalogJson,
   arnictModelsFromModelIds,
+  arnictNativeContextWindow,
   readArnictCatalog,
 } from "../src/catalog.js";
 
@@ -42,22 +44,42 @@ describe("arnictBootstrapModels", () => {
     const flash = models.find((model) => model.id === FLASH);
     expect(flash).toMatchObject({
       name: "GLM 5.3 Flash Abliterated",
-      contextWindow: 1_048_576,
+      contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+      nativeContextWindow: 1_048_576,
       maxTokens: 131_072,
       reasoning: true,
       input: ["text", "image"],
       rates: { input: 0.125, cachedInput: 0.05, output: 0.5 },
     });
-    expect(flash?.compaction).toEqual({ reserveTokens: 16_384, thresholdTokens: 1_032_192 });
+    expect(flash?.compaction).toEqual({ reserveTokens: 16_384, thresholdTokens: 383_616 });
   });
 
   it("keeps the text-only second model", () => {
     const full = arnictBootstrapModels().find((model) => model.id === FULL);
     expect(full).toMatchObject({
       name: "GLM 5.3 Abliterated",
+      contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+      nativeContextWindow: 1_048_576,
       input: ["text"],
       rates: { input: 1.25, cachedInput: 0.3, output: 2.25 },
     });
+    expect(full?.compaction).toEqual({ reserveTokens: 16_384, thresholdTokens: 383_616 });
+  });
+
+  it("applies the standard window to every id starting with zai/glm-5.3", () => {
+    for (const model of ARNICT_KNOWN_MODELS) {
+      if (!model.id.startsWith("zai/glm-5.3")) continue;
+      expect(model.contextWindow).toBe(ARNICT_GLM_STANDARD_CONTEXT_WINDOW);
+      expect(model.nativeContextWindow).toBe(1_048_576);
+    }
+  });
+});
+
+describe("arnictNativeContextWindow", () => {
+  it("reports the served window for the GLM ids and the default for the rest", () => {
+    expect(arnictNativeContextWindow(FLASH)).toBe(1_048_576);
+    expect(arnictNativeContextWindow(FULL)).toBe(1_048_576);
+    expect(arnictNativeContextWindow("some/new-model")).toBe(ARNICT_DEFAULT_CONTEXT_WINDOW);
   });
 });
 
@@ -65,7 +87,9 @@ describe("arnictModelSpec", () => {
   it("returns the published spec for a known id", () => {
     const spec = arnictModelSpec(FLASH);
     expect(spec.rates).toEqual({ input: 0.125, cachedInput: 0.05, output: 0.5 });
-    expect(spec.contextWindow).toBe(1_048_576);
+    expect(spec.contextWindow).toBe(400_000);
+    expect(spec.nativeContextWindow).toBe(1_048_576);
+    expect(spec.compaction).toEqual({ reserveTokens: 16_384, thresholdTokens: 383_616 });
   });
 
   it("shapes an unknown id with the defaults and no rates", () => {
@@ -74,6 +98,7 @@ describe("arnictModelSpec", () => {
       id: "some/new-model",
       name: "some/new-model",
       contextWindow: ARNICT_DEFAULT_CONTEXT_WINDOW,
+      nativeContextWindow: ARNICT_DEFAULT_CONTEXT_WINDOW,
       maxTokens: ARNICT_DEFAULT_MAX_TOKENS,
       reasoning: false,
       input: ["text"],
@@ -128,8 +153,27 @@ describe("arnictModelsFromCatalogJson", () => {
       id: FLASH,
       name: "Renamed",
       rates: { input: 0.125, cachedInput: 0.05, output: 0.5 },
+      // The window policy is recomputed by id: the file's 1 cannot shrink it.
+      contextWindow: 400_000,
+      nativeContextWindow: 1_048_576,
     });
     expect(models[1]?.rates).toBeUndefined();
+  });
+
+  it("keeps an unknown id's own window as both its standard and native window", () => {
+    const [model] = arnictModelsFromCatalogJson(
+      JSON.stringify({ models: [{ id: "vendor/other", contextWindow: 512_000 }] }),
+    );
+    expect(model).toMatchObject({
+      id: "vendor/other",
+      contextWindow: 512_000,
+      nativeContextWindow: 512_000,
+    });
+  });
+
+  it("round-trips the bootstrap list with the policy intact", () => {
+    const roundTrip = arnictModelsFromCatalogJson(JSON.stringify(arnictBootstrapModels()));
+    expect(roundTrip).toEqual(arnictBootstrapModels());
   });
 
   it("fills in the defaults for a sparse entry", () => {
@@ -138,6 +182,7 @@ describe("arnictModelsFromCatalogJson", () => {
       id: "some/new-model",
       name: "some/new-model",
       contextWindow: ARNICT_DEFAULT_CONTEXT_WINDOW,
+      nativeContextWindow: ARNICT_DEFAULT_CONTEXT_WINDOW,
       maxTokens: ARNICT_DEFAULT_MAX_TOKENS,
       reasoning: false,
       input: ["text"],
