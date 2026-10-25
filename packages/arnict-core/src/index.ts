@@ -31,7 +31,28 @@ export {
   readArnictCatalog,
   withArnictCompaction,
 } from "./catalog.js";
-export { ARNICT_LOGIN_MESSAGE, ArnictApiError, ArnictAuthError } from "./errors.js";
+export { ARNICT_LOGIN_MESSAGE, ArnictApiError, ArnictAuthError, arnictApiErrorFromResponse } from "./errors.js";
+export { fetchArnictModelIds } from "./models-api.js";
+export { buildChatCompletionsBody } from "./request.js";
+export {
+  type ChatReduceState,
+  chatCompletionChunks,
+  createChatState,
+  finishChat,
+  parseSseData,
+  reduceChatChunk,
+  type WireChatChunk,
+  type WireChatCompletion,
+  type WireChoice,
+  type WireToolCallDelta,
+} from "./sse.js";
+export {
+  ARNICT_BASE_URL_ENV,
+  ARNICT_DEFAULT_BASE_URL,
+  arnictBaseUrl,
+  type StreamArnictOptions,
+  streamArnict,
+} from "./stream.js";
 export type {
   ArnictAssistantContent,
   ArnictAssistantMessage,
