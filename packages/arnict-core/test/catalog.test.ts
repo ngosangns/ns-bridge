@@ -17,6 +17,7 @@ import {
   arnictModelsFromCatalogJson,
   arnictModelsFromModelIds,
   arnictNativeContextWindow,
+  isArnictGlm53Id,
   readArnictCatalog,
 } from "../src/catalog.js";
 
@@ -34,6 +35,19 @@ describe("arnict catalog constants", () => {
   it("falls back to the flash model", () => {
     expect(ARNICT_DEFAULT_MODEL_ID).toBe(FLASH);
     expect(arnictBootstrapModels().map((model) => model.id)).toContain(FLASH);
+  });
+});
+
+describe("isArnictGlm53Id", () => {
+  it.each(["zai/glm-5.3", "zai/glm-5.3-flashx", "zai/glm-5.3:beta", "zai/glm-5.3/preview", "ZAI/GLM-5.3-Flash"])(
+    "matches %s",
+    (id) => {
+      expect(isArnictGlm53Id(id)).toBe(true);
+    },
+  );
+
+  it.each(["zai/glm-5.30", "zai/glm-5.3x", "zai/glm-4.7", "other", "xzai/glm-5.3"])("does not match %s", (id) => {
+    expect(isArnictGlm53Id(id)).toBe(false);
   });
 });
 
@@ -76,9 +90,10 @@ describe("arnictBootstrapModels", () => {
 });
 
 describe("arnictNativeContextWindow", () => {
-  it("reports the served window for the GLM ids and the default for the rest", () => {
+  it("reports the served window for the GLM ids, the family window for pattern matches, and the default for the rest", () => {
     expect(arnictNativeContextWindow(FLASH)).toBe(1_048_576);
     expect(arnictNativeContextWindow(FULL)).toBe(1_048_576);
+    expect(arnictNativeContextWindow("zai/glm-5.3-flashx")).toBe(1_048_576);
     expect(arnictNativeContextWindow("some/new-model")).toBe(ARNICT_DEFAULT_CONTEXT_WINDOW);
   });
 });
@@ -106,6 +121,31 @@ describe("arnictModelSpec", () => {
     });
     expect(spec.rates).toBeUndefined();
   });
+
+  it("gives an unknown id matching the GLM 5.3 pattern the family shape and no rates", () => {
+    const spec = arnictModelSpec("zai/glm-5.3:beta");
+    expect(spec).toEqual({
+      id: "zai/glm-5.3:beta",
+      name: "zai/glm-5.3:beta",
+      contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+      nativeContextWindow: 1_048_576,
+      maxTokens: 131_072,
+      reasoning: true,
+      input: ["text"],
+      compaction: { reserveTokens: 16_384, thresholdTokens: 383_616 },
+    });
+    expect(spec.rates).toBeUndefined();
+  });
+
+  it("keeps the generic default for an id that only looks like GLM 5.3", () => {
+    for (const id of ["zai/glm-5.30", "zai/glm-4.7", "other"]) {
+      const spec = arnictModelSpec(id);
+      expect(spec.contextWindow).toBe(ARNICT_DEFAULT_CONTEXT_WINDOW);
+      expect(spec.nativeContextWindow).toBe(ARNICT_DEFAULT_CONTEXT_WINDOW);
+      expect(spec.maxTokens).toBe(ARNICT_DEFAULT_MAX_TOKENS);
+      expect(spec.reasoning).toBe(false);
+    }
+  });
 });
 
 describe("arnictModelsFromModelIds", () => {
@@ -119,6 +159,23 @@ describe("arnictModelsFromModelIds", () => {
       reasoning: false,
     });
     expect(models[1]?.rates).toBeUndefined();
+  });
+
+  it("applies the GLM 5.3 shape to unknown ids matching the family pattern", () => {
+    const models = arnictModelsFromModelIds(["zai/glm-5.3-flashx", "zai/glm-5.30", "other"]);
+    expect(models[0]).toMatchObject({
+      id: "zai/glm-5.3-flashx",
+      contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+      nativeContextWindow: 1_048_576,
+      maxTokens: 131_072,
+      reasoning: true,
+      input: ["text"],
+    });
+    expect(models[0]?.rates).toBeUndefined();
+    for (const model of models.slice(1)) {
+      expect(model.contextWindow).toBe(ARNICT_DEFAULT_CONTEXT_WINDOW);
+      expect(model.nativeContextWindow).toBe(ARNICT_DEFAULT_CONTEXT_WINDOW);
+    }
   });
 
   it("drops duplicates and empty ids", () => {
@@ -169,6 +226,42 @@ describe("arnictModelsFromCatalogJson", () => {
       contextWindow: 512_000,
       nativeContextWindow: 512_000,
     });
+  });
+
+  it("forces the GLM 5.3 shape onto an unknown id matching the family pattern", () => {
+    const [model] = arnictModelsFromCatalogJson(
+      JSON.stringify({
+        models: [
+          {
+            id: "zai/glm-5.3:beta",
+            name: "Beta Cut",
+            contextWindow: 1,
+            maxTokens: 2,
+            reasoning: false,
+            input: ["audio"],
+            rates: { input: 99, cachedInput: 99, output: 99 },
+          },
+        ],
+      }),
+    );
+    expect(model).toEqual({
+      id: "zai/glm-5.3:beta",
+      name: "Beta Cut",
+      contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+      nativeContextWindow: 1_048_576,
+      maxTokens: 131_072,
+      reasoning: true,
+      input: ["text"],
+      compaction: { reserveTokens: 16_384, thresholdTokens: 383_616 },
+    });
+    expect(model?.rates).toBeUndefined();
+  });
+
+  it("keeps a near-miss id's own window as both its standard and native window", () => {
+    const [model] = arnictModelsFromCatalogJson(
+      JSON.stringify({ models: [{ id: "zai/glm-5.30", contextWindow: 512_000 }] }),
+    );
+    expect(model).toMatchObject({ id: "zai/glm-5.30", contextWindow: 512_000, nativeContextWindow: 512_000 });
   });
 
   it("round-trips the bootstrap list with the policy intact", () => {

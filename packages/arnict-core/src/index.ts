@@ -30,6 +30,7 @@ export {
   arnictModelsFromCatalogJson,
   arnictModelsFromModelIds,
   arnictNativeContextWindow,
+  isArnictGlm53Id,
   readArnictCatalog,
   withArnictCompaction,
 } from "./catalog.js";

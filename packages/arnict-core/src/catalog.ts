@@ -61,9 +61,21 @@ export interface ArnictModelSpec {
 }
 
 /**
- * Where every model id starting with "zai/glm-5.3" should compact, in input
- * tokens: the standard window hosts see for those ids, against a native window
- * twice as large.
+ * Whether `id` is a GLM 5.3 variant: the family prefix `zai/glm-5.3` on its own
+ * or followed by a `-`, `.`, `:`, or `/` separator and any suffix. Arnict lists
+ * fresh variants under the prefix (flashx, beta cuts) before this table learns
+ * each one, and every id the prefix covers shares the family's windows and
+ * output ceiling. A near miss like `zai/glm-5.30` is a different model and does
+ * not match.
+ */
+export function isArnictGlm53Id(id: string): boolean {
+  return /^zai\/glm-5\.3(?:[-.:/].*)?$/i.test(id);
+}
+
+/**
+ * Where every id matching {@link isArnictGlm53Id} should compact, in input
+ * tokens: the standard window hosts see for those ids, against the native
+ * window Arnict actually serves.
  *
  * The facts behind the choice:
  *
@@ -104,7 +116,7 @@ export const ARNICT_GLM_STANDARD_CONTEXT_WINDOW = 400_000;
  * only adds names, windows, and rates a bare id list does not carry.
  *
  * `contextWindow` is the standard window from `ARNICT_GLM_STANDARD_CONTEXT_WINDOW`
- * because both ids start with "zai/glm-5.3"; `nativeContextWindow` is the window
+ * because both ids match `isArnictGlm53Id`; `nativeContextWindow` is the window
  * Arnict actually serves.
  */
 export const ARNICT_KNOWN_MODELS: ArnictModelSpec[] = [
@@ -144,15 +156,33 @@ export const ARNICT_DEFAULT_MODEL_ID = "zai/glm-5.3-flash-uncensored";
 const knownById = new Map(ARNICT_KNOWN_MODELS.map((model) => [model.id, model]));
 
 /**
+ * The standard GLM 5.3 shape for an id the table does not know: the family's
+ * standard and native windows, its published output ceiling, reasoning on,
+ * text-only input, and no rates, so cost stays 0.
+ */
+function glm53Spec(id: string, name: string): ArnictModelSpec {
+  return {
+    id,
+    name,
+    contextWindow: ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+    nativeContextWindow: 1_048_576,
+    maxTokens: 131_072,
+    reasoning: true,
+    input: ["text"],
+  };
+}
+
+/**
  * The window Arnict serves `id` against: the published spec's native window for
- * a known id, the default window for one the table does not know.
+ * a known id, the family native window for an unknown id matching
+ * `isArnictGlm53Id`, and the default window for anything else.
  *
  * The usage ledger records this as the turn's context window, so context fill
  * reads against what the vendor can actually fill rather than the smaller
  * standard window hosts compact inside.
  */
 export function arnictNativeContextWindow(id: string): number {
-  return knownById.get(id)?.nativeContextWindow ?? ARNICT_DEFAULT_CONTEXT_WINDOW;
+  return knownById.get(id)?.nativeContextWindow ?? (isArnictGlm53Id(id) ? 1_048_576 : ARNICT_DEFAULT_CONTEXT_WINDOW);
 }
 
 /**
@@ -167,10 +197,14 @@ export function withArnictCompaction<T extends { contextWindow: number; maxToken
   return budget ? { ...model, compaction: budget } : model;
 }
 
-/** The spec for a known id, or a default-shaped spec for one the table does not know. */
+/**
+ * The spec for a known id, the GLM 5.3 shape for an unknown id matching
+ * `isArnictGlm53Id`, or a default-shaped spec otherwise.
+ */
 export function arnictModelSpec(id: string): ArnictModelSpec {
   const known = knownById.get(id);
   if (known) return withArnictCompaction(known);
+  if (isArnictGlm53Id(id)) return withArnictCompaction(glm53Spec(id, id));
   return withArnictCompaction({
     id,
     name: id,
@@ -189,8 +223,9 @@ export function arnictBootstrapModels(): ArnictModelSpec[] {
 
 /**
  * Turn a live `/v1/models` id list into specs. Known ids keep their published
- * spec; the rest get the default shape with no rates, so cost stays 0 rather
- * than guessing. An empty list falls back to the bootstrap models.
+ * spec; unknown ids matching `isArnictGlm53Id` get the GLM 5.3 shape; the rest
+ * get the default shape with no rates, so cost stays 0 rather than guessing.
+ * An empty list falls back to the bootstrap models.
  */
 export function arnictModelsFromModelIds(ids: string[]): ArnictModelSpec[] {
   const seen = new Set<string>();
@@ -222,8 +257,11 @@ export interface ArnictCatalogSnapshot {
  * unknown id gets none, so a stale or wrong file cannot invent a price.
  *
  * The window policy is recomputed by id the same way: a known id keeps its
- * published standard and native windows whatever the file says, and an unknown
- * id keeps whatever window the file reports as both of its own.
+ * published standard and native windows whatever the file says, an unknown id
+ * matching `isArnictGlm53Id` keeps the family's windows, output ceiling,
+ * reasoning flag, and text-only input whatever the file says (still with no
+ * rates), and any other unknown id keeps whatever window the file reports as
+ * both of its own.
  */
 export function arnictModelsFromCatalogJson(raw: string | undefined): ArnictModelSpec[] {
   if (!raw?.trim()) return arnictBootstrapModels();
@@ -235,17 +273,22 @@ export function arnictModelsFromCatalogJson(raw: string | undefined): ArnictMode
       if (!entry || typeof entry !== "object") continue;
       const row = entry as Record<string, unknown>;
       if (typeof row.id !== "string" || row.id.length === 0) continue;
+      const name = typeof row.name === "string" && row.name.length > 0 ? row.name : row.id;
+      const known = knownById.get(row.id);
+      if (!known && isArnictGlm53Id(row.id)) {
+        models.push(withArnictCompaction(glm53Spec(row.id, name)));
+        continue;
+      }
       const input = Array.isArray(row.input)
         ? row.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
         : (["text"] as Array<"text" | "image">);
-      const known = knownById.get(row.id);
       const contextWindow =
         known?.contextWindow ??
         (typeof row.contextWindow === "number" ? row.contextWindow : ARNICT_DEFAULT_CONTEXT_WINDOW);
       models.push(
         withArnictCompaction({
           id: row.id,
-          name: typeof row.name === "string" && row.name.length > 0 ? row.name : row.id,
+          name,
           contextWindow,
           nativeContextWindow: known?.nativeContextWindow ?? contextWindow,
           maxTokens: typeof row.maxTokens === "number" ? row.maxTokens : ARNICT_DEFAULT_MAX_TOKENS,
