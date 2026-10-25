@@ -16,6 +16,7 @@ import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.j
 import { currentVersion, PACKAGE_NAME, parseNpmVersion, planSelfUpdate } from "./self.js";
 import { runServe, type ServeBundle } from "./serve.js";
 import { formatSession, formatSummary, localDay, readUsage, summarize, usageRoot } from "./usage.js";
+import { runZcode } from "./zcode.js";
 
 export interface CommandResult {
   code: number;
@@ -41,6 +42,14 @@ export interface RunOptions {
   serveBundleLoader?: () => Promise<ServeBundle>;
   /** Serve config path. Tests pass a temp dir; production reads ~/.ns-bridge/zcode.json. */
   serveConfigPath?: string;
+  /** ZCode personal provider config path. Tests pass a temp file; production honours ZCODE_PERSONAL_PROVIDER_CONFIG_FILE. */
+  zcodeProviderConfigPath?: string;
+  /** ns-bridge provider selection file. Tests pass a temp path; production reads ~/.ns-bridge/providers.json. */
+  selectionFilePath?: string;
+  /** HOME for the ZCode launch agent and its logs. Tests pass a temp dir. */
+  home?: string;
+  /** Platform override so tests can exercise the darwin-only launch agent. */
+  platform?: NodeJS.Platform;
   /** Installed CLI version. Tests pass this so they do not read package.json. */
   version?: string;
 }
@@ -65,6 +74,10 @@ Usage:
   ns-bridge kiro profile use <name|region|arn> [--apply]
   ns-bridge kiro profile reset [--apply]
   ns-bridge serve [--port N] [--host H] [--allow-remote]
+  ns-bridge zcode setup [--apply] [--vendors <list>] [--default <vendor>/<model>]
+           [--force] [--no-service]
+  ns-bridge zcode status
+  ns-bridge zcode remove [--apply] [--force]
   ns-bridge status
   ns-bridge help
 
@@ -113,6 +126,17 @@ kiro, devin, grok, and GET /<vendor>/v1/models. Port and token live in
 ~/.ns-bridge/zcode.json, created on first run (NS_BRIDGE_ZCODE_CONFIG moves
 the file; NS_BRIDGE_SERVE_TOKEN overrides the token). It binds loopback only;
 --host with a non-loopback address needs --allow-remote.
+
+zcode registers those endpoints as personal providers in the ZCode app
+(~/.zcode/v2/provider_config.json; ZCODE_PERSONAL_PROVIDER_CONFIG_FILE moves
+it). setup writes that file — quit ZCode first, because the app keeps it in
+memory and rewrites it when it saves or quits, and restart ZCode afterwards.
+With --apply setup also installs a launch agent
+(dev.ngosangns.ns-bridge.serve) that keeps ns-bridge serve running;
+--no-service skips it. remove strips the providers and the agent but leaves
+~/.ns-bridge/zcode.json alone. Vendors switched off in
+~/.ns-bridge/providers.json are not registered; --vendors kiro,devin narrows
+further. --default <vendor>/<model> also makes that model ZCode's default.
 `;
 
 export function spawnRunner(): Runner {
@@ -227,6 +251,34 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
       err,
       ...(options.serveBundleLoader ? { loadBundle: options.serveBundleLoader } : {}),
       ...(options.serveConfigPath ? { configPath: options.serveConfigPath } : {}),
+    });
+  }
+  if (command === "zcode") {
+    if (target !== "setup" && target !== "status" && target !== "remove") {
+      err("usage: ns-bridge zcode setup|status|remove");
+      return 1;
+    }
+    if (parsed.positionals.length > 2) {
+      err(`unexpected argument ${parsed.positionals[2]}`);
+      return 1;
+    }
+    return runZcode({
+      action: target,
+      apply: parsed.apply,
+      force: parsed.force,
+      noService: parsed.noService,
+      runner: options.runner ?? spawnRunner(),
+      log,
+      err,
+      ...(parsed.vendors !== undefined ? { vendors: parsed.vendors } : {}),
+      ...(parsed.default !== undefined ? { default: parsed.default } : {}),
+      ...(options.home ? { home: options.home } : {}),
+      ...(options.platform ? { platform: options.platform } : {}),
+      ...(options.paths ? { catalogPaths: options.paths } : {}),
+      ...(options.zcodeProviderConfigPath ? { providerConfigPath: options.zcodeProviderConfigPath } : {}),
+      ...(options.serveConfigPath ? { serveConfigPath: options.serveConfigPath } : {}),
+      ...(options.selectionFilePath ? { selectionFilePath: options.selectionFilePath } : {}),
+      ...(options.now !== undefined ? { now: new Date(options.now) } : {}),
     });
   }
   err(`unknown command ${command}`);
@@ -547,6 +599,10 @@ interface Parsed {
   host?: string;
   token?: string;
   allowRemote: boolean;
+  vendors?: string;
+  default?: string;
+  force: boolean;
+  noService: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Parsed | { error: string } {
@@ -563,6 +619,10 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
   let host: string | undefined;
   let token: string | undefined;
   let allowRemote = false;
+  let vendors: string | undefined;
+  let defaultModel: string | undefined;
+  let force = false;
+  let noService = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--") {
@@ -585,6 +645,14 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       allowRemote = true;
       continue;
     }
+    if (arg === "--force") {
+      force = true;
+      continue;
+    }
+    if (arg === "--no-service") {
+      noService = true;
+      continue;
+    }
     if (arg === "--profile") {
       const value = argv[index + 1];
       if (!value || value.startsWith("-")) return { error: "--profile needs a name" };
@@ -602,9 +670,17 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       json = true;
       continue;
     }
-    const valued = ["--vendor", "--day", "--days", "--session", "--host", "--port", "--token"].find(
-      (flag) => arg === flag || arg.startsWith(`${flag}=`),
-    );
+    const valued = [
+      "--vendor",
+      "--day",
+      "--days",
+      "--session",
+      "--host",
+      "--port",
+      "--token",
+      "--vendors",
+      "--default",
+    ].find((flag) => arg === flag || arg.startsWith(`${flag}=`));
     if (valued) {
       const value = arg === valued ? argv[index + 1] : arg.slice(valued.length + 1);
       if (!value || (arg === valued && value.startsWith("-"))) return { error: `${valued} needs a value` };
@@ -614,6 +690,8 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       else if (valued === "--session") session = value;
       else if (valued === "--host") host = value;
       else if (valued === "--token") token = value;
+      else if (valued === "--vendors") vendors = value;
+      else if (valued === "--default") defaultModel = value;
       else if (valued === "--port") {
         const parsedPort = Number(value);
         if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)
@@ -630,5 +708,23 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
     if (arg.startsWith("-")) return { error: `unknown flag ${arg}` };
     positionals.push(arg);
   }
-  return { positionals, apply, profile, help, vendor, day, days, session, json, port, host, token, allowRemote };
+  return {
+    positionals,
+    apply,
+    profile,
+    help,
+    vendor,
+    day,
+    days,
+    session,
+    json,
+    port,
+    host,
+    token,
+    allowRemote,
+    vendors,
+    default: defaultModel,
+    force,
+    noService,
+  };
 }

@@ -22,6 +22,8 @@ export interface CatalogEntry {
   maxTokens?: number;
   /** Where compaction triggers, when the catalog recorded one. */
   thresholdTokens?: number;
+  /** Modalities the catalog listed, when it did; "image" means image input. */
+  input?: string[];
 }
 
 export interface CatalogGroup {
@@ -146,6 +148,9 @@ function entriesFrom(models: unknown[]): CatalogEntry[] {
       // its reservation compacts immediately.
       ...(compaction && typeof compaction.thresholdTokens === "number" && Number.isFinite(compaction.thresholdTokens)
         ? { thresholdTokens: compaction.thresholdTokens }
+        : {}),
+      ...(Array.isArray(entry.input)
+        ? { input: entry.input.filter((item): item is string => typeof item === "string") }
         : {}),
     });
   }
