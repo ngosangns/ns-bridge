@@ -8,6 +8,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { type ArnictIo, runArnict } from "./arnict.js";
 import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatalogs, type Vendor } from "./catalog.js";
 import { formatCommand, type HostAction, parseHosts, planHostCommands } from "./hosts.js";
 import { defaultKiroProfiles, findKiroProfile, formatKiroProfiles, type KiroProfileOps } from "./kiro-profile.js";
@@ -33,6 +34,8 @@ export interface RunOptions {
   refreshers?: ModelRefresh;
   /** Kiro profile listing and pinning. Tests pass fakes; production loads the refresh bundle. */
   kiroProfiles?: KiroProfileOps;
+  /** Arnict key login/logout/status I/O. Tests inject env, home, stdin, and fetch. */
+  arnictIo?: Partial<ArnictIo>;
   paths?: CatalogPaths;
   now?: number;
   providerPaths?: ProviderPaths;
@@ -78,6 +81,9 @@ Usage:
            [--force] [--no-service]
   ns-bridge zcode status
   ns-bridge zcode remove [--apply] [--force]
+  ns-bridge arnict login [--stdin]
+  ns-bridge arnict logout
+  ns-bridge arnict status [--json]
   ns-bridge status
   ns-bridge help
 
@@ -137,6 +143,12 @@ With --apply setup also installs a launch agent
 ~/.ns-bridge/zcode.json alone. Vendors switched off in
 ~/.ns-bridge/providers.json are not registered; --vendors kiro,devin narrows
 further. --default <vendor>/<model> also makes that model ZCode's default.
+
+arnict stores the Arnict API key in ~/.ns-bridge/arnict.json (NS_BRIDGE_ARNICT_CONFIG
+moves it), a 0600 file in a 0700 directory. login reads the key from stdin when it is
+piped or --stdin is passed, else prompts hidden. ARNICT_API_KEY outranks the file.
+status probes https://api.arnict.com/v1/models (ARNICT_BASE_URL moves it) and redacts
+the key from anything it prints.
 `;
 
 export function spawnRunner(): Runner {
@@ -236,6 +248,17 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
   }
   if (command === "kiro") {
     return runKiroProfile(parsed, log, err, options);
+  }
+  if (command === "arnict") {
+    if (target !== "login" && target !== "logout" && target !== "status") {
+      err("usage: ns-bridge arnict login|logout|status");
+      return 1;
+    }
+    if (parsed.positionals.length > 2) {
+      err(`unexpected argument ${parsed.positionals[2]}`);
+      return 1;
+    }
+    return runArnict(target, { stdin: parsed.stdin, json: parsed.json }, options.arnictIo, log, err);
   }
   if (command === "serve") {
     if (parsed.positionals.length > 1) {
@@ -590,6 +613,7 @@ interface Parsed {
   apply: boolean;
   profile?: string;
   help: boolean;
+  stdin: boolean;
   vendor?: string;
   day?: string;
   days?: number;
@@ -610,6 +634,7 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
   let apply = false;
   let profile: string | undefined;
   let help = false;
+  let stdin = false;
   let vendor: string | undefined;
   let day: string | undefined;
   let days: number | undefined;
@@ -670,6 +695,10 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       json = true;
       continue;
     }
+    if (arg === "--stdin") {
+      stdin = true;
+      continue;
+    }
     const valued = [
       "--vendor",
       "--day",
@@ -713,6 +742,7 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
     apply,
     profile,
     help,
+    stdin,
     vendor,
     day,
     days,
