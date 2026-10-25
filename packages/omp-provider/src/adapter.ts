@@ -84,6 +84,51 @@ export function toOmpApiKey(value: unknown, env: NodeJS.ProcessEnv = process.env
   return value.replaceAll("$$", "$");
 }
 
+/**
+ * The smallest window whose OMP default compaction threshold reaches
+ * `threshold`.
+ *
+ * Copied from packages/omp-provider-kiro/src/models.ts (`ompWindowForThreshold`)
+ * — this plugin must not import the dedicated kiro plugin. Mirrors OMP's
+ * default compaction rule (oh-my-pi `pi-agent-core` `compaction.ts`,
+ * `effectiveReserveTokens` / `resolveThresholdTokens`): OMP holds back
+ * `max(floor(0.15·W), 16384)` of a window `W` and compacts at the remainder.
+ */
+export function ompWindowForThreshold(threshold: number): number {
+  const reaches = (window: number) => window - Math.max(Math.floor(window * 0.15), 16_384) >= threshold;
+  let window = Math.max(Math.ceil(threshold / 0.85), threshold);
+  while (!reaches(window)) window += 1;
+  while (window > 1 && reaches(window - 1)) window -= 1;
+  return window;
+}
+
+/** The only provider whose model rows are remapped onto OMP's compaction rule. */
+export const ARNICT_PROVIDER_ID = "arnict";
+
+/**
+ * Remap arnict model rows so OMP compacts where Pi compacts.
+ *
+ * The rows carry the Pi compaction threshold (an explicit
+ * `compaction.thresholdTokens`, else Pi's own `contextWindow - 16384`), but OMP
+ * derives its threshold from `contextWindow` as `max(floor(0.15·W), 16384)`, so
+ * registering the row at its Pi window makes OMP compact too early (340,000
+ * instead of 383,616 for the 400K standard window). Each row is re-registered
+ * at the smallest window whose OMP default threshold reaches the Pi threshold,
+ * capped at the row's native window; `maxContextWindow` is kept so OMP can
+ * still widen to it.
+ */
+export function mapArnictModelsForOmp(models: readonly unknown[]): unknown[] {
+  return models.map((model) => {
+    if (!model || typeof model !== "object") return model;
+    const row = model as AnyRecord;
+    if (typeof row.contextWindow !== "number") return model;
+    const compaction = row.compaction as { thresholdTokens?: number } | undefined;
+    const threshold = compaction?.thresholdTokens ?? row.contextWindow - 16_384;
+    const native = (row.maxContextWindow as number | undefined) ?? row.contextWindow;
+    return { ...row, contextWindow: Math.min(ompWindowForThreshold(threshold), native) };
+  });
+}
+
 type PiRefreshModels = (args: {
   credential?: { type: string; key?: string; access?: string };
   signal: AbortSignal;
@@ -98,10 +143,12 @@ type PiRefreshModels = (args: {
  * as "no dynamic list" and keeps the registered `models`, instead of caching
  * an empty or bootstrap list as authoritative for a day. Providers that can
  * answer from a fresh disk cache should set their own `fetchDynamicModels`.
+ * `mapModels` rewrites array results (never a `null`) before they reach OMP.
  */
 export function toFetchDynamicModels(
   refreshModels: PiRefreshModels,
   timeoutMs: number = DYNAMIC_MODELS_TIMEOUT_MS,
+  mapModels?: (models: unknown[]) => unknown[],
 ): (apiKey: string | undefined) => Promise<unknown[] | null> {
   return async (apiKey) => {
     const credential = apiKey ? { type: "api_key", key: apiKey, access: apiKey } : undefined;
@@ -111,15 +158,26 @@ export function toFetchDynamicModels(
       allowNetwork: false,
     });
     if (models === null) return null;
-    return Array.isArray(models) ? models : [];
+    const list = Array.isArray(models) ? models : [];
+    return mapModels ? mapModels(list) : list;
   };
 }
 
-/** Adapt one Pi `registerProvider` config to OMP's `ProviderConfig`. */
-export function adaptProviderConfig(config: AnyRecord, env: NodeJS.ProcessEnv = process.env): AnyRecord {
+/**
+ * Adapt one Pi `registerProvider` config to OMP's `ProviderConfig`.
+ * `providerName` is the id the config registers under; only "arnict" gets its
+ * model rows remapped onto OMP's compaction rule (see
+ * {@link mapArnictModelsForOmp}) — kiro rows already carry OMP-shaped windows.
+ */
+export function adaptProviderConfig(
+  config: AnyRecord,
+  env: NodeJS.ProcessEnv = process.env,
+  providerName?: string,
+): AnyRecord {
   if (!config || typeof config !== "object") return config;
   const { refreshModels, ...rest } = config as AnyRecord & { refreshModels?: PiRefreshModels };
   const next: AnyRecord = { ...rest };
+  const isArnict = providerName === ARNICT_PROVIDER_ID;
 
   if ("apiKey" in next) {
     const apiKey = toOmpApiKey(next.apiKey, env);
@@ -133,8 +191,22 @@ export function adaptProviderConfig(config: AnyRecord, env: NodeJS.ProcessEnv = 
       streamSimple(model, toPiContext(context), options);
   }
 
-  if (typeof refreshModels === "function" && typeof next.fetchDynamicModels !== "function") {
-    next.fetchDynamicModels = toFetchDynamicModels(refreshModels);
+  if (typeof next.fetchDynamicModels === "function") {
+    if (isArnict) {
+      const fetchDynamicModels = next.fetchDynamicModels as (apiKey: string | undefined) => Promise<unknown>;
+      next.fetchDynamicModels = async (apiKey: string | undefined) => {
+        const models = await fetchDynamicModels(apiKey);
+        return Array.isArray(models) ? mapArnictModelsForOmp(models) : models;
+      };
+    }
+  } else if (typeof refreshModels === "function") {
+    next.fetchDynamicModels = isArnict
+      ? toFetchDynamicModels(refreshModels, DYNAMIC_MODELS_TIMEOUT_MS, mapArnictModelsForOmp)
+      : toFetchDynamicModels(refreshModels);
+  }
+
+  if (isArnict && Array.isArray(next.models)) {
+    next.models = mapArnictModelsForOmp(next.models);
   }
 
   return next;
@@ -159,7 +231,7 @@ export function wrapExtensionApi<T extends object>(pi: T, options: WrapOptions =
 
   const overrides: Record<PropertyKey, unknown> = {
     registerProvider(name: string, config: AnyRecord) {
-      return api.registerProvider(name, adaptProviderConfig(config, env));
+      return api.registerProvider(name, adaptProviderConfig(config, env, name));
     },
     on(event: string, handler: (...args: unknown[]) => unknown) {
       if (UNSUPPORTED_EVENTS.has(event)) return;

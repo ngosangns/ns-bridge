@@ -95,11 +95,14 @@ describe("dist/index.js on a fake OMP API", () => {
       expect(arnict).not.toHaveProperty("refreshModels");
       expect(typeof arnict.fetchDynamicModels).toBe("function");
       expect(typeof arnict.streamSimple).toBe("function");
-      // GLM 5.3 compacts in the 400K standard window; the 1M native window Arnict
+      // OMP compacts at a share of contextWindow, so the GLM row is registered
+      // at the smallest window whose OMP threshold reaches Pi's 383,616 (where
+      // Pi compacts the 400K standard window); the 1M native window Arnict
       // serves rides along for OMP's extended context.
       const models = arnict.models as Array<Record<string, unknown>>;
       const flash = models.find((m) => m.id === "zai/glm-5.3-flash-uncensored");
-      expect(flash?.contextWindow).toBe(400_000);
+      const window = flash?.contextWindow as number;
+      expect(window - Math.max(Math.floor(window * 0.15), 16_384)).toBe(383_616);
       expect(flash?.maxContextWindow).toBe(1_048_576);
     } finally {
       delete process.env.ARNICT_API_KEY;

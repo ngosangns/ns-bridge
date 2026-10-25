@@ -18,7 +18,16 @@ import { setUsageHost } from "ns-bridge-core";
 import { wrapExtensionApi } from "./adapter.js";
 import { resolveProviderSelection, shouldRegisterKiro } from "./config.js";
 
-export { adaptProviderConfig, toFetchDynamicModels, toOmpApiKey, toPiContext, wrapExtensionApi } from "./adapter.js";
+export {
+  ARNICT_PROVIDER_ID,
+  adaptProviderConfig,
+  mapArnictModelsForOmp,
+  ompWindowForThreshold,
+  toFetchDynamicModels,
+  toOmpApiKey,
+  toPiContext,
+  wrapExtensionApi,
+} from "./adapter.js";
 export {
   dedicatedKiroInstalled,
   OMP_NATIVE_PROVIDERS,
