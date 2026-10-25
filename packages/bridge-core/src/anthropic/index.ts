@@ -22,6 +22,11 @@ export {
   toBridgeRequest,
 } from "./request.js";
 export {
+  type AnthropicBackend,
+  type AnthropicServerOptions,
+  createAnthropicServer,
+} from "./server.js";
+export {
   type AnthropicStreamOptions,
   anthropicError,
   collectAnthropicMessage,

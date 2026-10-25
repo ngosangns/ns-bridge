@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /** Which coding agent loaded the plugin. Set once per process by the adapter. */
-export type UsageHost = "pi" | "omp" | "dsh" | "unknown";
+export type UsageHost = "pi" | "omp" | "dsh" | "zcode" | "unknown";
 
 /**
  * Where a record's cache counters came from.
