@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { toKiroModelForHost } from "../src/host-model.js";
-import { kiroStandardContextWindow } from "../src/long-context.js";
+import { kiroCompactionTarget, kiroStandardContextWindow } from "../src/long-context.js";
 import { kiroModels } from "../src/models.js";
 
 describe("kiroStandardContextWindow", () => {
@@ -27,6 +27,26 @@ describe("kiroStandardContextWindow", () => {
 
   it("does not read inherited keys as model ids", () => {
     expect(kiroStandardContextWindow({ id: "toString", contextWindow: 500_000 })).toBe(500_000);
+  });
+});
+
+describe("kiroCompactionTarget", () => {
+  it("targets Claude models whose window runs past 200K", () => {
+    expect(kiroCompactionTarget({ id: "claude-sonnet-5-5", contextWindow: 1_000_000 })).toBe(150_000);
+    expect(kiroCompactionTarget({ id: "claude-opus-5-5", contextWindow: 1_000_000 })).toBe(150_000);
+  });
+
+  it("leaves 200K windows, non-Claude models, and inherited keys alone", () => {
+    expect(kiroCompactionTarget({ id: "claude-haiku-4-5", contextWindow: 200_000 })).toBeUndefined();
+    expect(kiroCompactionTarget({ id: "auto", contextWindow: 1_000_000 })).toBeUndefined();
+    expect(kiroCompactionTarget({ id: "gpt-5-6-luna", contextWindow: 922_000 })).toBeUndefined();
+    expect(kiroCompactionTarget({ id: "toString", contextWindow: 1_000_000 })).toBeUndefined();
+  });
+
+  it("compacts a 1M Claude catalog row at the target", () => {
+    const seed = kiroModels.find((model) => model.id === "claude-sonnet-5");
+    expect(seed?.contextWindow).toBe(1_000_000);
+    expect(seed?.compaction).toEqual({ reserveTokens: 16_384, thresholdTokens: 150_000 });
   });
 });
 

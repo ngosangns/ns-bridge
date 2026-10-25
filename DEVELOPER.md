@@ -124,6 +124,32 @@ say: two registrations of one id leave the winner to plugin load order. Without 
 dedicated plugin the file and env lists decide. `ns-bridge providers` writes only the
 key it changes, never the defaults. Both plugins run `ns-kiro-core`.
 
+### Compaction thresholds for Kiro models
+
+Hosts compact inside the window a catalog row registers, so the catalog sizes
+that window to keep compaction where the model should trigger:
+
+| Models | Registered window | OMP compacts at |
+| --- | --- | --- |
+| GPT-5.6 luna / sol / terra | 272K standard-price window — OpenAI bills prompts over 272K at its long-context rate, and Codex ships the three with a 272K `context_window` | 231,200 |
+| Claude models with a 1M window | 176,470 standard window, sized so OMP's default threshold lands on the 150,000 compaction target; Kiro's 1M stays as the extended tier | 150,000 |
+| Claude 200K models, and the rest (`auto`, deepseek, glm, minimax, qwen) | Kiro's own window | OMP default on that window |
+
+The Claude target is 150,000 rather than the window because Anthropic bills
+Claude 4.6+ flat across 1M (no price cliff to stop before), but Kiro credits
+grow linearly with prompt size even when cached: fitted from the usage ledger,
+a warm turn costs ~0.5 credits at 150K against ~2.3–2.55 extrapolated at 850K,
+so a session compacting at 150K costs ~2.6–2.9x less, and Anthropic's own
+server-side compaction defaults to the same trigger. The numbers and their
+sources sit on `KIRO_CLAUDE_COMPACTION_TARGET` in
+`packages/kiro-core/src/long-context.ts`.
+
+To run a Claude model on the full 1M window, opt in from OMP with
+`extendedContext` or a `compaction.modelThresholds` entry past the standard
+window. Shrinking the registered window never shrinks request time:
+`packages/kiro-core/src/host-model.ts` keeps Kiro's real window, so ledger and
+credit math stay right.
+
 ### Inside ns-kiro-core
 
 The wire protocol and the per-process state both live in this package.

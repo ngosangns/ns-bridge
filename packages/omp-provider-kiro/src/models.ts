@@ -1,7 +1,7 @@
 // ABOUTME: Projects the kiro-core catalog onto OMP's provider-model configuration.
 
 import type { Model } from "@oh-my-pi/pi-ai";
-import { getKiroEndpoints, type KiroModel, kiroStandardContextWindow } from "ns-kiro-core";
+import { getKiroEndpoints, type KiroModel, kiroCompactionTarget, kiroStandardContextWindow } from "ns-kiro-core";
 
 /** The subset of OMP's `ProviderModelConfig` this provider fills in. */
 export interface OmpKiroModelConfig {
@@ -45,11 +45,38 @@ export interface OmpKiroModelConfig {
   rateUnit?: string;
 }
 
+/**
+ * The smallest window whose OMP default compaction threshold reaches
+ * `threshold`.
+ *
+ * Mirrors OMP's default compaction rule (oh-my-pi `pi-agent-core`
+ * `compaction.ts`, `effectiveReserveTokens` / `resolveThresholdTokens`): OMP
+ * holds back `max(floor(0.15·W), 16384)` of a window `W` and compacts at the
+ * remainder. Registering a model at the window this returns makes OMP's own
+ * default threshold land exactly on the compaction target — 176,470 for the
+ * 150,000 Claude target.
+ */
+export function ompWindowForThreshold(threshold: number): number {
+  const reaches = (window: number) => window - Math.max(Math.floor(window * 0.15), 16_384) >= threshold;
+  let window = Math.max(Math.ceil(threshold / 0.85), threshold);
+  while (!reaches(window)) window += 1;
+  while (window > 1 && reaches(window - 1)) window -= 1;
+  return window;
+}
+
 export function toOmpModelConfig(model: KiroModel): OmpKiroModelConfig {
-  // OMP compacts at a share of `contextWindow`, so a model whose vendor bills
-  // long prompts at a premium is registered at its standard-price window, with
-  // Kiro's full window as the opt-in extended tier.
-  const standardWindow = kiroStandardContextWindow(model);
+  // OMP compacts at a share of `contextWindow`, so a model is registered at
+  // the window whose default threshold matches where the model should
+  // compact: a vendor's standard-price window when one exists, otherwise the
+  // window sized for the per-model compaction target (176,470 for the 150,000
+  // Claude target). Kiro's full window stays available as OMP's opt-in
+  // extended tier via `extendedContext` or a `compaction.modelThresholds`
+  // entry past the standard window.
+  const target = kiroCompactionTarget(model);
+  const standardWindow =
+    target !== undefined
+      ? Math.min(ompWindowForThreshold(target), model.contextWindow)
+      : kiroStandardContextWindow(model);
   return {
     id: model.id,
     name: model.name,

@@ -3,7 +3,7 @@
 
 import type { KiroModel } from "ns-kiro-core";
 import { describe, expect, it } from "vitest";
-import { toOmpModelConfig } from "../src/models.js";
+import { ompWindowForThreshold, toOmpModelConfig } from "../src/models.js";
 
 const row = (id: string, contextWindow: number): KiroModel => ({
   id,
@@ -23,9 +23,22 @@ describe("toOmpModelConfig windows", () => {
     expect(config.maxContextWindow).toBe(922_000);
   });
 
-  it("registers a flat-priced model at its full window with no extended tier", () => {
+  it("registers a flat-priced Claude 1M model at the window that compacts at 150K", () => {
     const config = toOmpModelConfig(row("claude-sonnet-5-5", 1_000_000));
-    expect(config.contextWindow).toBe(1_000_000);
+    expect(config.contextWindow).toBe(176_470);
+    expect(config.maxContextWindow).toBe(1_000_000);
+  });
+
+  it("lands OMP's default threshold exactly on the target at the returned window", () => {
+    const window = ompWindowForThreshold(150_000);
+    expect(window).toBe(176_470);
+    expect(window - Math.max(Math.floor(window * 0.15), 16_384)).toBe(150_000);
+    expect(window - 1 - Math.max(Math.floor((window - 1) * 0.15), 16_384)).toBeLessThan(150_000);
+  });
+
+  it("keeps a 200K Claude window whole with no extended tier", () => {
+    const config = toOmpModelConfig(row("claude-haiku-4-5", 200_000));
+    expect(config.contextWindow).toBe(200_000);
     expect(config).not.toHaveProperty("maxContextWindow");
   });
 });

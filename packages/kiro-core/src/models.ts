@@ -4,11 +4,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { compactionBudget } from "ns-core-utils";
+import { COMPACTION_RESERVE_FLOOR, compactionBudget } from "ns-core-utils";
 import { getKiroEffortConfig, type KiroEffortConfig } from "./effort.js";
 import { getKiroRegionFromProfileArn } from "./endpoints.js";
 import type { KiroModelRate } from "./kiro-cli.js";
-import { kiroStandardContextWindow } from "./long-context.js";
+import { kiroCompactionTarget, kiroStandardContextWindow } from "./long-context.js";
 import type { KiroCatalogModel } from "./management.js";
 import { getKiroProfileOverride } from "./profile.js";
 import { KIRO_EFFORT_ORDER, type KiroEffort, type KiroModelSpec } from "./types.js";
@@ -515,8 +515,20 @@ function hasVerifiedImageInput(kiroModelId: string): boolean {
  * The compaction budget for a Kiro model, taken inside its standard-price
  * window so compaction fires before a turn crosses into a long-context tier
  * (see {@link kiroStandardContextWindow}).
+ *
+ * A Claude model with a window past 200K compacts at its per-model target
+ * instead ({@link kiroCompactionTarget}): the reservation is still what
+ * {@link compactionBudget} holds back, but the trigger is the target, not the
+ * window minus it.
  */
 function kiroCompactionBudget(model: { id: string; contextWindow: number; maxTokens: number }) {
+  const target = kiroCompactionTarget(model);
+  if (target !== undefined) {
+    return {
+      reserveTokens: Math.max(1, Math.min(Math.floor(model.maxTokens), COMPACTION_RESERVE_FLOOR)),
+      thresholdTokens: target,
+    };
+  }
   return compactionBudget({ contextWindow: kiroStandardContextWindow(model), maxTokens: model.maxTokens });
 }
 
