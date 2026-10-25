@@ -70,6 +70,16 @@ function toolItem(tool: GrokTool): Record<string, unknown> {
 }
 
 /**
+ * Grok's Responses API answers effort "max" with 400 Invalid reasoning effort;
+ * xhigh is its top rung. Hosts may still hand us "max" (the shared effort
+ * vocabulary includes it), so every request body clamps it here where the
+ * effort lands on the wire.
+ */
+function wireEffort(effort: GrokEffort | undefined): GrokEffort | undefined {
+  return effort === "max" ? "xhigh" : effort;
+}
+
+/**
  * Rough token count of one Responses body.
  *
  * Grok's tokenizer is not available here, and the proxy rejects a prompt only
@@ -135,7 +145,8 @@ export function buildResponsesBody(input: {
   const instructions = input.systemPrompt?.trim();
   if (instructions) body.instructions = instructions;
   if (input.tools && input.tools.length > 0) body.tools = input.tools.map(toolItem);
-  if (input.effort) body.reasoning = { effort: input.effort, summary: "auto" };
+  const effort = wireEffort(input.effort);
+  if (effort) body.reasoning = { effort, summary: "auto" };
   const cacheKey = input.promptCacheKey?.trim();
   if (cacheKey) body.prompt_cache_key = cacheKey;
   return fitResponsesBody(body, input.contextWindow);

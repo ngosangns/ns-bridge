@@ -64,6 +64,15 @@ describe("Responses request body", () => {
     ]);
   });
 
+  it("clamps effort max to xhigh because grok rejects max with 400 Invalid reasoning effort", () => {
+    const body = buildResponsesBody({
+      model: "grok-4.7",
+      effort: "max",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    });
+    expect(body.reasoning).toEqual({ effort: "xhigh", summary: "auto" });
+  });
+
   it("drops the oldest turns once the body is past the context window", () => {
     const filler = "x".repeat(400);
     const body = buildResponsesBody({

@@ -41,9 +41,11 @@ import {
   planZcodeProviders,
   resolveServeProgram,
   supportsImage,
+  ZCODE_DEFAULT_REASONING_LEVEL,
   ZCODE_LAUNCH_AGENT_LABEL,
   type ZcodePlan,
   zcodeModelWindow,
+  zcodeReasoningLevels,
 } from "../src/zcode.js";
 
 function capture() {
@@ -561,6 +563,20 @@ describe("planZcodeProviders", () => {
     ]);
   });
 
+  it("publishes grok model rules without max and the other vendors with it", () => {
+    const plan = planZcodeProviders(
+      [
+        report("grok", [{ label: "grok", ids: ["grok-4"], entries: [GROK_MODEL] }]),
+        report("devin", [{ label: "devin", ids: ["devin-main"], entries: [DEVIN_MODEL] }]),
+      ],
+      serve,
+    );
+    const levels = (vendor: Vendor) =>
+      plan.providers.find((provider) => provider.vendor === vendor)?.modelRules[0].config.optionSpecs.reasoningLevel;
+    expect(levels("grok")).toEqual({ values: ["low", "medium", "high", "xhigh"] });
+    expect(levels("devin")).toEqual({ values: ["low", "medium", "high", "xhigh", "max"] });
+  });
+
   it("skips catalogs that are missing, unreadable, or have no usable models", () => {
     const plan = planZcodeProviders(
       [
@@ -572,6 +588,21 @@ describe("planZcodeProviders", () => {
     );
     expect(plan.providers).toEqual([]);
     expect(plan.skipped.map((skip) => skip.vendor)).toEqual(["kiro", "devin", "grok"]);
+  });
+});
+
+describe("zcodeReasoningLevels", () => {
+  it("publishes grok without max and the full ladder for the other vendors", () => {
+    expect(zcodeReasoningLevels("grok")).toEqual(["low", "medium", "high", "xhigh"]);
+    for (const vendor of ["kiro", "devin", "arnict"] as const) {
+      expect(zcodeReasoningLevels(vendor)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    }
+  });
+
+  it("keeps the --default level valid for every vendor", () => {
+    for (const vendor of ["kiro", "devin", "grok", "arnict"] as const) {
+      expect(zcodeReasoningLevels(vendor)).toContain(ZCODE_DEFAULT_REASONING_LEVEL);
+    }
   });
 });
 

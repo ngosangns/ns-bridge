@@ -150,15 +150,28 @@ export function supportsImage(entry: CatalogEntry): boolean {
 // --- plan ---
 
 /**
- * Reasoning levels every model rule publishes — the BridgeEffort vocabulary
- * the anthropic-messages bridge maps via toBridgeEffort (bridge-core
+ * Reasoning levels every non-grok model rule publishes — the BridgeEffort
+ * vocabulary the anthropic-messages bridge maps via toBridgeEffort (bridge-core
  * effort.ts accepts each of them). ZCode ignores a defaultModelSelection
  * whose options.reasoningLevel is missing from the selected model's values,
  * so the rules must carry them explicitly.
  */
 export const ZCODE_REASONING_LEVELS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
-/** The level --default pins in defaultModelSelection; always in ZCODE_REASONING_LEVELS. */
+/**
+ * Grok's ladder without "max": grok's Responses API answers effort "max" with
+ * 400 Invalid reasoning effort, so publishing it would let ZCode pick a level
+ * every grok request rejects. Derived from ZCODE_REASONING_LEVELS so the
+ * ordering, and the default "high" in it, cannot drift between vendors.
+ */
+export const ZCODE_GROK_REASONING_LEVELS: readonly string[] = ZCODE_REASONING_LEVELS.filter((level) => level !== "max");
+
+/** The levels a vendor's model rules publish: grok without "max", every other vendor the full ladder. */
+export function zcodeReasoningLevels(vendor: Vendor): readonly string[] {
+  return vendor === "grok" ? ZCODE_GROK_REASONING_LEVELS : ZCODE_REASONING_LEVELS;
+}
+
+/** The level --default pins in defaultModelSelection; in every vendor's levels. */
 export const ZCODE_DEFAULT_REASONING_LEVEL = "high";
 
 export interface ZcodeModelRule {
@@ -224,7 +237,7 @@ export function planZcodeProviders(
             properties: { contextWindow: window, inputFormat: { supportsImage: supportsImage(entry) } },
             optionSpecs: {
               maxOutputTokens: { max: maxOutputTokens },
-              reasoningLevel: { values: ZCODE_REASONING_LEVELS },
+              reasoningLevel: { values: zcodeReasoningLevels(report.vendor) },
             },
           },
         };
