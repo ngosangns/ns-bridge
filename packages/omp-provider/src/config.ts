@@ -1,8 +1,8 @@
 /**
  * Which providers this plugin registers. OMP ships `devin`, `xai`, and
- * `xai-oauth` itself, so the only provider left is `kiro`. The Pi reader is
- * shared with the Pi adapter, which still offers all three; devin and grok in
- * the file or in an env list are ignored here.
+ * `xai-oauth` itself, so the plugin carries `kiro` and `arnict`. The Pi reader
+ * is shared with the Pi adapter, which still offers all four; devin and grok
+ * in the file or in an env list are ignored here.
  */
 
 import { existsSync } from "node:fs";
@@ -17,6 +17,7 @@ import {
 
 export interface ProviderSelection {
   kiro: boolean;
+  arnict: boolean;
 }
 
 /** Providers OMP provides on its own. Naming one of these is a no-op. */
@@ -26,7 +27,8 @@ export function resolveProviderSelection(
   env: NodeJS.ProcessEnv = process.env,
   file: Partial<PiProviderSelection> = readProviderFile(selectionFilePath(env)),
 ): ProviderSelection {
-  return { kiro: resolvePiProviderSelection(env, file).kiro };
+  const selection = resolvePiProviderSelection(env, file);
+  return { kiro: selection.kiro, arnict: selection.arnict };
 }
 
 export { readProviderFile };

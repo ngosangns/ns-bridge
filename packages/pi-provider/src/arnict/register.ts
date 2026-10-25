@@ -45,19 +45,30 @@ function specsToCatalog(specs: readonly ArnictModelSpec[]): CatalogModel[] {
     contextWindow: spec.contextWindow ?? ARNICT_DEFAULT_CONTEXT_WINDOW,
     maxTokens: spec.maxTokens ?? ARNICT_DEFAULT_MAX_TOKENS,
     ...(spec.compaction ? { compaction: spec.compaction } : {}),
+    // Keep the native window on the catalog row (and so in the disk snapshot)
+    // when it exceeds the standard window hosts compact inside.
+    ...(spec.nativeContextWindow > (spec.contextWindow ?? ARNICT_DEFAULT_CONTEXT_WINDOW)
+      ? { nativeContextWindow: spec.nativeContextWindow }
+      : {}),
   }));
 }
 
 function catalogToProviderModels(models: CatalogModel[]): ProviderModelConfig[] {
-  return models.map((m) => ({
-    id: m.id,
-    name: m.name,
-    reasoning: m.reasoning ?? false,
-    input: [...m.input],
-    cost: ensureCacheCost(m.cost),
-    contextWindow: m.contextWindow,
-    maxTokens: m.maxTokens,
-  }));
+  return models.map((m) => {
+    // Pi has no maxContextWindow and ignores the extra field; OMP reads it to
+    // widen the window only when extended context is on.
+    const native = m.nativeContextWindow;
+    return {
+      id: m.id,
+      name: m.name,
+      reasoning: m.reasoning ?? false,
+      input: [...m.input],
+      cost: ensureCacheCost(m.cost),
+      contextWindow: m.contextWindow,
+      maxTokens: m.maxTokens,
+      ...(typeof native === "number" && native > m.contextWindow ? { maxContextWindow: native } : {}),
+    };
+  });
 }
 
 function bootstrapFallback(): { models: ProviderModelConfig[]; fromCache: false; source: "fallback" } {

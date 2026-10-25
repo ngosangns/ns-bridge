@@ -1,8 +1,9 @@
 /**
- * Loads the built dist/index.js (ns-pi-provider's Kiro registration bundled +
- * OMP shims) against a fake OMP ExtensionAPI. Hermetic: temp HOME, no provider
- * credentials — so no network and no CLI spawns. OMP ships devin and xai
- * itself, so only kiro may ever be registered.
+ * Loads the built dist/index.js (ns-pi-provider's Kiro and Arnict registrations
+ * bundled + OMP shims) against a fake OMP ExtensionAPI. Hermetic: temp HOME, no
+ * provider credentials — so no network and no CLI spawns. OMP ships devin and
+ * xai itself, so kiro and arnict are the only providers it may ever register;
+ * without an Arnict key, arnict only adds the /arnict command.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -40,6 +41,8 @@ beforeAll(async () => {
   process.env.OMP_PROFILE = "";
   process.env.PI_PROFILE = "";
   for (const key of [
+    "ARNICT_API_KEY",
+    "NS_BRIDGE_ARNICT_CONFIG",
     "XAI_API_KEY",
     "GROK_API_KEY",
     "KIRO_API_KEY",
@@ -58,7 +61,7 @@ beforeAll(async () => {
 });
 
 describe("dist/index.js on a fake OMP API", () => {
-  it("registers only kiro, in OMP shape", async () => {
+  it("registers only kiro, in OMP shape, with the arnict command but no provider", async () => {
     const pi = new FakeOmpApi();
     await extension(pi);
 
@@ -74,8 +77,33 @@ describe("dist/index.js on a fake OMP API", () => {
 
     expect(pi.events).not.toContain("session_info_changed");
     expect(pi.events).toEqual(expect.arrayContaining(["session_start", "session_switch", "session_branch"]));
+    // No Arnict key → registration stops at the signpost command.
+    expect(pi.commands).toContain("arnict");
     expect(pi.commands).not.toContain("grok");
     expect(pi.commands).not.toContain("devin-status");
+  });
+
+  it("registers arnict too when an Arnict key is present, with the native window as maxContextWindow", async () => {
+    process.env.ARNICT_API_KEY = "arnict-bundle-test-key";
+    try {
+      const pi = new FakeOmpApi();
+      await extension(pi);
+
+      expect([...pi.providers.keys()]).toEqual(expect.arrayContaining(["kiro", "arnict"]));
+      const arnict = pi.providers.get("arnict")!;
+      expect(arnict.api).toBe("arnict-chat");
+      expect(arnict).not.toHaveProperty("refreshModels");
+      expect(typeof arnict.fetchDynamicModels).toBe("function");
+      expect(typeof arnict.streamSimple).toBe("function");
+      // GLM 5.3 compacts in the 400K standard window; the 1M native window Arnict
+      // serves rides along for OMP's extended context.
+      const models = arnict.models as Array<Record<string, unknown>>;
+      const flash = models.find((m) => m.id === "zai/glm-5.3-flash-uncensored");
+      expect(flash?.contextWindow).toBe(400_000);
+      expect(flash?.maxContextWindow).toBe(1_048_576);
+    } finally {
+      delete process.env.ARNICT_API_KEY;
+    }
   });
 
   it("never registers devin or grok, even when an env list or the file asks for them", async () => {
@@ -123,8 +151,10 @@ describe("dist/index.js on a fake OMP API", () => {
     }
   });
 
-  it("keeps devin and grok code out of the bundle", () => {
+  it("keeps devin and grok code out of the bundle, and the arnict registration in it", () => {
     const bundle = readFileSync(dist, "utf8");
     expect(bundle).not.toMatch(/registerDevinProvider|registerGrokProvider|cli-chat-proxy\.grok\.com/);
+    expect(bundle).toContain("Arnict provider:");
+    expect(bundle).toContain("ns-bridge arnict login");
   });
 });

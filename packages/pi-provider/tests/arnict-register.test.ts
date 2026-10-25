@@ -77,7 +77,7 @@ describe("arnict registration", () => {
       baseUrl: string;
       apiKey: string;
       api: string;
-      models: Array<{ id: string; cost: { cacheRead: number; cacheWrite: number } }>;
+      models: Array<{ id: string; contextWindow: number; maxContextWindow?: number; cost: { cacheRead: number; cacheWrite: number } }>;
     };
     expect(cfg.name).toBe("Arnict");
     expect(cfg.baseUrl).toBe("https://api.arnict.com/v1");
@@ -88,6 +88,14 @@ describe("arnict registration", () => {
     for (const model of cfg.models) {
       expect(model.cost).toHaveProperty("cacheRead");
       expect(model.cost).toHaveProperty("cacheWrite");
+    }
+
+    // GLM 5.3 ids run and compact in the 400K standard window; the native 1M
+    // window Arnict serves rides along as maxContextWindow for OMP.
+    for (const id of ["zai/glm-5.3-flash-uncensored", "zai/glm-5.3-uncensored"]) {
+      const glm = cfg.models.find((m) => m.id === id);
+      expect(glm?.contextWindow).toBe(400_000);
+      expect(glm).toHaveProperty("maxContextWindow", 1_048_576);
     }
 
     const status = await runCommand(commands, "status");

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Bundle src/index.ts (+ the @ngosangns/ns-pi-provider sources it imports, and
- * through them ns-kiro-core, ns-devin-core, ns-grok-core and ns-bridge-core) into
- * dist/index.js for OMP.
+ * through them ns-kiro-core, ns-arnict-core, ns-devin-core, ns-grok-core and
+ * ns-bridge-core) into dist/index.js for OMP.
  *
  * - `@earendil-works/pi-ai` and `/compat`  → src/compat/pi-ai.ts
  * - `@earendil-works/pi-ai/oauth`           → src/compat/pi-ai-oauth.ts
