@@ -73,15 +73,49 @@ export interface ZcodeModelWindow {
 }
 
 /**
+ * Kiro compaction thresholds for models whose catalog entry records none,
+ * copied from kiro-core `long-context.ts`. Copied rather than imported: tsc
+ * emits dist/zcode.js verbatim, and the published CLI ships no runtime
+ * dependency on the cores — scripts/build.mjs bundles the only entries allowed
+ * to import them.
+ */
+const KIRO_CLAUDE_COMPACTION_TARGET = 150000;
+const KIRO_LONG_CONTEXT_THRESHOLDS: Readonly<Record<string, number>> = {
+  "gpt-5-6-luna": 272000,
+  "gpt-5-6-sol": 272000,
+  "gpt-5-6-terra": 272000,
+};
+
+/**
+ * Where ns-bridge's per-model policy compacts a model whose catalog recorded
+ * no threshold. Kiro: a Claude model with a window past 200K compacts at the
+ * 150K target; everything else compacts where the OMP provider's default rule
+ * lands on the model's standard-price window — OMP holds back
+ * max(floor(0.15·W), 16384) of a window W (omp-provider-kiro models.ts
+ * `ompWindowForThreshold`) — so ZCode compacts where OMP does: 170000 at 200K,
+ * 231200 at the 272K GPT-5.6 tier. The other vendors' cores record the window
+ * minus its 16384 reservation (ns-core-utils `compactionBudget`).
+ */
+function derivedThresholdTokens(vendor: Vendor, entry: CatalogEntry & { contextWindow: number }): number {
+  if (vendor === "kiro") {
+    if (entry.id.startsWith("claude-") && entry.contextWindow > 200000) return KIRO_CLAUDE_COMPACTION_TARGET;
+    const threshold = KIRO_LONG_CONTEXT_THRESHOLDS[entry.id];
+    const standard = threshold !== undefined && threshold < entry.contextWindow ? threshold : entry.contextWindow;
+    return standard - Math.max(Math.floor(standard * 0.15), 16384);
+  }
+  return entry.contextWindow - Math.min(entry.maxTokens ?? 16384, 16384);
+}
+
+/**
  * ZCode compacts at W - min(min(maxOutputTokens ?? 32000, 21000), W) - 13000
  * for a reported window W. Reporting W = threshold + 13000 +
  * min(maxOutputTokens, 21000), capped at the real window, lands the
- * compaction on the threshold the catalog recorded instead of ZCode's own
- * window-minus-reservation guess.
+ * compaction on the threshold the catalog recorded — or, when it recorded
+ * none, where ns-bridge's per-model policy for the vendor compacts.
  */
-export function zcodeModelWindow(entry: CatalogEntry & { contextWindow: number }): ZcodeModelWindow {
+export function zcodeModelWindow(entry: CatalogEntry & { contextWindow: number }, vendor: Vendor): ZcodeModelWindow {
   const maxOutputTokens = entry.maxTokens ?? 32000;
-  const threshold = entry.thresholdTokens ?? entry.contextWindow - Math.min(entry.maxTokens ?? 16384, 16384);
+  const threshold = entry.thresholdTokens ?? derivedThresholdTokens(vendor, entry);
   const window = Math.min(entry.contextWindow, threshold + 13000 + Math.min(maxOutputTokens, 21000));
   return { window, maxOutputTokens };
 }
@@ -92,12 +126,24 @@ export function supportsImage(entry: CatalogEntry): boolean {
 
 // --- plan ---
 
+/**
+ * Reasoning levels every model rule publishes — the BridgeEffort vocabulary
+ * the anthropic-messages bridge maps via toBridgeEffort (bridge-core
+ * effort.ts accepts each of them). ZCode ignores a defaultModelSelection
+ * whose options.reasoningLevel is missing from the selected model's values,
+ * so the rules must carry them explicitly.
+ */
+export const ZCODE_REASONING_LEVELS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** The level --default pins in defaultModelSelection; always in ZCODE_REASONING_LEVELS. */
+export const ZCODE_DEFAULT_REASONING_LEVEL = "high";
+
 export interface ZcodeModelRule {
   providerId: string;
   modelId: string;
   config: {
     properties: { contextWindow: number; inputFormat: { supportsImage: boolean } };
-    optionSpecs: { maxOutputTokens: { max: number } };
+    optionSpecs: { maxOutputTokens: { max: number }; reasoningLevel: { values: readonly string[] } };
   };
 }
 
@@ -147,13 +193,16 @@ export function planZcodeProviders(
       apiKey: serve.token,
       modelIds: usable.map((entry) => entry.id),
       modelRules: usable.map((entry) => {
-        const { window, maxOutputTokens } = zcodeModelWindow(entry);
+        const { window, maxOutputTokens } = zcodeModelWindow(entry, report.vendor);
         return {
           providerId,
           modelId: entry.id,
           config: {
             properties: { contextWindow: window, inputFormat: { supportsImage: supportsImage(entry) } },
-            optionSpecs: { maxOutputTokens: { max: maxOutputTokens } },
+            optionSpecs: {
+              maxOutputTokens: { max: maxOutputTokens },
+              reasoningLevel: { values: ZCODE_REASONING_LEVELS },
+            },
           },
         };
       }),
@@ -178,8 +227,11 @@ function dedupeById(entries: readonly CatalogEntry[]): CatalogEntry[] {
 // --- merge ---
 
 export interface ZcodeMergeOptions {
-  /** From --default <vendor>/<model>: replaces defaultModelSelection. */
-  defaultModel?: { providerId: string; modelId: string };
+  /**
+   * From --default <vendor>/<model>: replaces defaultModelSelection, carrying
+   * the reasoning level ZCode requires for the selection to take effect.
+   */
+  defaultModel?: { providerId: string; modelId: string; options?: { reasoningLevel: string } };
   /**
    * ns-bridge provider ids whose existing entries stay as-is. setup passes the
    * vendors whose catalog was skipped, so a missing catalog does not unregister
@@ -642,7 +694,7 @@ async function zcodeSetup(options: ZcodeCommandOptions, home: string, platform: 
     return 1;
   }
 
-  let defaultModel: { providerId: string; modelId: string } | undefined;
+  let defaultModel: { providerId: string; modelId: string; options: { reasoningLevel: string } } | undefined;
   if (options.default !== undefined) {
     const wanted = parseDefaultModel(options.default);
     if ("error" in wanted) {
@@ -658,7 +710,11 @@ async function zcodeSetup(options: ZcodeCommandOptions, home: string, platform: 
       err(`--default: ${wanted.modelId} is not in the ${provider.providerId} model list`);
       return 1;
     }
-    defaultModel = { providerId: provider.providerId, modelId: wanted.modelId };
+    defaultModel = {
+      providerId: provider.providerId,
+      modelId: wanted.modelId,
+      options: { reasoningLevel: ZCODE_DEFAULT_REASONING_LEVEL },
+    };
   }
 
   let merged: ZcodeMergeResult;

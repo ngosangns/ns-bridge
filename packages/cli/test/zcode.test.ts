@@ -82,6 +82,8 @@ const KIRO_1M = {
   compaction: { thresholdTokens: 150000 },
   input: ["text", "image"],
 };
+// The live kiro cache records no compaction on any model, sonnet-5-5 included.
+const KIRO_SONNET = { id: "claude-sonnet-5-5", contextWindow: 1_000_000, maxTokens: 128000, input: ["text", "image"] };
 const KIRO_200K = { id: "claude-200k", contextWindow: 200000, maxTokens: 8192 };
 const DEVIN_MODEL = { id: "devin-main", contextWindow: 200000, maxTokens: 16000, input: ["text"] };
 const GROK_MODEL = { id: "grok-4", contextWindow: 256000, maxTokens: 32000 };
@@ -97,7 +99,7 @@ function seedCatalogs(dir: string, present: { kiro?: boolean; devin?: boolean; g
       join(dir, "kiro.json"),
       JSON.stringify({
         regions: {
-          "us-east-1": { fetchedAt: 1, models: [KIRO_1M] },
+          "us-east-1": { fetchedAt: 1, models: [KIRO_1M, KIRO_SONNET] },
           "eu-west-1": { fetchedAt: 1, models: [KIRO_1M, KIRO_200K] },
         },
       }),
@@ -180,7 +182,7 @@ interface ZcodeFileLike {
     providerOrder?: string[];
     providerConfigRules: { providerRules: RuleLike[] };
     modelConfigRules: { providerModelRules: RuleLike[]; manualProviderModelRules?: RuleLike[] };
-    defaultModelSelection?: { providerId: string; modelId: string };
+    defaultModelSelection?: { providerId: string; modelId: string; options?: { reasoningLevel: string } };
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -220,25 +222,55 @@ function foreignConfig(): ZcodeFileLike {
 describe("zcodeModelWindow", () => {
   it("lands ZCode's compaction on the catalog threshold for a 1M model", () => {
     // threshold 150000 + 13000 + min(64000, 21000) = 184000
-    expect(zcodeModelWindow({ id: "m", contextWindow: 1_000_000, thresholdTokens: 150000, maxTokens: 64000 })).toEqual({
+    expect(
+      zcodeModelWindow({ id: "m", contextWindow: 1_000_000, thresholdTokens: 150000, maxTokens: 64000 }, "kiro"),
+    ).toEqual({
       window: 184000,
+      maxOutputTokens: 64000,
+    });
+  });
+
+  it("derives a 1M kiro Claude's 150K compaction target when the catalog records no threshold", () => {
+    // 150000 + 13000 + min(128000, 21000) = 184000, not the 1M that made ZCode
+    // compact near 966K.
+    expect(zcodeModelWindow({ id: "claude-sonnet-5-5", contextWindow: 1_000_000, maxTokens: 128000 }, "kiro")).toEqual({
+      window: 184000,
+      maxOutputTokens: 128000,
+    });
+    expect(zcodeModelWindow({ id: "claude-opus-4-6", contextWindow: 1_000_000, maxTokens: 64000 }, "kiro")).toEqual({
+      window: 184000,
+      maxOutputTokens: 64000,
+    });
+  });
+
+  it("derives other kiro models' thresholds from OMP's default rule on the standard-price window", () => {
+    // gpt-5-6's standard-price window is 272000; OMP compacts at 0.85 of it.
+    expect(zcodeModelWindow({ id: "gpt-5-6-luna", contextWindow: 922000, maxTokens: 128000 }, "kiro")).toEqual({
+      window: 265200,
+      maxOutputTokens: 128000,
+    });
+    // A 200k Claude compacts at 170000; the reported window cannot exceed the real one.
+    expect(zcodeModelWindow({ id: "claude-opus-4-5", contextWindow: 200000, maxTokens: 64000 }, "kiro")).toEqual({
+      window: 200000,
       maxOutputTokens: 64000,
     });
   });
 
   it("caps a 200k model at its real window", () => {
-    expect(zcodeModelWindow({ id: "m", contextWindow: 200000, maxTokens: 64000 })).toEqual({
+    expect(zcodeModelWindow({ id: "m", contextWindow: 200000, maxTokens: 64000 }, "kiro")).toEqual({
       window: 200000,
       maxOutputTokens: 64000,
     });
-    expect(zcodeModelWindow({ id: "m", contextWindow: 200000, thresholdTokens: 150000, maxTokens: 64000 })).toEqual({
+    expect(
+      zcodeModelWindow({ id: "m", contextWindow: 200000, thresholdTokens: 150000, maxTokens: 64000 }, "kiro"),
+    ).toEqual({
       window: 184000,
       maxOutputTokens: 64000,
     });
   });
 
-  it("falls back to ZCode's own reservation defaults when the catalog omits them", () => {
-    expect(zcodeModelWindow({ id: "m", contextWindow: 200000 })).toEqual({
+  it("falls back to the window minus its reservation for the vendors without a kiro policy", () => {
+    expect(zcodeModelWindow({ id: "m", contextWindow: 200000 }, "devin")).toEqual({
       window: 200000,
       maxOutputTokens: 32000,
     });
@@ -313,15 +345,22 @@ describe("planZcodeProviders", () => {
         modelId: "claude-1m",
         config: {
           properties: { contextWindow: 184000, inputFormat: { supportsImage: true } },
-          optionSpecs: { maxOutputTokens: { max: 64000 } },
+          optionSpecs: {
+            maxOutputTokens: { max: 64000 },
+            reasoningLevel: { values: ["low", "medium", "high", "xhigh", "max"] },
+          },
         },
       },
       {
         providerId: "ns-bridge-kiro",
         modelId: "claude-200k",
         config: {
-          properties: { contextWindow: 200000, inputFormat: { supportsImage: false } },
-          optionSpecs: { maxOutputTokens: { max: 8192 } },
+          // No recorded threshold: the policy compacts this model at 0.85 of its 200K window.
+          properties: { contextWindow: 191192, inputFormat: { supportsImage: false } },
+          optionSpecs: {
+            maxOutputTokens: { max: 8192 },
+            reasoningLevel: { values: ["low", "medium", "high", "xhigh", "max"] },
+          },
         },
       },
     ]);
@@ -360,7 +399,10 @@ function planFor(vendors: PlanVendor[]): ZcodePlan {
           modelId: "m1",
           config: {
             properties: { contextWindow: 184000, inputFormat: { supportsImage: true } },
-            optionSpecs: { maxOutputTokens: { max: 64000 } },
+            optionSpecs: {
+              maxOutputTokens: { max: 64000 },
+              reasoningLevel: { values: ["low", "medium", "high", "xhigh", "max"] },
+            },
           },
         },
       ],
@@ -552,7 +594,7 @@ describe("ns-bridge zcode setup", () => {
     const { io, calls, done } = zcodeRun("setup", paths);
     expect(await done).toBe(0);
     expect(io.stdout[0]).toBe("# dry-run (pass --apply to run)");
-    expect(io.stdout.join("\n")).toContain("register ns-bridge-kiro  2 model(s)  http://127.0.0.1:47821/kiro");
+    expect(io.stdout.join("\n")).toContain("register ns-bridge-kiro  3 model(s)  http://127.0.0.1:47821/kiro");
     expect(io.stdout.join("\n")).toContain(`write ${paths.providerConfig}  (new file)`);
     expect(io.stdout.join("\n")).toContain(`write ${paths.plist}`);
     expect(io.stdout.join("\n")).toContain("launchctl bootstrap");
@@ -573,6 +615,16 @@ describe("ns-bridge zcode setup", () => {
       "ns-bridge-devin",
       "ns-bridge-grok",
     ]);
+    // The catalog records no threshold for the 1M Claude, so the rule lands
+    // ZCode's compaction on the 150K policy: 150000 + 13000 + min(128000, 21000).
+    const sonnet = json.config.modelConfigRules.providerModelRules.find(
+      (rule) => rule.providerId === "ns-bridge-kiro" && rule.modelId === "claude-sonnet-5-5",
+    );
+    expect(sonnet?.config?.properties).toMatchObject({ contextWindow: 184000 });
+    expect(sonnet?.config?.optionSpecs).toMatchObject({
+      maxOutputTokens: { max: 128000 },
+      reasoningLevel: { values: ["low", "medium", "high", "xhigh", "max"] },
+    });
     expect(statSync(paths.providerConfig).mode & 0o777).toBe(0o600);
     expect(io.stdout.join("\n")).toContain(`wrote ${paths.providerConfig}`);
     expect(backupsIn(join(paths.home, "zcode", "v2"))).toHaveLength(0);
@@ -706,9 +758,12 @@ describe("ns-bridge zcode setup", () => {
 
     const good = zcodeRun("setup", paths, { apply: true, default: "kiro/claude-1m" });
     expect(await good.done).toBe(0);
+    // ZCode ignores a defaultModelSelection without a reasoning level in the
+    // model rule's values, so --default pins one.
     expect(readJson(paths.providerConfig).config.defaultModelSelection).toEqual({
       providerId: "ns-bridge-kiro",
       modelId: "claude-1m",
+      options: { reasoningLevel: "high" },
     });
   });
 
