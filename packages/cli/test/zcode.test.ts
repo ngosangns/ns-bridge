@@ -13,12 +13,21 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { compactionBudget } from "ns-core-utils";
+import {
+  KIRO_CLAUDE_COMPACTION_TARGET,
+  KIRO_LONG_CONTEXT_THRESHOLDS,
+  kiroCompactionTarget,
+  kiroModels,
+  kiroStandardContextWindow,
+} from "ns-kiro-core";
 import { afterAll, describe, expect, it } from "vitest";
-import type { CatalogGroup, CatalogPaths, CatalogReport } from "../src/catalog.js";
+import type { CatalogGroup, CatalogPaths, CatalogReport, Vendor } from "../src/catalog.js";
 import { type Runner, run } from "../src/cli.js";
 import {
   applyZcodeProviders,
   backupProviderConfig,
+  derivedThresholdTokens,
   launchAgentPlist,
   parseDefaultModel,
   parseVendorList,
@@ -280,6 +289,91 @@ describe("zcodeModelWindow", () => {
     expect(supportsImage({ id: "m", input: ["text", "image"] })).toBe(true);
     expect(supportsImage({ id: "m", input: ["text"] })).toBe(false);
     expect(supportsImage({ id: "m" })).toBe(false);
+  });
+});
+
+// --- kiro compaction policy drift ---
+
+// zcode.ts copies kiro-core's compaction policy because the published CLI's
+// tsc-emitted dist cannot import the cores at runtime (see zcode.ts "window
+// math"). These tests fail when the copy drifts from ns-kiro-core. OMP's
+// default reserve — max(floor(0.15·W), 16384) of a window W — is restated here
+// because ns-omp-provider-kiro is not a cli dependency; it mirrors
+// omp-provider-kiro models.ts `ompWindowForThreshold`.
+
+describe("kiro compaction policy drift", () => {
+  const OMP_RESERVE_FLOOR = 16384;
+
+  /** Where ns-kiro-core plus OMP's default rule compacts a model at this window. */
+  function coreKiroThreshold(id: string, contextWindow: number): number {
+    const target = kiroCompactionTarget({ id, contextWindow });
+    if (target !== undefined) return target;
+    const standard = kiroStandardContextWindow({ id, contextWindow });
+    return standard - Math.max(Math.floor(standard * 0.15), OMP_RESERVE_FLOOR);
+  }
+
+  it("carries the core's Claude compaction target and its 200K gate", () => {
+    expect(KIRO_CLAUDE_COMPACTION_TARGET).toBe(150_000);
+    for (const contextWindow of [200_001, 500_000, 1_000_000]) {
+      const derived = derivedThresholdTokens("kiro", { id: "claude-1m", contextWindow });
+      expect(derived).toBe(KIRO_CLAUDE_COMPACTION_TARGET);
+      expect(derived).toBe(coreKiroThreshold("claude-1m", contextWindow));
+    }
+    // The gate shuts at 200K: both sides fall back to OMP's rule on the window.
+    expect(kiroCompactionTarget({ id: "claude-200k", contextWindow: 200_000 })).toBeUndefined();
+    expect(derivedThresholdTokens("kiro", { id: "claude-200k", contextWindow: 200_000 })).toBe(170_000);
+  });
+
+  it("tiers exactly the models and windows ns-kiro-core records", () => {
+    for (const [id, threshold] of Object.entries(KIRO_LONG_CONTEXT_THRESHOLDS)) {
+      const pastTier = { id, contextWindow: threshold + 100_000, maxTokens: 128_000 };
+      expect(derivedThresholdTokens("kiro", pastTier)).toBe(
+        threshold - Math.max(Math.floor(threshold * 0.15), OMP_RESERVE_FLOOR),
+      );
+      expect(derivedThresholdTokens("kiro", pastTier)).toBe(coreKiroThreshold(id, pastTier.contextWindow));
+      // At the tier itself — the bootstrap window — the tier changes nothing.
+      const atTier = { id, contextWindow: threshold, maxTokens: 128_000 };
+      expect(derivedThresholdTokens("kiro", atTier)).toBe(coreKiroThreshold(id, atTier.contextWindow));
+    }
+    // The doc comment's number: 231200 at the 272K GPT-5.6 tier.
+    expect(derivedThresholdTokens("kiro", { id: "gpt-5-6-luna", contextWindow: 922_000, maxTokens: 128_000 })).toBe(
+      231_200,
+    );
+  });
+
+  it("matches the core policy for every model kiro-core knows", () => {
+    expect(kiroModels.length).toBeGreaterThan(0);
+    for (const model of kiroModels) {
+      const derived = derivedThresholdTokens("kiro", {
+        id: model.id,
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      });
+      expect(derived).toBe(coreKiroThreshold(model.id, model.contextWindow));
+      // The catalog budget matches ZCode exactly where the Claude target applies; elsewhere it
+      // deliberately reserves min(maxTokens, 16384) instead of OMP's max(0.15·W, 16384).
+      if (kiroCompactionTarget(model) !== undefined) {
+        expect(model.compaction?.thresholdTokens).toBe(derived);
+      }
+    }
+  });
+
+  it("grows no tier the core does not record", () => {
+    expect(derivedThresholdTokens("kiro", { id: "gpt-6", contextWindow: 922_000, maxTokens: 128_000 })).toBe(
+      coreKiroThreshold("gpt-6", 922_000),
+    );
+  });
+
+  it("derives the other vendors like ns-core-utils compactionBudget", () => {
+    const entries: { vendor: Vendor; id: string; contextWindow: number; maxTokens?: number }[] = [
+      { vendor: "devin", id: "devin-main", contextWindow: 200_000, maxTokens: 16_000 },
+      { vendor: "grok", id: "grok-4", contextWindow: 256_000, maxTokens: 32_000 },
+      { vendor: "devin", id: "m", contextWindow: 200_000 },
+    ];
+    for (const entry of entries) {
+      const budget = compactionBudget({ contextWindow: entry.contextWindow, maxTokens: entry.maxTokens ?? 16_384 });
+      expect(derivedThresholdTokens(entry.vendor, entry)).toBe(budget?.thresholdTokens);
+    }
   });
 });
 

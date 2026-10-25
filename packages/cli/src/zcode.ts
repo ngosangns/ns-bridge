@@ -96,7 +96,7 @@ const KIRO_LONG_CONTEXT_THRESHOLDS: Readonly<Record<string, number>> = {
  * 231200 at the 272K GPT-5.6 tier. The other vendors' cores record the window
  * minus its 16384 reservation (ns-core-utils `compactionBudget`).
  */
-function derivedThresholdTokens(vendor: Vendor, entry: CatalogEntry & { contextWindow: number }): number {
+export function derivedThresholdTokens(vendor: Vendor, entry: CatalogEntry & { contextWindow: number }): number {
   if (vendor === "kiro") {
     if (entry.id.startsWith("claude-") && entry.contextWindow > 200000) return KIRO_CLAUDE_COMPACTION_TARGET;
     const threshold = KIRO_LONG_CONTEXT_THRESHOLDS[entry.id];
