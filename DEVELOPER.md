@@ -5,7 +5,7 @@ project is and how to install/use it, see [README.md](README.md).
 
 ## Layout
 
-pnpm workspace. Eleven packages under `packages/`. npm publishes only `@ngosangns/ns-bridge`. The other packages stay at their last published version.
+pnpm workspace. Fourteen packages under `packages/`. npm publishes only `@ngosangns/ns-bridge`. The other packages stay at their last published version.
 
 This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns-pi-provider`, `ns-omp-provider`, and `ns-devin-provider` (archived, each pointing here).
 
@@ -16,10 +16,11 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | vendor core | [`ns-kiro-core`](packages/kiro-core) | The Kiro protocol in this process: AWS event-stream, request building, response assembly, the retry ladder, tokenizer, login, local credential stores (kiro-cli, Kiro IDE) and their selection, the model-catalog cache, profile caches, error vocabulary, and host login/model helpers (`host-auth.ts`, `host-model.ts`) |
 | vendor core | [`ns-devin-core`](packages/devin-core) | The Devin protocol in this process: Cascade over Connect/protobuf, PKCE login, credentials files, the model catalog cache, usage, error vocabulary, and request/result conversion |
 | vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./cli` — locating the Grok CLI and reading its model list |
-| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, and `grok` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
-| host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles only the Pi adapter's Kiro registration behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
+| vendor core | [`ns-arnict-core`](packages/arnict-core) | The Arnict protocol in this process: OpenAI chat completions over SSE, API key auth (env or key file), the model catalog with published rates, and USD cost in the usage ledger as credits with `creditUnit` "USD" |
+| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, `grok`, and `arnict` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
+| host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter's Kiro and Arnict registrations behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
-| host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
+| host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok), [`ns-dsh-llm-arnict`](packages/dsh-llm-arnict) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
 | cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Installs host packages and refreshes model catalogs outside the host process |
 
 Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh --apply` writes them.
@@ -67,7 +68,7 @@ no-request shortcut: Devin issues no refresh token.
 
 ### The usage ledger
 
-Every `streamKiro`, `streamDevin`, and `streamGrok` call is wrapped by `recordUsage` in
+Every `streamKiro`, `streamDevin`, `streamGrok`, and `streamArnict` call is wrapped by `recordUsage` in
 `packages/core-utils/src/usage-ledger.ts`. When the stream ends it appends one line to
 `~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl`. It sits in the core, so Pi, OMP, and
 DSH all get it and an adapter does nothing but name its host (`setUsageHost`; the first
@@ -100,6 +101,8 @@ caller wins, so `ns-omp-provider` keeps `omp` even though it bundles the Pi adap
   replaces the estimator's guess, and sets `cacheDerived: "credits"`. Wire counters are never touched,
   and a capped bill stays unreported. `providerUsage` strips the figure back out before the ledger
   re-derives it, so the ledger still labels it `credits`, not `wire`.
+- When Arnict reports `prompt_tokens_details.cached_tokens` (not yet seen on a live response), the
+  ledger line reads `cacheSource: wire`; otherwise `none`.
 - A failed write is swallowed and counted (`usageWriteFailures`). The ledger must not fail a response.
 - Day folders older than 30 days, and the oldest ones beyond 50 MB, are deleted whole. The newest stays.
 - `NS_BRIDGE_USAGE=0` turns it off. The root vitest config sets it, so tests never write to the home directory;
@@ -149,6 +152,26 @@ To run a Claude model on the full 1M window, opt in from OMP with
 window. Shrinking the registered window never shrinks request time:
 `packages/kiro-core/src/host-model.ts` keeps Kiro's real window, so ledger and
 credit math stay right.
+
+### Compaction thresholds for Arnict models
+
+Every `zai/glm-5.3*` id registers the 400,000-token standard window
+(`ARNICT_GLM_STANDARD_CONTEXT_WINDOW` in `packages/arnict-core/src/catalog.ts`),
+so Pi, DSH, and ZCode compact at 383,616 = 400,000 − 16,384. OMP derives its
+threshold from the window itself (`max(floor(0.15·W), 16384)`), so
+`ns-omp-provider` re-registers the rows at 451,312 — the smallest window whose
+15% rule lands on 383,616 (`ompWindowForThreshold` in
+`packages/omp-provider/src/adapter.ts`). The native 1,048,576 window Arnict
+serves stays on `maxContextWindow`/`nativeContextWindow` for requests and the
+ledger.
+
+The standard window is not a price cliff — Arnict bills flat with cached input
+still charged — it is Z.ai's own agentic evaluation context for GLM-5.3
+(400K; ZCode's 966,000 compaction is window-driven, not cost-driven). Cached
+input still makes cost grow with context: at Arnict rates a flash turn's
+cached context is $0.0192 at 383,616 tokens against $0.0516 at 1,032,192,
+about 2.7x per session. The facts and their sources sit on the doc comment of
+`ARNICT_GLM_STANDARD_CONTEXT_WINDOW`.
 
 ### Inside ns-kiro-core
 
@@ -229,7 +252,7 @@ cd ns-bridge
 pnpm install
 pnpm -r build       # check typechecks against built declarations, so build first
 pnpm -r check
-pnpm test           # vitest projects: bridge, core-utils, kiro, devin, grok, grok-dsh, cli, pi, omp
+pnpm test           # vitest projects: bridge, core-utils, kiro, devin, grok, grok-dsh, arnict, arnict-dsh, cli, pi, omp
 pnpm vitest run --project kiro   # one project
 pnpm lint           # biome check .  (lint:fix / format to write)
 ```

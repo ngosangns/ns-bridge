@@ -1,6 +1,6 @@
 # ns-bridge
 
-Kiro, Devin, and Grok for [Pi](https://pi.dev), [OMP](https://github.com/can1357/oh-my-pi),
+Kiro, Devin, Grok, and Arnict for [Pi](https://pi.dev), [OMP](https://github.com/can1357/oh-my-pi),
 and the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
 The published package is [`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge):
@@ -39,6 +39,34 @@ grok login            # Grok runs through the local grok CLI (or XAI_API_KEY)
 
 A Kiro API key (`ksk_…`) and `KIRO_API_KEY` are accepted directly.
 
+## Arnict
+
+Arnict is an OpenAI-compatible API at `https://api.arnict.com/v1` for open
+models, signed in with an API key rather than a vendor CLI:
+
+```bash
+ns-bridge arnict login   # reads the key from piped stdin or a hidden prompt,
+                         # stores it in ~/.ns-bridge/arnict.json (0600)
+ns-bridge arnict status
+ns-bridge models refresh arnict --apply
+```
+
+`ARNICT_API_KEY` outranks the file. No published install carries `arnict`:
+`ns-bridge install pi` installs the last published `@ngosangns/ns-pi-provider`,
+which predates it; `ns-bridge install omp` installs `ns-omp-provider-kiro`
+only; `ns-dsh-llm-arnict` is not on npm. Build this repo and load the provider
+from the checkout: `pi -e ./packages/pi-provider/index.ts` registers `arnict`
+beside `kiro`/`devin`/`grok`; `ns-omp-provider` from this repo registers
+`arnict` and leaves `kiro` to `ns-omp-provider-kiro` when that plugin is
+installed; DSH links the adapter with
+`dsh plugin --profile <name> add link:<path>/packages/dsh-llm-arnict`.
+`ns-bridge zcode setup` adds `arnict` on its own when the vendor is enabled
+and a key is present. A provider without a key registers nothing.
+
+Models (USD per 1M tokens, input/cached/output, arnict.com/docs/pricing):
+`zai/glm-5.3-flash-uncensored` at 0.125/0.05/0.50 and
+`zai/glm-5.3-uncensored` at 1.25/0.30/2.25.
+
 ## Pi
 
 ```bash
@@ -47,7 +75,8 @@ pi --model kiro/claude-sonnet-4-6
 ```
 
 Registers `kiro`, `devin`, and `grok`. `/ns-pi refresh` and `/grok refresh`
-point at `ns-bridge models refresh --apply`.
+point at `ns-bridge models refresh --apply`. The installed `ns-pi-provider`
+predates Arnict — see [Arnict](#arnict) for loading it from this repo.
 
 ## OMP
 
@@ -55,7 +84,7 @@ point at `ns-bridge models refresh --apply`.
 ns-bridge install omp --apply
 ```
 
-Registers `kiro` only. OMP ships `devin`, `xai`, and `xai-oauth` itself, so ns-bridge no
+Registers `kiro` only. For `arnict`, see [Arnict](#arnict). OMP ships `devin`, `xai`, and `xai-oauth` itself, so ns-bridge no
 longer provides `devin` or `grok` there: sign in with `/login devin` and `/login xai-oauth`
 (or `DEVIN_API_KEY` / `XAI_API_KEY`). Moving from the old plugin: replace `devin/…` and
 `grok/…` model ids in OMP's `config.yml` with OMP's own (`devin/…` from `omp models devin`,
