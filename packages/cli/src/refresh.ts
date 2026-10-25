@@ -14,6 +14,7 @@ export interface ModelRefresh {
   kiro: () => Promise<RefreshResult>;
   devin: () => Promise<RefreshResult>;
   grok: () => Promise<RefreshResult>;
+  arnict: () => Promise<RefreshResult>;
 }
 
 /**

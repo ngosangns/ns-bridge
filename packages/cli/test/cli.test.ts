@@ -23,6 +23,7 @@ function pathsIn(dir: string): CatalogPaths {
     kiro: join(dir, "kiro.json"),
     devin: join(dir, "devin.json"),
     grok: join(dir, "grok.json"),
+    arnict: join(dir, "arnict.json"),
   };
 }
 
@@ -136,7 +137,29 @@ describe("ns-bridge", () => {
     expect(io.stdout.join("\n")).toContain("claude-opus-5");
     expect(io.stdout.join("\n")).toContain("swe-2-high");
     expect(io.stdout.join("\n")).toContain("grok  no cache file");
+    expect(io.stdout.join("\n")).toContain("arnict  no cache file");
     expect(io.stdout.join("\n")).not.toContain("grok-4.7");
+  });
+
+  it("rejects an unknown vendor naming the accepted list", async () => {
+    const io = capture();
+    expect(await run(["models", "list", "nope"], io)).toBe(1);
+    expect(io.stderr).toEqual(["unknown vendor nope (expected kiro, devin, grok, arnict, or all)"]);
+  });
+
+  it("lists arnict ids from its catalog file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const paths = pathsIn(dir);
+    writeFileSync(
+      paths.arnict,
+      JSON.stringify({
+        fetchedAt: 9_000,
+        models: [{ id: "zai/glm-5.3", contextWindow: 1_000_000, maxTokens: 32_000 }],
+      }),
+    );
+    const io = capture();
+    expect(await run(["models", "list", "arnict"], { ...io, paths, now: 10_000 })).toBe(0);
+    expect(io.stdout.join("\n")).toContain("zai/glm-5.3  window 1000000  max 32000  compact at —");
   });
 
   it("prints each model's window, ceiling, and compaction point", async () => {
@@ -229,12 +252,31 @@ describe("ns-bridge", () => {
       kiro: vi.fn(async () => ({ count: 1 })),
       devin: vi.fn(async () => ({ count: 1 })),
       grok: vi.fn(async () => ({ count: 1 })),
+      arnict: vi.fn(async () => ({ count: 1 })),
     };
     const code = await run(["models", "refresh", "kiro"], { ...io, refreshers });
     expect(code).toBe(0);
     expect(io.stdout).toEqual(["# dry-run (pass --apply to run)", "refresh kiro"]);
     expect(refreshers.kiro).not.toHaveBeenCalled();
     expect(refreshers.devin).not.toHaveBeenCalled();
+  });
+
+  it("refreshes arnict and reports the catalog source", async () => {
+    const io = capture();
+    const arnict = vi.fn(async () => ({ count: 4, detail: "source=live" }));
+    const refreshers: ModelRefresh = {
+      kiro: vi.fn(async () => ({ count: 1 })),
+      devin: vi.fn(async () => ({ count: 1 })),
+      grok: vi.fn(async () => ({ count: 1 })),
+      arnict,
+    };
+    const code = await run(["models", "refresh", "arnict", "--apply"], { ...io, refreshers });
+    expect(code).toBe(0);
+    expect(io.stdout).toEqual(["arnict: 4 model(s) source=live"]);
+    expect(arnict).toHaveBeenCalledOnce();
+    expect(refreshers.kiro).not.toHaveBeenCalled();
+    expect(refreshers.devin).not.toHaveBeenCalled();
+    expect(refreshers.grok).not.toHaveBeenCalled();
   });
 
   it("refreshes only the selected vendor when --apply is set", async () => {
@@ -245,6 +287,7 @@ describe("ns-bridge", () => {
       grok: vi.fn(async () => {
         throw new Error("grok should not run");
       }),
+      arnict: vi.fn(async () => ({ count: 1 })),
     };
     const code = await run(["models", "refresh", "kiro", "--apply"], { ...io, refreshers });
     expect(code).toBe(0);
@@ -261,12 +304,14 @@ describe("ns-bridge", () => {
         throw new Error("catalog down");
       }),
       grok: vi.fn(async () => ({ count: 1 })),
+      arnict: vi.fn(async () => ({ count: 1 })),
     };
     const code = await run(["models", "refresh", "--apply"], { ...io, refreshers });
     expect(code).toBe(1);
     expect(io.stdout).toEqual(["kiro: 1 model(s)"]);
     expect(io.stderr).toEqual(["devin: catalog down"]);
     expect(refreshers.grok).not.toHaveBeenCalled();
+    expect(refreshers.arnict).not.toHaveBeenCalled();
   });
 
   it("previews a provider disable and does not write", async () => {
@@ -302,7 +347,29 @@ describe("ns-bridge", () => {
     expect(status.stdout.join("\n")).toContain("pi kiro off");
   });
 
-  describe("omp has native devin and xai, so only kiro is a choice", () => {
+  it("rejects an unknown provider naming the accepted list", async () => {
+    const io = capture();
+    expect(await run(["providers", "enable", "pi", "nope"], io)).toBe(1);
+    expect(io.stderr).toEqual(["unknown provider nope (expected kiro, devin, grok, or arnict)"]);
+  });
+
+  it("enables arnict for pi and writes the shared file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const selection = join(dir, "providers.json");
+    const piSettings = join(dir, "settings.json");
+    writeFileSync(piSettings, JSON.stringify({ packages: ["npm:@ngosangns/ns-pi-provider"] }));
+    const io = capture();
+    expect(
+      await run(["providers", "enable", "pi", "arnict", "--apply"], {
+        ...io,
+        providerPaths: { selection, piSettings, dshHome: dir },
+      }),
+    ).toBe(0);
+    expect(io.stdout.join("\n")).toContain("arnict on");
+    expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ arnict: true });
+  });
+
+  describe("omp has native devin and xai, so only kiro and arnict are choices", () => {
     function setup() {
       const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
       const selection = join(dir, "providers.json");
@@ -344,8 +411,20 @@ describe("ns-bridge", () => {
       expect(await run(["providers", "status", "omp"], { ...io, providerPaths: paths })).toBe(0);
       const out = io.stdout.join("\n");
       expect(out).toContain("omp kiro on");
+      expect(out).toContain("omp arnict on");
       expect(out).toContain("omp devin off (not provided: OMP has its own devin provider");
       expect(out).toContain("omp grok off (not provided: OMP has its own xai and xai-oauth providers");
+    });
+
+    it("enables and disables arnict for omp through the shared file", async () => {
+      const { selection, paths } = setup();
+      const io = capture();
+      expect(await run(["providers", "enable", "omp", "arnict", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+      expect(io.stdout.join("\n")).toContain("arnict on");
+      expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ arnict: true });
+      const off = capture();
+      expect(await run(["providers", "disable", "omp", "arnict", "--apply"], { ...off, providerPaths: paths })).toBe(0);
+      expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ arnict: false });
     });
 
     it("keeps devin and grok for pi", async () => {
@@ -393,6 +472,59 @@ describe("ns-bridge", () => {
       }),
     ).toBe(0);
     expect(readFileSync(patch, "utf8")).not.toContain("disabled:");
+  });
+
+  it("maps arnict to the llm-arnict plugin id and refuses it when the dsh patch lacks it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const patchDir = join(dir, "profiles", "headless");
+    mkdirSync(patchDir, { recursive: true });
+    const patch = join(patchDir, "cordis.patch.yml");
+    writeFileSync(
+      patch,
+      [
+        "- insert:",
+        "    - id: llm-arnict",
+        "      name: ns-dsh-llm-arnict",
+        "      config:",
+        "        provider: arnict",
+        "",
+      ].join("\n"),
+    );
+    const paths = { selection: join(dir, "providers.json"), piSettings: join(dir, "settings.json"), dshHome: dir };
+    const off = capture();
+    expect(
+      await run(["providers", "disable", "dsh", "arnict", "--profile", "headless", "--apply"], {
+        ...off,
+        providerPaths: paths,
+      }),
+    ).toBe(0);
+    expect(readFileSync(patch, "utf8")).toContain("disabled: true");
+    const on = capture();
+    expect(
+      await run(["providers", "enable", "dsh", "arnict", "--profile", "headless", "--apply"], {
+        ...on,
+        providerPaths: paths,
+      }),
+    ).toBe(0);
+    expect(readFileSync(patch, "utf8")).not.toContain("disabled:");
+
+    // The dsh package is installed in a later step; a patch without the plugin stays safe.
+    const emptyDir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const emptyPatch = join(emptyDir, "profiles", "headless", "cordis.patch.yml");
+    mkdirSync(join(emptyDir, "profiles", "headless"), { recursive: true });
+    writeFileSync(emptyPatch, "- insert:\n    - id: llm-grok\n      name: ns-dsh-llm-grok\n");
+    const missing = capture();
+    expect(
+      await run(["providers", "disable", "dsh", "arnict", "--profile", "headless", "--apply"], {
+        ...missing,
+        providerPaths: {
+          selection: join(emptyDir, "providers.json"),
+          piSettings: join(emptyDir, "s.json"),
+          dshHome: emptyDir,
+        },
+      }),
+    ).toBe(1);
+    expect(missing.stderr.join("\n")).toContain(`ns-dsh-llm-arnict is not in ${emptyPatch}`);
   });
 
   it("previews a self-update and does not install", async () => {
@@ -592,6 +724,40 @@ describe("ns-bridge", () => {
       expect(bySession.stdout[2]).toContain("7s");
     });
 
+    it("accepts --vendor arnict and shows USD credits as dollar amounts", async () => {
+      const usageDir = ledger({
+        "2026-10-21/arnict/s1.jsonl": [
+          line({
+            vendor: "arnict",
+            model: "zai/glm-5.3",
+            promptTokens: 1000,
+            cacheRead: 800,
+            cacheHitRatio: 0.8,
+            credits: 0.0137,
+            creditUnit: "USD",
+          }),
+        ],
+      });
+      const byVendor = capture();
+      expect(await run(["usage", "--vendor", "arnict"], { ...byVendor, usageDir })).toBe(0);
+      expect(byVendor.stdout.join("\n")).toContain("arnict");
+
+      const session = capture();
+      await run(["usage", "--session", "s1"], { ...session, usageDir });
+      expect(session.stdout[0]).toContain("cost");
+      expect(session.stdout[1]).toContain("$0.0137");
+    });
+
+    it("keeps non-USD credits as bare numbers in the session cost column", async () => {
+      const usageDir = ledger({
+        "2026-10-21/kiro/s1.jsonl": [line({ vendor: "kiro", credits: 5, creditUnit: "credit" })],
+      });
+      const io = capture();
+      await run(["usage", "--session", "s1"], { ...io, usageDir });
+      expect(io.stdout[1]).toMatch(/\s5\s*$/);
+      expect(io.stdout[1]).not.toContain("$5");
+    });
+
     it("limits to the newest days and to one named day", async () => {
       const usageDir = ledger({
         "2026-10-19/grok/s1.jsonl": [line({ ts: "2026-10-19T05:00:00.000Z" })],
@@ -661,7 +827,7 @@ describe("kiro profile", () => {
 
   function fakeRefreshers() {
     const kiro = vi.fn(async () => ({ count: 3, detail: "region=us-east-1" }));
-    const refreshers: ModelRefresh = { kiro, devin: vi.fn(), grok: vi.fn() };
+    const refreshers: ModelRefresh = { kiro, devin: vi.fn(), grok: vi.fn(), arnict: vi.fn() };
     return { kiro, refreshers };
   }
 

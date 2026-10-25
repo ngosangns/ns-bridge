@@ -79,7 +79,8 @@ export function toPiContext<T extends OmpLikeContext>(context: T): T {
 export function toOmpApiKey(value: unknown, env: NodeJS.ProcessEnv = process.env): string | undefined {
   if (typeof value !== "string" || value.length === 0) return undefined;
   const envRef = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(value);
-  if (envRef) return env[envRef[1]!]?.trim() ? envRef[1] : undefined;
+  const name = envRef?.[1];
+  if (name) return env[name]?.trim() ? name : undefined;
   if (value.startsWith("!")) return value;
   return value.replaceAll("$$", "$");
 }

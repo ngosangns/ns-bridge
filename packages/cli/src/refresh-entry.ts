@@ -3,6 +3,7 @@
  * so it does not compile the provider sources. `ns-bridge models refresh --apply`
  * and `ns-bridge kiro profile` are the only commands that load the result.
  */
+import { refreshArnictModels } from "@ngosangns/ns-pi-provider/arnict";
 import { refreshDevinModels } from "@ngosangns/ns-pi-provider/devin";
 import { refreshGrokModels } from "@ngosangns/ns-pi-provider/grok";
 import { refreshKiroModels } from "@ngosangns/ns-pi-provider/kiro";
@@ -31,6 +32,14 @@ export function createBundledRefresh(): ModelRefresh {
     grok: async () => {
       const refreshed = await refreshGrokModels({ force: true });
       return { count: refreshed.models.length, detail: `source=${refreshed.source}` };
+    },
+    arnict: async () => {
+      const refreshed = await refreshArnictModels({ force: true, allowNetwork: true });
+      return {
+        count: refreshed.models.length,
+        // Core error messages are already redacted; the key never reaches detail.
+        detail: refreshed.error ? `source=${refreshed.source} error=${refreshed.error}` : `source=${refreshed.source}`,
+      };
     },
   };
 }

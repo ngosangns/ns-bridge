@@ -1,13 +1,14 @@
 /**
- * `ns-bridge providers` — turn kiro, devin, or grok on or off.
+ * `ns-bridge providers` — turn kiro, devin, grok, or arnict on or off.
  *
  * Pi and OMP register from one file, `~/.ns-bridge/providers.json`. The
  * extensions read it at launch; this command writes it. DSH has no such
  * file: the profile patch carries `disabled: true` on the plugin id.
  *
- * OMP ships `devin`, `xai`, and `xai-oauth` itself and only takes `kiro` from
- * this project, so devin and grok are not a choice for `omp`. Their keys in
- * the shared file stay for Pi and are ignored by the OMP plugin.
+ * OMP ships `devin`, `xai`, and `xai-oauth` itself and takes only `kiro` and
+ * `arnict` from this project (ns-omp-provider registers arnict), so devin and
+ * grok are not a choice for `omp`. Their keys in the shared file stay for Pi
+ * and are ignored by the OMP plugin.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -31,17 +32,19 @@ const DSH_PLUGIN: Record<ProviderName, string> = {
   kiro: "ns-dsh-llm-kiro",
   devin: "ns-dsh-llm-devin",
   grok: "ns-dsh-llm-grok",
+  arnict: "ns-dsh-llm-arnict",
 };
 
 const DSH_ID: Record<ProviderName, string> = {
   kiro: "llm-kiro",
   devin: "llm-devin",
   grok: "llm-grok",
+  arnict: "llm-arnict",
 };
 
 const PI_SOURCE = "npm:@ngosangns/ns-pi-provider";
 
-/** Why `omp` has no devin or grok here, and what to use in OMP instead. */
+/** Why `omp` has no devin or grok here, and what to use in OMP instead. Arnict is a choice: ns-omp-provider registers it. */
 const OMP_NATIVE: Partial<Record<ProviderName, string>> = {
   devin: "OMP has its own devin provider; use /login devin or DEVIN_API_KEY",
   grok: "OMP has its own xai and xai-oauth providers; use /login xai-oauth or XAI_API_KEY",
@@ -94,7 +97,7 @@ export function planProviders(
     if (typeof parsed !== "string") return { steps: [], skipDsh: false, error: parsed.error };
     provider = parsed;
   } else if (action !== "status") {
-    return { steps: [], skipDsh: false, error: "enable and disable need a provider: kiro, devin, or grok" };
+    return { steps: [], skipDsh: false, error: "enable and disable need a provider: kiro, devin, grok, or arnict" };
   }
 
   if (action === "enable" && provider && hosts.includes("omp") && OMP_NATIVE[provider]) {

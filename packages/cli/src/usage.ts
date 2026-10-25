@@ -30,6 +30,9 @@ export interface UsageLine {
   cacheHitMax?: number;
   contextFill?: number;
   effort?: string;
+  /** What the provider billed for the step, denominated in `creditUnit` (arnict: "USD"). */
+  credits?: number;
+  creditUnit?: string;
 }
 
 export interface UsageQuery {
@@ -191,6 +194,12 @@ function gap(ms: number | null): string {
   return seconds < 120 ? `${seconds}s` : `${Math.round(seconds / 60)}m`;
 }
 
+/** A USD bill reads as dollars; other units stay bare numbers so two units are never summed or confused. */
+function cost(record: UsageLine): string {
+  if (record.credits === undefined) return "-";
+  return record.creditUnit === "USD" ? `$${record.credits}` : String(record.credits);
+}
+
 function pad(columns: readonly string[][], widths?: number[]): string[] {
   const sizes =
     widths ?? columns[0]?.map((_, index) => Math.max(...columns.map((row) => (row[index] ?? "").length))) ?? [];
@@ -232,7 +241,7 @@ export function formatSummary(rows: readonly UsageRow[]): string[] {
 export function formatSession(records: readonly UsageLine[]): string[] {
   if (records.length === 0) return ["no usage recorded for that session"];
   const table = [
-    ["step", "vendor", "model", "prompt", "hit", "gap", "ctx"],
+    ["step", "vendor", "model", "prompt", "hit", "gap", "ctx", "cost"],
     ...records.map((record, index) => [
       String(record.step ?? index + 1),
       record.vendor,
@@ -245,6 +254,7 @@ export function formatSession(records: readonly UsageLine[]): string[] {
           : percent(record.cacheHitRatio),
       gap(record.gapMs),
       percent(record.contextFill),
+      cost(record),
     ]),
   ];
   return pad(table);

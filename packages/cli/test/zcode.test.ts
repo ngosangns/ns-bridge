@@ -98,7 +98,12 @@ const DEVIN_MODEL = { id: "devin-main", contextWindow: 200000, maxTokens: 16000,
 const GROK_MODEL = { id: "grok-4", contextWindow: 256000, maxTokens: 32000 };
 
 function catalogPathsIn(dir: string): CatalogPaths {
-  return { kiro: join(dir, "kiro.json"), devin: join(dir, "devin.json"), grok: join(dir, "grok.json") };
+  return {
+    kiro: join(dir, "kiro.json"),
+    devin: join(dir, "devin.json"),
+    grok: join(dir, "grok.json"),
+    arnict: join(dir, "arnict.json"),
+  };
 }
 
 function seedCatalogs(dir: string, present: { kiro?: boolean; devin?: boolean; grok?: boolean } = {}): void {
@@ -890,6 +895,22 @@ describe("ns-bridge zcode setup", () => {
     expect(io.stdout.join("\n")).toContain("# skipped grok: no catalog (missing)");
     const ids = readJson(paths.providerConfig).config.providerConfigRules.providerRules.map((rule) => rule.providerId);
     expect(ids).toEqual(["ns-bridge-kiro", "ns-bridge-devin"]);
+  });
+
+  it("does not register arnict yet: setup and status stay to the vendors serve routes", async () => {
+    const paths = fresh();
+    writeFileSync(
+      join(paths.catalogs, "arnict.json"),
+      JSON.stringify({ fetchedAt: 1, models: [{ id: "arnict-main", contextWindow: 1_000_000, maxTokens: 32_000 }] }),
+    );
+    const { done } = zcodeRun("setup", paths, { apply: true });
+    expect(await done).toBe(0);
+    const ids = readJson(paths.providerConfig).config.providerConfigRules.providerRules.map((rule) => rule.providerId);
+    expect(ids).toEqual(["ns-bridge-kiro", "ns-bridge-devin", "ns-bridge-grok"]);
+
+    const status = zcodeRun("status", paths);
+    expect(await status.done).toBe(0);
+    expect(status.io.stdout.join("\n")).not.toContain("ns-bridge-arnict");
   });
 
   it("keeps a registered provider whose catalog goes missing, untouched", async () => {

@@ -67,12 +67,12 @@ Usage:
   ns-bridge update [--apply]
   ns-bridge update <pi|omp|dsh|all> [--apply] [--profile <name>]
   ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
-  ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
-  ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--apply] [--profile <name>]
-  ns-bridge usage [--vendor <kiro|devin|grok>] [--day YYYY-MM-DD] [--days <n>] [--json]
+  ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok|arnict] [--profile <name>]
+  ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok|arnict> [--apply] [--profile <name>]
+  ns-bridge usage [--vendor <kiro|devin|grok|arnict>] [--day YYYY-MM-DD] [--days <n>] [--json]
   ns-bridge usage --session <id> [--vendor <name>] [--json]
-  ns-bridge models list [kiro|devin|grok|all]
-  ns-bridge models refresh [kiro|devin|grok|all] [--apply]
+  ns-bridge models list [kiro|devin|grok|arnict|all]
+  ns-bridge models refresh [kiro|devin|grok|arnict|all] [--apply]
   ns-bridge kiro profile [list]
   ns-bridge kiro profile use <name|region|arn> [--apply]
   ns-bridge kiro profile reset [--apply]
@@ -102,7 +102,7 @@ Hosts:
 
 providers enable/disable writes the host's own switch:
   pi        ~/.ns-bridge/providers.json (the extension reads it at launch)
-  omp       the same file, kiro only; devin and grok are OMP's own, so they are not offered
+  omp       the same file, kiro and arnict; devin and grok are OMP's own, so they are not offered
   dsh       disabled: true on the plugin id in the profile's cordis.patch.yml
 
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
@@ -207,11 +207,11 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
       err(`status takes no arguments (got ${target})`);
       return 1;
     }
-    return printCatalogs(log, options, ["kiro", "devin", "grok"], "status");
+    return printCatalogs(log, options, ["kiro", "devin", "grok", "arnict"], "status");
   }
   if (command === "models") {
     if (target !== "list" && target !== "refresh") {
-      err("usage: ns-bridge models list|refresh [kiro|devin|grok|all]");
+      err("usage: ns-bridge models list|refresh [kiro|devin|grok|arnict|all]");
       return 1;
     }
     const vendors = parseVendors(extra);
@@ -315,8 +315,8 @@ function runUsage(
   err: (line: string) => void,
   options: RunOptions,
 ): number {
-  if (parsed.vendor && !["kiro", "devin", "grok"].includes(parsed.vendor)) {
-    err(`unknown vendor ${parsed.vendor} (kiro, devin, grok)`);
+  if (parsed.vendor && !["kiro", "devin", "grok", "arnict"].includes(parsed.vendor)) {
+    err(`unknown vendor ${parsed.vendor} (kiro, devin, grok, arnict)`);
     return 1;
   }
   if (parsed.day && !/^\d{4}-\d{2}-\d{2}$/.test(parsed.day)) {

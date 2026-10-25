@@ -38,7 +38,7 @@ import {
 } from "./catalog.js";
 import type { Runner } from "./cli.js";
 import { formatCommand } from "./hosts.js";
-import { PROVIDERS, readSelectionFile, resolveSelection, selectionPath } from "./selection.js";
+import { readSelectionFile, resolveSelection, selectionPath } from "./selection.js";
 import { DEFAULT_ZCODE_PORT, ensureZcodeServeConfig, readZcodeServeConfig } from "./zcode-config.js";
 
 /** Every provider id we write starts with this; anything else in the file is left alone. */
@@ -48,7 +48,13 @@ export const ZCODE_LAUNCH_AGENT_LABEL = "dev.ngosangns.ns-bridge.serve";
 const SCHEMA_VERSION = 1;
 const HEALTH_TIMEOUT_MS = 2000;
 const FALLBACK_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-const VENDOR_LABEL: Record<Vendor, string> = { kiro: "Kiro", devin: "Devin", grok: "Grok" };
+const VENDOR_LABEL: Record<Vendor, string> = { kiro: "Kiro", devin: "Devin", grok: "Grok", arnict: "Arnict" };
+
+/**
+ * The vendors setup registers: the mounts `ns-bridge serve` routes. Arnict
+ * joins when its serve mount and the ZCode work land.
+ */
+const ZCODE_VENDORS: readonly Vendor[] = ["kiro", "devin", "grok"];
 
 export function zcodeProviderConfigPath(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   const override = env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE?.trim();
@@ -633,7 +639,7 @@ function resolveSelectionFilePath(options: ZcodeCommandOptions, home: string): s
 
 function selectVendors(options: ZcodeCommandOptions, home: string): Vendor[] | { error: string } {
   const selection = resolveSelection(readSelectionFile(resolveSelectionFilePath(options, home)), process.env);
-  let vendors: Vendor[] = PROVIDERS.filter((provider) => selection[provider]);
+  let vendors: Vendor[] = ZCODE_VENDORS.filter((provider) => selection[provider]);
   if (options.vendors !== undefined) {
     const wanted = parseVendorList(options.vendors);
     if ("error" in wanted) return wanted;
@@ -837,7 +843,7 @@ async function zcodeStatus(options: ZcodeCommandOptions, home: string, platform:
   log(`provider config  ${providerConfigPath}  ${file.state}`);
   if (file.state === "ready") {
     const registered = listRegistered(file.json);
-    for (const vendor of PROVIDERS) {
+    for (const vendor of ZCODE_VENDORS) {
       const found = registered.find((entry) => entry.providerId === `${PROVIDER_ID_PREFIX}${vendor}`);
       log(`  ns-bridge-${vendor}  ${found ? `present, ${found.modelCount} model(s)` : "absent"}`);
     }
