@@ -5,5 +5,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "exclude": ["src/refresh-entry.ts"]
+  "exclude": ["src/refresh-entry.ts", "src/serve-entry.ts"]
 }

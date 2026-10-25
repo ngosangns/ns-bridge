@@ -14,6 +14,7 @@ import { defaultKiroProfiles, findKiroProfile, formatKiroProfiles, type KiroProf
 import { formatProviderPlan, type ProviderPaths, planProviders, providerPaths } from "./providers.js";
 import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.js";
 import { currentVersion, PACKAGE_NAME, parseNpmVersion, planSelfUpdate } from "./self.js";
+import { runServe, type ServeBundle } from "./serve.js";
 import { formatSession, formatSummary, localDay, readUsage, summarize, usageRoot } from "./usage.js";
 
 export interface CommandResult {
@@ -36,6 +37,10 @@ export interface RunOptions {
   providerPaths?: ProviderPaths;
   /** Usage ledger root. Tests pass a temp dir; production reads ~/.ns-bridge/usage. */
   usageDir?: string;
+  /** Serve bundle loader. Tests inject a fake so no vendor core loads. */
+  serveBundleLoader?: () => Promise<ServeBundle>;
+  /** Serve config path. Tests pass a temp dir; production reads ~/.ns-bridge/zcode.json. */
+  serveConfigPath?: string;
   /** Installed CLI version. Tests pass this so they do not read package.json. */
   version?: string;
 }
@@ -59,6 +64,7 @@ Usage:
   ns-bridge kiro profile [list]
   ns-bridge kiro profile use <name|region|arn> [--apply]
   ns-bridge kiro profile reset [--apply]
+  ns-bridge serve [--port N] [--host H] [--allow-remote]
   ns-bridge status
   ns-bridge help
 
@@ -100,6 +106,13 @@ Hosts read the pin on every request. KIRO_PROFILE_ARN outranks it.
 Model catalogs are files the hosts read. Providers do not refresh them.
 This command writes those files:
   ns-bridge models refresh --apply
+
+serve runs a local Anthropic-Messages server ZCode can point an Anthropic
+client at: http://127.0.0.1:<port>/<vendor>/v1/messages with vendor in
+kiro, devin, grok, and GET /<vendor>/v1/models. Port and token live in
+~/.ns-bridge/zcode.json, created on first run (NS_BRIDGE_ZCODE_CONFIG moves
+the file; NS_BRIDGE_SERVE_TOKEN overrides the token). It binds loopback only;
+--host with a non-loopback address needs --allow-remote.
 `;
 
 export function spawnRunner(): Runner {
@@ -199,6 +212,22 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
   }
   if (command === "kiro") {
     return runKiroProfile(parsed, log, err, options);
+  }
+  if (command === "serve") {
+    if (parsed.positionals.length > 1) {
+      err(`unexpected argument ${parsed.positionals[1]}`);
+      return 1;
+    }
+    return runServe({
+      ...(parsed.port !== undefined ? { port: parsed.port } : {}),
+      ...(parsed.host !== undefined ? { host: parsed.host } : {}),
+      ...(parsed.token !== undefined ? { token: parsed.token } : {}),
+      allowRemote: parsed.allowRemote,
+      log,
+      err,
+      ...(options.serveBundleLoader ? { loadBundle: options.serveBundleLoader } : {}),
+      ...(options.serveConfigPath ? { configPath: options.serveConfigPath } : {}),
+    });
   }
   err(`unknown command ${command}`);
   err("run ns-bridge help");
@@ -514,6 +543,10 @@ interface Parsed {
   days?: number;
   session?: string;
   json: boolean;
+  port?: number;
+  host?: string;
+  token?: string;
+  allowRemote: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Parsed | { error: string } {
@@ -526,6 +559,10 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
   let days: number | undefined;
   let session: string | undefined;
   let json = false;
+  let port: number | undefined;
+  let host: string | undefined;
+  let token: string | undefined;
+  let allowRemote = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--") {
@@ -542,6 +579,10 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
     }
     if (arg === "--dry-run") {
       apply = false;
+      continue;
+    }
+    if (arg === "--allow-remote") {
+      allowRemote = true;
       continue;
     }
     if (arg === "--profile") {
@@ -561,7 +602,7 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       json = true;
       continue;
     }
-    const valued = ["--vendor", "--day", "--days", "--session"].find(
+    const valued = ["--vendor", "--day", "--days", "--session", "--host", "--port", "--token"].find(
       (flag) => arg === flag || arg.startsWith(`${flag}=`),
     );
     if (valued) {
@@ -571,7 +612,14 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       if (valued === "--vendor") vendor = value;
       else if (valued === "--day") day = value;
       else if (valued === "--session") session = value;
-      else {
+      else if (valued === "--host") host = value;
+      else if (valued === "--token") token = value;
+      else if (valued === "--port") {
+        const parsedPort = Number(value);
+        if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)
+          return { error: "--port needs a whole number between 1 and 65535" };
+        port = parsedPort;
+      } else {
         const parsedDays = Number(value);
         if (!Number.isInteger(parsedDays) || parsedDays < 1)
           return { error: "--days needs a whole number of at least 1" };
@@ -582,5 +630,5 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
     if (arg.startsWith("-")) return { error: `unknown flag ${arg}` };
     positionals.push(arg);
   }
-  return { positionals, apply, profile, help, vendor, day, days, session, json };
+  return { positionals, apply, profile, help, vendor, day, days, session, json, port, host, token, allowRemote };
 }

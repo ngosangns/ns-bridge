@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Bundle the catalog refresh into dist/refresh-entry.js.
- * The published CLI has no runtime dependency on the discontinued packages.
- * Smithy and js-tiktoken stay external and load on the first Kiro call that
- * needs them, not when the process starts.
+ * Bundle the catalog refresh and the serve backends into dist/. The published
+ * CLI has no runtime dependency on the discontinued packages. Smithy and
+ * js-tiktoken stay external and load on the first Kiro call that needs them,
+ * not when the process starts.
  */
 import { readFileSync } from "node:fs";
 import { builtinModules } from "node:module";
@@ -17,8 +17,8 @@ const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]
 
 const result = await build({
   absWorkingDir: root,
-  entryPoints: ["src/refresh-entry.ts"],
-  outfile: "dist/refresh-entry.js",
+  entryPoints: ["src/refresh-entry.ts", "src/serve-entry.ts"],
+  outdir: "dist",
   bundle: true,
   platform: "node",
   format: "esm",
@@ -28,7 +28,7 @@ const result = await build({
   external: ["@smithy/*", "js-tiktoken", "js-tiktoken/*"],
   banner: {
     js: [
-      `// ${pkg.name} ${pkg.version} — catalog refresh bundle.`,
+      `// ${pkg.name} ${pkg.version} — bundled entries (catalog refresh, serve).`,
       "import { createRequire as __nsBridgeCreateRequire } from 'node:module';",
       "const require = __nsBridgeCreateRequire(import.meta.url);",
     ].join("\n"),
@@ -50,11 +50,11 @@ const leftovers = Object.values(result.metafile.outputs)
   );
 if (leftovers.length) {
   console.error(
-    "unexpected external imports in the refresh bundle:",
+    "unexpected external imports in the bundles:",
     leftovers.map((imp) => imp.path),
   );
   process.exit(1);
 }
 
 const bytes = Object.values(result.metafile.outputs).reduce((sum, output) => sum + output.bytes, 0);
-console.log(`built dist/refresh-entry.js (${Math.round(bytes / 1024)}kb)`);
+console.log(`built dist/refresh-entry.js + dist/serve-entry.js (${Math.round(bytes / 1024)}kb)`);

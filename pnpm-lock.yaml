@@ -61,6 +61,18 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
+      ns-core-utils:
+        specifier: workspace:*
+        version: link:../core-utils
+      ns-devin-core:
+        specifier: workspace:*
+        version: link:../devin-core
+      ns-grok-core:
+        specifier: workspace:*
+        version: link:../grok-core
       ns-kiro-core:
         specifier: workspace:*
         version: link:../kiro-core
