@@ -1,0 +1,33 @@
+{
+  "name": "ns-arnict-core",
+  "version": "0.1.0",
+  "description": "Host-neutral Arnict chat-completions client. Uses an Arnict API key. Not published.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ngosangns/ns-bridge.git",
+    "directory": "packages/arnict-core"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "ns-core-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "ns-bridge-core": "workspace:*"
+  }
+}

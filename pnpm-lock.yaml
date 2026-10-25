@@ -24,6 +24,19 @@ importers:
         specifier: ^3.2.7
         version: 3.2.7(@types/node@26.4.1)(jiti@2.7.0)(lightningcss@1.32.0)(supports-color@10.2.2)(yaml@2.9.0)
 
+  packages/arnict-core:
+    dependencies:
+      ns-core-utils:
+        specifier: workspace:*
+        version: link:../core-utils
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.4
+        version: 22.20.4
+      ns-bridge-core:
+        specifier: workspace:*
+        version: link:../bridge-core
+
   packages/bridge-core:
     dependencies:
       ns-core-utils:
