@@ -4,8 +4,10 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
@@ -21,6 +23,7 @@ import {
   parseDefaultModel,
   parseVendorList,
   planZcodeProviders,
+  resolveServeProgram,
   supportsImage,
   ZCODE_LAUNCH_AGENT_LABEL,
   type ZcodePlan,
@@ -950,15 +953,32 @@ describe("ns-bridge zcode status", () => {
     }
   });
 
-  it("reports missing pieces and an unreachable server", async () => {
+  it("reports missing pieces and no launch agent off darwin", async () => {
     const paths = fresh();
     const { io, done } = zcodeRun("status", paths, { platform: "linux" });
     expect(await done).toBe(0);
     const out = io.stdout.join("\n");
     expect(out).toContain(`provider config  ${paths.providerConfig}  missing`);
     expect(out).toContain(`serve config  ${paths.serveConfig}  missing`);
-    expect(out).toContain("unreachable");
     expect(out).not.toContain("launch agent");
+  });
+
+  it("reports an unreachable server", async () => {
+    // The default port may be taken on this machine by a real agent, so point
+    // the serve config at a port that was just freed.
+    const paths = fresh();
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    mkdirSync(join(paths.home, "ns-bridge"), { recursive: true });
+    writeFileSync(paths.serveConfig, JSON.stringify({ port, token: "s".repeat(48) }), { mode: 0o600 });
+
+    const { io, done } = zcodeRun("status", paths, { platform: "linux" });
+    expect(await done).toBe(0);
+    const out = io.stdout.join("\n");
+    expect(out).toContain(`serve config  ${paths.serveConfig}  present, port ${port}`);
+    expect(out).toContain(`server  http://127.0.0.1:${port}/healthz  unreachable`);
   });
 });
 
@@ -1002,6 +1022,61 @@ describe("launchAgentPlist", () => {
   it("writes only PATH when there is no extraEnv", () => {
     const plist = launchAgentPlist({ programArguments: ["/n"], logPath: "/l", envPath: "/p" });
     expect(plist).not.toContain("NS_BRIDGE_ZCODE_CONFIG");
+  });
+});
+
+describe("resolveServeProgram", () => {
+  function onPath(): string {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-path-"));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  function seedBin(dir: string): string {
+    const install = onPath();
+    const script = join(install, "cli.js");
+    writeFileSync(script, "#!/usr/bin/env node");
+    symlinkSync(script, join(dir, "ns-bridge"));
+    return script;
+  }
+
+  it("pins the first ns-bridge on PATH to its realpath, run by the sibling node", () => {
+    const bin = onPath();
+    const script = seedBin(bin);
+    writeFileSync(join(bin, "node"), "node");
+
+    const program = resolveServeProgram({
+      envPath: `/nonexistent:${bin}`,
+      fallbackScript: "/repo/main.js",
+      execPath: "/exec/node",
+    });
+    expect(program).toEqual({ script: realpathSync(script), node: join(bin, "node"), source: "global" });
+  });
+
+  it("runs execPath when the found bin has no sibling node", () => {
+    const bin = onPath();
+    const script = seedBin(bin);
+
+    const program = resolveServeProgram({ envPath: bin, fallbackScript: "/repo/main.js", execPath: "/exec/node" });
+    expect(program).toEqual({ script: realpathSync(script), node: "/exec/node", source: "global" });
+  });
+
+  it("falls back to the running checkout when PATH has no ns-bridge", () => {
+    const bin = onPath();
+
+    const program = resolveServeProgram({ envPath: bin, fallbackScript: "/repo/main.js", execPath: "/exec/node" });
+    expect(program).toEqual({ script: "/repo/main.js", node: "/exec/node", source: "fallback" });
+  });
+
+  it("takes the first PATH hit, skipping empty entries, through the injected fs", () => {
+    const program = resolveServeProgram({
+      envPath: ":/a:/b",
+      fallbackScript: "/repo/main.js",
+      execPath: "/exec/node",
+      exists: (path) => path === "/b/ns-bridge" || path === "/b/node",
+      realpath: (path) => `real:${path}`,
+    });
+    expect(program).toEqual({ script: "real:/b/ns-bridge", node: "/b/node", source: "global" });
   });
 });
 

@@ -7,6 +7,10 @@
  * runs is lost on the app's next save. setup and remove refuse --apply while
  * ZCode runs unless --force. The file can hold other providers' entries and
  * secrets, so its contents are never printed — only ids and counts we own.
+ *
+ * On darwin setup also installs a launchd agent that keeps `ns-bridge serve`
+ * running, pinned to the globally installed CLI when one is on PATH and to
+ * this checkout otherwise.
  */
 
 import {
@@ -16,6 +20,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -403,6 +408,46 @@ export function writeProviderConfigAtomic(path: string, json: unknown): void {
 
 // --- launch agent ---
 
+export interface ServeProgram {
+  node: string;
+  script: string;
+  /** "global": the ns-bridge found on PATH; "fallback": the running checkout. */
+  source: "global" | "fallback";
+}
+
+export interface ResolveServeProgramInputs {
+  /** Colon-separated PATH to walk for an ns-bridge bin. */
+  envPath: string;
+  /** Script to pin when PATH has no ns-bridge. */
+  fallbackScript: string;
+  /** Node to run when the found bin has no node beside it. */
+  execPath: string;
+  exists?: (path: string) => boolean;
+  realpath?: (path: string) => string;
+}
+
+/**
+ * The agent outlives this process and repo checkouts move, so it pins the
+ * installed CLI: the first ns-bridge on PATH via its realpath, run by the node
+ * sitting next to the bin (a version-managed install keeps its matching
+ * runtime there) when present, else execPath.
+ */
+export function resolveServeProgram(inputs: ResolveServeProgramInputs): ServeProgram {
+  const exists = inputs.exists ?? existsSync;
+  const realpath = inputs.realpath ?? realpathSync;
+  for (const dir of inputs.envPath.split(":")) {
+    if (!dir) continue;
+    const bin = join(dir, "ns-bridge");
+    if (!exists(bin)) continue;
+    return {
+      script: realpath(bin),
+      node: exists(join(dir, "node")) ? join(dir, "node") : inputs.execPath,
+      source: "global",
+    };
+  }
+  return { node: inputs.execPath, script: inputs.fallbackScript, source: "fallback" };
+}
+
 export interface LaunchAgentInputs {
   label?: string;
   programArguments: readonly string[];
@@ -693,15 +738,21 @@ async function installLaunchAgent(
   const { log, err, runner } = options;
   // This file sits next to main.js in dist/ (src/ under tsx or a test run).
   const mainJs = join(dirname(fileURLToPath(import.meta.url)), "main.js");
+  const envPath = process.env.PATH?.trim() || FALLBACK_PATH;
+  const program = resolveServeProgram({ envPath, fallbackScript: mainJs, execPath: process.execPath });
+  if (program.source === "fallback") {
+    log(`# launch agent pinned to ${mainJs}; install ns-bridge globally to pin the installed CLI`);
+  }
+  log(`# launch agent runs ${program.node} ${program.script} serve`);
   const logPath = serveLogPath(home);
   mkdirSync(dirname(plistPath), { recursive: true });
   mkdirSync(dirname(logPath), { recursive: true });
   writeFileSync(
     plistPath,
     launchAgentPlist({
-      programArguments: [process.execPath, mainJs, "serve"],
+      programArguments: [program.node, program.script, "serve"],
       logPath,
-      envPath: process.env.PATH?.trim() || FALLBACK_PATH,
+      envPath,
       extraEnv,
     }),
   );
