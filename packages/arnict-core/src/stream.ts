@@ -138,7 +138,7 @@ async function* streamArnictResponse(options: StreamArnictOptions): AsyncGenerat
       continue;
     }
     if (!response.ok) {
-      const apiError = await arnictApiErrorFromResponse(response);
+      const apiError = await arnictApiErrorFromResponse(response, apiKey);
       const retryable = RETRYABLE_STATUSES.has(response.status) && apiError.code !== "insufficient_quota";
       if (!retryable || attempt >= maxRetries) throw apiError;
       await sleep(parseRetryAfterMs(response.headers) ?? exponentialBackoff(attempt, RETRY_BASE_MS, RETRY_MAX_MS));

@@ -24,7 +24,7 @@ export async function fetchArnictModelIds(
       `Arnict models request failed: ${(error instanceof Error ? error.message : "network error").slice(0, 300)}`,
     );
   }
-  if (!response.ok) throw await arnictApiErrorFromResponse(response);
+  if (!response.ok) throw await arnictApiErrorFromResponse(response, apiKey);
   let parsed: unknown;
   try {
     parsed = await response.json();

@@ -24,12 +24,22 @@ export class ArnictApiError extends Error {
   }
 }
 
+const BEARER_PATTERN = /Bearer\s+\S+/gi;
+
+/** Masks `Bearer <token>` and every occurrence of the raw key so nothing secret reaches an error message. */
+function redact(text: string, apiKey?: string): string {
+  let out = text.replace(BEARER_PATTERN, "Bearer [redacted]");
+  if (apiKey && apiKey.length >= 8) out = out.split(apiKey).join("[redacted]");
+  return out;
+}
+
 /**
  * The `{error: {message, type, code, param}}` body arnict.com/docs/errors documents,
  * read off a failed response. The message carries the status, the code, and the
- * `x-request-id` header; `Bearer ...` is redacted so a echoed header cannot leak the key.
+ * `x-request-id` header; `Bearer ...` and the raw key are redacted from every
+ * body-derived string so an echoed header or body cannot leak the key.
  */
-export async function arnictApiErrorFromResponse(response: Response): Promise<ArnictApiError> {
+export async function arnictApiErrorFromResponse(response: Response, apiKey?: string): Promise<ArnictApiError> {
   let text = "";
   try {
     text = await response.text();
@@ -55,11 +65,12 @@ export async function arnictApiErrorFromResponse(response: Response): Promise<Ar
   } catch {
     message = "";
   }
-  const redacted = message.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 300);
-  const body = redacted || text.replace(/\s+/g, " ").trim().slice(0, 300) || "no response body";
-  const requestId = response.headers.get("x-request-id")?.trim();
+  const redactedMessage = redact(message, apiKey).slice(0, 300);
+  const body = redactedMessage || redact(text, apiKey).replace(/\s+/g, " ").trim().slice(0, 300) || "no response body";
+  const requestId = redact(response.headers.get("x-request-id")?.trim() ?? "", apiKey);
+  const codeSuffix = code ? ` ${redact(code, apiKey)}` : "";
   return new ArnictApiError(
-    `Arnict error (${response.status}${code ? ` ${code}` : ""}): ${body}${requestId ? ` [request id: ${requestId}]` : ""}`,
+    `Arnict error (${response.status}${codeSuffix}): ${body}${requestId ? ` [request id: ${requestId}]` : ""}`,
     response.status,
     code,
   );
