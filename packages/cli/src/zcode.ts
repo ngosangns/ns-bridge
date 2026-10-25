@@ -50,11 +50,8 @@ const HEALTH_TIMEOUT_MS = 2000;
 const FALLBACK_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 const VENDOR_LABEL: Record<Vendor, string> = { kiro: "Kiro", devin: "Devin", grok: "Grok", arnict: "Arnict" };
 
-/**
- * The vendors setup registers: the mounts `ns-bridge serve` routes. Arnict
- * joins when its serve mount and the ZCode work land.
- */
-const ZCODE_VENDORS: readonly Vendor[] = ["kiro", "devin", "grok"];
+/** The vendors setup registers: the mounts `ns-bridge serve` routes. Arnict joins only with a key. */
+const ZCODE_VENDORS: readonly Vendor[] = ["kiro", "devin", "grok", "arnict"];
 
 export function zcodeProviderConfigPath(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   const override = env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE?.trim();
@@ -93,6 +90,20 @@ const KIRO_LONG_CONTEXT_THRESHOLDS: Readonly<Record<string, number>> = {
 };
 
 /**
+ * Arnict's GLM 5.3 compaction policy, copied from ns-arnict-core for the same
+ * reason kiro's is copied above: every id the `zai/glm-5.3` prefix covers runs
+ * in the vendor's 400K agentic standard window, compacting with the shared
+ * 16,384 reserve, while Arnict serves those ids against a native 1,048,576
+ * window. `arnictGlm53Id` mirrors isArnictGlm53Id.
+ */
+export const ARNICT_GLM_STANDARD_CONTEXT_WINDOW = 400_000;
+const ARNICT_GLM_NATIVE_CONTEXT_WINDOW = 1_048_576;
+
+export function arnictGlm53Id(id: string): boolean {
+  return /^zai\/glm-5\.3(?:[-.:/].*)?$/i.test(id);
+}
+
+/**
  * Where ns-bridge's per-model policy compacts a model whose catalog recorded
  * no threshold. Kiro: a Claude model with a window past 200K compacts at the
  * 150K target; everything else compacts where the OMP provider's default rule
@@ -109,6 +120,7 @@ export function derivedThresholdTokens(vendor: Vendor, entry: CatalogEntry & { c
     const standard = threshold !== undefined && threshold < entry.contextWindow ? threshold : entry.contextWindow;
     return standard - Math.max(Math.floor(standard * 0.15), 16384);
   }
+  if (vendor === "arnict" && arnictGlm53Id(entry.id)) return ARNICT_GLM_STANDARD_CONTEXT_WINDOW - 16384;
   return entry.contextWindow - Math.min(entry.maxTokens ?? 16384, 16384);
 }
 
@@ -117,12 +129,17 @@ export function derivedThresholdTokens(vendor: Vendor, entry: CatalogEntry & { c
  * for a reported window W. Reporting W = threshold + 13000 +
  * min(maxOutputTokens, 21000), capped at the real window, lands the
  * compaction on the threshold the catalog recorded — or, when it recorded
- * none, where ns-bridge's per-model policy for the vendor compacts.
+ * none, where ns-bridge's per-model policy for the vendor compacts. The real
+ * window is the catalog's maxContextWindow when it recorded one (arnict's
+ * native window), else the GLM 5.3 native window for a glm-5.3 id, else the
+ * window the compaction runs in.
  */
 export function zcodeModelWindow(entry: CatalogEntry & { contextWindow: number }, vendor: Vendor): ZcodeModelWindow {
   const maxOutputTokens = entry.maxTokens ?? 32000;
   const threshold = entry.thresholdTokens ?? derivedThresholdTokens(vendor, entry);
-  const window = Math.min(entry.contextWindow, threshold + 13000 + Math.min(maxOutputTokens, 21000));
+  const realWindow =
+    entry.maxContextWindow ?? (arnictGlm53Id(entry.id) ? ARNICT_GLM_NATIVE_CONTEXT_WINDOW : entry.contextWindow);
+  const window = Math.min(realWindow, threshold + 13000 + Math.min(maxOutputTokens, 21000));
   return { window, maxOutputTokens };
 }
 
@@ -559,12 +576,12 @@ export function parseVendorList(value: string): Vendor[] | { error: string } {
   const out: Vendor[] = [];
   for (const item of value.split(/[\s,]+/)) {
     if (!item) continue;
-    if (item !== "kiro" && item !== "devin" && item !== "grok") {
-      return { error: `unknown vendor ${item} (expected kiro, devin, or grok)` };
+    if (item !== "kiro" && item !== "devin" && item !== "grok" && item !== "arnict") {
+      return { error: `unknown vendor ${item} (expected kiro, devin, grok, or arnict)` };
     }
     if (!out.includes(item)) out.push(item);
   }
-  if (out.length === 0) return { error: "--vendors needs at least one of kiro, devin, grok" };
+  if (out.length === 0) return { error: "--vendors needs at least one of kiro, devin, grok, or arnict" };
   return out;
 }
 
@@ -573,11 +590,32 @@ export function parseDefaultModel(value: string): { vendor: Vendor; modelId: str
   if (slash <= 0) return { error: `--default needs <vendor>/<model> (got ${value})` };
   const vendor = value.slice(0, slash);
   const modelId = value.slice(slash + 1);
-  if (vendor !== "kiro" && vendor !== "devin" && vendor !== "grok") {
-    return { error: `--default: unknown vendor ${vendor} (expected kiro, devin, or grok)` };
+  if (vendor !== "kiro" && vendor !== "devin" && vendor !== "grok" && vendor !== "arnict") {
+    return { error: `--default: unknown vendor ${vendor} (expected kiro, devin, grok, or arnict)` };
   }
   if (!modelId) return { error: `--default needs <vendor>/<model> (got ${value})` };
   return { vendor, modelId };
+}
+
+// --- arnict key ---
+
+/**
+ * Whether an Arnict key resolves, read the way the core resolves it:
+ * ARNICT_API_KEY, else the key file `ns-bridge arnict login` writes. The core's
+ * resolveArnictApiKey cannot be imported here — tsc emits dist/zcode.js
+ * verbatim and the published CLI ships no runtime dependency on the cores — so
+ * setup re-reads the same two sources. The value itself never reaches a log.
+ */
+export function arnictKeyPresent(home: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env["ARNICT_API_KEY"]?.trim()) return true;
+  const override = env["NS_BRIDGE_ARNICT_CONFIG"]?.trim();
+  const path = override || join(home, ".ns-bridge", "arnict.json");
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { apiKey?: unknown };
+    return typeof parsed.apiKey === "string" && parsed.apiKey.trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
 // --- command ---
@@ -682,6 +720,12 @@ async function zcodeSetup(options: ZcodeCommandOptions, home: string, platform: 
     return 1;
   }
 
+  // Arnict without a key has nothing to serve with. Skipping it with the note
+  // keeps an existing ns-bridge-arnict registration (keepProviderIds below)
+  // instead of unregistering a provider whose key is merely unset in this shell.
+  const arnictWithoutKey = vendors.includes("arnict") && !arnictKeyPresent(home);
+  const planned = arnictWithoutKey ? vendors.filter((vendor) => vendor !== "arnict") : vendors;
+
   const providerConfigPath = resolveProviderConfigPath(options, home);
   const servePath = resolveServeConfigPath(options, home);
   if (await refuseWhileZcodeRuns(options, providerConfigPath)) return 1;
@@ -689,10 +733,11 @@ async function zcodeSetup(options: ZcodeCommandOptions, home: string, platform: 
   // The serve config (and with it the token) is only created on --apply, so a
   // preview uses a placeholder key that never reaches a file or the terminal.
   const serve = apply ? ensureZcodeServeConfig(servePath) : readZcodeServeConfig(servePath);
-  const plan = planZcodeProviders(readCatalogs(options.catalogPaths ?? catalogPaths(), vendors), {
+  const plan = planZcodeProviders(readCatalogs(options.catalogPaths ?? catalogPaths(), planned), {
     port: serve?.port ?? DEFAULT_ZCODE_PORT,
     token: serve?.token ?? "",
   });
+  if (arnictWithoutKey) plan.skipped.push({ vendor: "arnict", reason: "no API key (ns-bridge arnict login)" });
 
   const file = readProviderConfig(providerConfigPath);
   if (file.state === "unreadable") {

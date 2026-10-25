@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createServer as netCreateServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -32,10 +32,11 @@ function capture() {
   };
 }
 
-const noopBackends: Record<"kiro" | "devin" | "grok", AnthropicBackend> = {
+const noopBackends: Record<"kiro" | "devin" | "grok" | "arnict", AnthropicBackend> = {
   kiro: { listModels: () => [], stream: () => (async function* () {})() },
   devin: { listModels: () => [], stream: () => (async function* () {})() },
   grok: { listModels: () => [], stream: () => (async function* () {})() },
+  arnict: { listModels: () => [], stream: () => (async function* () {})() },
 };
 
 function fakeBundle(overrides: Partial<ServeBundle> = {}): ServeBundle {
@@ -114,7 +115,9 @@ describe("runServe", () => {
     controller.abort();
     expect(await run).toBe(0);
     expect(setUsageHost).toHaveBeenCalledWith("zcode");
-    expect(io.stdout[0]).toMatch(/^ns-bridge serve listening on http:\/\/127\.0\.0\.1:\d+ \(kiro, devin, grok\)$/);
+    expect(io.stdout[0]).toMatch(
+      /^ns-bridge serve listening on http:\/\/127\.0\.0\.1:\d+ \(kiro, devin, grok, arnict\)$/,
+    );
   });
 
   it("never prints the generated token", async () => {
@@ -191,5 +194,52 @@ describe("ns-bridge serve", () => {
     expect(await run(["help"], { ...io, runner })).toBe(0);
     expect(io.stdout.join("\n")).toContain("ns-bridge serve [--port N] [--host H] [--allow-remote]");
     expect(io.stdout.join("\n")).toContain("~/.ns-bridge/zcode.json");
+  });
+});
+
+describe("bundled backends", () => {
+  it("lists the arnict catalog models from NS_ARNICT_CATALOG_CACHE_DIR", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-serve-arnict-"));
+    tempDirs.push(dir);
+    // The row shape the arnict cache writes: standard window, native window,
+    // and the compaction budget ns-core-utils derives.
+    writeFileSync(
+      join(dir, "arnict.models.json"),
+      JSON.stringify({
+        fetchedAt: 1,
+        models: [
+          {
+            id: "zai/glm-5.3-flash-uncensored",
+            name: "GLM 5.3 Flash Abliterated",
+            contextWindow: 400_000,
+            nativeContextWindow: 1_048_576,
+            maxTokens: 131_072,
+            reasoning: true,
+            input: ["text", "image"],
+            compaction: { reserveTokens: 16_384, thresholdTokens: 383_616 },
+          },
+          {
+            id: "zai/glm-5.3-uncensored",
+            name: "GLM 5.3 Abliterated",
+            contextWindow: 400_000,
+            nativeContextWindow: 1_048_576,
+            maxTokens: 131_072,
+            reasoning: true,
+            input: ["text"],
+            compaction: { reserveTokens: 16_384, thresholdTokens: 383_616 },
+          },
+        ],
+      }),
+    );
+    vi.stubEnv("NS_ARNICT_CATALOG_CACHE_DIR", dir);
+    try {
+      const { createBundledBackends } = await import("../src/serve-entry.js");
+      expect(createBundledBackends().arnict.listModels()).toEqual([
+        { id: "zai/glm-5.3-flash-uncensored", name: "GLM 5.3 Flash Abliterated" },
+        { id: "zai/glm-5.3-uncensored", name: "GLM 5.3 Abliterated" },
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

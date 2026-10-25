@@ -9,7 +9,7 @@ import type { Server } from "node:http";
 import type { AnthropicBackend } from "ns-bridge-core/anthropic";
 import { ensureZcodeServeConfig, zcodeConfigPath } from "./zcode-config.js";
 
-export type ServeVendor = "kiro" | "devin" | "grok";
+export type ServeVendor = "kiro" | "devin" | "grok" | "arnict";
 
 /** The surface of the serve bundle this module needs; matches serve-entry.ts. */
 export interface ServeBundle {
@@ -94,7 +94,7 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
   }
   const bound = server.address();
   const boundPort = typeof bound === "object" && bound !== null ? bound.port : port;
-  log(`ns-bridge serve listening on http://${host}:${boundPort} (kiro, devin, grok)`);
+  log(`ns-bridge serve listening on http://${host}:${boundPort} (kiro, devin, grok, arnict)`);
 
   await stopSignal(options.signal);
   await close(server);

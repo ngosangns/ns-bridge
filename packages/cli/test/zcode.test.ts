@@ -13,6 +13,11 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  arnictModelSpec,
+  ARNICT_GLM_STANDARD_CONTEXT_WINDOW as CORE_ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
+  isArnictGlm53Id,
+} from "ns-arnict-core";
 import { compactionBudget } from "ns-core-utils";
 import {
   KIRO_CLAUDE_COMPACTION_TARGET,
@@ -21,11 +26,13 @@ import {
   kiroModels,
   kiroStandardContextWindow,
 } from "ns-kiro-core";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogGroup, CatalogPaths, CatalogReport, Vendor } from "../src/catalog.js";
 import { type Runner, run } from "../src/cli.js";
 import {
+  ARNICT_GLM_STANDARD_CONTEXT_WINDOW,
   applyZcodeProviders,
+  arnictGlm53Id,
   backupProviderConfig,
   derivedThresholdTokens,
   launchAgentPlist,
@@ -96,6 +103,26 @@ const KIRO_SONNET = { id: "claude-sonnet-5-5", contextWindow: 1_000_000, maxToke
 const KIRO_200K = { id: "claude-200k", contextWindow: 200000, maxTokens: 8192 };
 const DEVIN_MODEL = { id: "devin-main", contextWindow: 200000, maxTokens: 16000, input: ["text"] };
 const GROK_MODEL = { id: "grok-4", contextWindow: 256000, maxTokens: 32000 };
+// The rows the arnict cache writes: standard 400K window, native 1M window, and
+// the compaction budget ns-core-utils derives from the pair.
+const ARNICT_GLM_FLASH = {
+  id: "zai/glm-5.3-flash-uncensored",
+  name: "GLM 5.3 Flash Abliterated",
+  contextWindow: 400_000,
+  nativeContextWindow: 1_048_576,
+  maxTokens: 131_072,
+  input: ["text", "image"],
+  compaction: { reserveTokens: 16_384, thresholdTokens: 383_616 },
+};
+const ARNICT_GLM = {
+  id: "zai/glm-5.3-uncensored",
+  name: "GLM 5.3 Abliterated",
+  contextWindow: 400_000,
+  nativeContextWindow: 1_048_576,
+  maxTokens: 131_072,
+  input: ["text"],
+  compaction: { reserveTokens: 16_384, thresholdTokens: 383_616 },
+};
 
 function catalogPathsIn(dir: string): CatalogPaths {
   return {
@@ -106,8 +133,11 @@ function catalogPathsIn(dir: string): CatalogPaths {
   };
 }
 
-function seedCatalogs(dir: string, present: { kiro?: boolean; devin?: boolean; grok?: boolean } = {}): void {
-  const { kiro = true, devin = true, grok = true } = present;
+function seedCatalogs(
+  dir: string,
+  present: { kiro?: boolean; devin?: boolean; grok?: boolean; arnict?: boolean } = {},
+): void {
+  const { kiro = true, devin = true, grok = true, arnict = false } = present;
   if (kiro) {
     writeFileSync(
       join(dir, "kiro.json"),
@@ -121,6 +151,8 @@ function seedCatalogs(dir: string, present: { kiro?: boolean; devin?: boolean; g
   }
   if (devin) writeFileSync(join(dir, "devin.json"), JSON.stringify({ fetchedAt: 1, models: [DEVIN_MODEL] }));
   if (grok) writeFileSync(join(dir, "grok.json"), JSON.stringify({ fetchedAt: 1, models: [GROK_MODEL] }));
+  if (arnict)
+    writeFileSync(join(dir, "arnict.json"), JSON.stringify({ fetchedAt: 1, models: [ARNICT_GLM_FLASH, ARNICT_GLM] }));
 }
 
 interface CmdPaths {
@@ -373,12 +405,76 @@ describe("kiro compaction policy drift", () => {
     const entries: { vendor: Vendor; id: string; contextWindow: number; maxTokens?: number }[] = [
       { vendor: "devin", id: "devin-main", contextWindow: 200_000, maxTokens: 16_000 },
       { vendor: "grok", id: "grok-4", contextWindow: 256_000, maxTokens: 32_000 },
+      { vendor: "arnict", id: "some-other-model", contextWindow: 200_000, maxTokens: 32_000 },
       { vendor: "devin", id: "m", contextWindow: 200_000 },
     ];
     for (const entry of entries) {
       const budget = compactionBudget({ contextWindow: entry.contextWindow, maxTokens: entry.maxTokens ?? 16_384 });
       expect(derivedThresholdTokens(entry.vendor, entry)).toBe(budget?.thresholdTokens);
     }
+  });
+});
+
+// --- arnict compaction policy drift ---
+
+// Same copied-policy rule as kiro above: zcode.ts restates ns-arnict-core's GLM
+// 5.3 standard window, native window, and id match because the published CLI's
+// dist cannot import the cores at runtime. arnictModelSpec re-derives the
+// budget through ns-core-utils compactionBudget, so both sides must agree.
+
+describe("arnict compaction policy drift", () => {
+  it("carries the core's GLM standard window and id match", () => {
+    expect(ARNICT_GLM_STANDARD_CONTEXT_WINDOW).toBe(CORE_ARNICT_GLM_STANDARD_CONTEXT_WINDOW);
+    expect(ARNICT_GLM_STANDARD_CONTEXT_WINDOW).toBe(400_000);
+    for (const id of [
+      "zai/glm-5.3",
+      "zai/glm-5.3-flash-uncensored",
+      "zai/glm-5.3-uncensored",
+      "zai/glm-5.3:beta",
+      "zai/glm-5.3/next",
+      "zai/glm-5.30",
+      "zai/glm-5.2",
+      "zai/glm-4.5-air",
+    ]) {
+      expect(arnictGlm53Id(id)).toBe(isArnictGlm53Id(id));
+    }
+  });
+
+  it("compacts every glm-5.3 id at the core's 383616 budget", () => {
+    for (const id of ["zai/glm-5.3", "zai/glm-5.3-flash-uncensored", "zai/glm-5.3-beta-next"]) {
+      const spec = arnictModelSpec(id);
+      expect(spec.contextWindow).toBe(400_000);
+      expect(spec.compaction?.thresholdTokens).toBe(383_616);
+      expect(
+        derivedThresholdTokens("arnict", { id, contextWindow: spec.contextWindow, maxTokens: spec.maxTokens }),
+      ).toBe(spec.compaction?.thresholdTokens);
+    }
+  });
+
+  it("caps the reported window at the native window so ZCode compacts at 383616", () => {
+    const entry = {
+      id: "zai/glm-5.3-flash-uncensored",
+      contextWindow: 400_000,
+      maxContextWindow: 1_048_576,
+      maxTokens: 131_072,
+    };
+    // 383616 + 13000 + min(131072, 21000) = 417616: ZCode compacts at
+    // 417616 - 21000 - 13000 = 383616, not at the 400K standard window.
+    expect(zcodeModelWindow({ ...entry, thresholdTokens: 383_616 }, "arnict")).toEqual({
+      window: 417_616,
+      maxOutputTokens: 131_072,
+    });
+    // The derived threshold lands the same window when the file omits compaction.
+    expect(zcodeModelWindow(entry, "arnict")).toEqual({ window: 417_616, maxOutputTokens: 131_072 });
+    // No maxContextWindow in an older cache: the glm-5.3 fallback keeps the cap off.
+    expect(
+      zcodeModelWindow({ id: "zai/glm-5.3-flash-uncensored", contextWindow: 400_000, maxTokens: 131_072 }, "arnict"),
+    ).toEqual({ window: 417_616, maxOutputTokens: 131_072 });
+    // A non-glm id stays capped at its own window.
+    expect(zcodeModelWindow({ id: "zai/glm-4.5-air", contextWindow: 262_144, maxTokens: 32_768 }, "arnict")).toEqual({
+      window: 262_144,
+      maxOutputTokens: 32_768,
+    });
   });
 });
 
@@ -667,12 +763,21 @@ describe("backupProviderConfig", () => {
 describe("zcode argument parsing", () => {
   it("parses vendor lists and defaults", () => {
     expect(parseVendorList("kiro, devin")).toEqual(["kiro", "devin"]);
-    expect(parseVendorList("kiro kiros")).toEqual({ error: "unknown vendor kiros (expected kiro, devin, or grok)" });
-    expect(parseVendorList(",")).toEqual({ error: "--vendors needs at least one of kiro, devin, grok" });
+    expect(parseVendorList("arnict")).toEqual(["arnict"]);
+    expect(parseVendorList("kiro kiros")).toEqual({
+      error: "unknown vendor kiros (expected kiro, devin, grok, or arnict)",
+    });
+    expect(parseVendorList(",")).toEqual({
+      error: "--vendors needs at least one of kiro, devin, grok, or arnict",
+    });
     expect(parseDefaultModel("kiro/claude-1m")).toEqual({ vendor: "kiro", modelId: "claude-1m" });
+    expect(parseDefaultModel("arnict/zai/glm-5.3-flash-uncensored")).toEqual({
+      vendor: "arnict",
+      modelId: "zai/glm-5.3-flash-uncensored",
+    });
     expect(parseDefaultModel("nope")).toEqual({ error: "--default needs <vendor>/<model> (got nope)" });
     expect(parseDefaultModel("acme/m")).toEqual({
-      error: "--default: unknown vendor acme (expected kiro, devin, or grok)",
+      error: "--default: unknown vendor acme (expected kiro, devin, grok, or arnict)",
     });
   });
 });
@@ -680,12 +785,26 @@ describe("zcode argument parsing", () => {
 // --- the command ---
 
 describe("ns-bridge zcode setup", () => {
-  function fresh(present?: { kiro?: boolean; devin?: boolean; grok?: boolean }): CmdPaths {
+  function fresh(present?: { kiro?: boolean; devin?: boolean; grok?: boolean; arnict?: boolean }): CmdPaths {
     const home = tempHome();
     const catalogs = join(home, "catalogs");
     mkdirSync(catalogs);
     seedCatalogs(catalogs, present);
     return cmdPaths(home, catalogs);
+  }
+
+  // Ambient ARNICT_API_KEY must not flip what setup registers; the key comes
+  // from the temp home's config file or an explicit stub in these tests.
+  beforeEach(() => {
+    vi.stubEnv("ARNICT_API_KEY", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function seedArnictKey(home: string): void {
+    mkdirSync(join(home, ".ns-bridge"), { recursive: true });
+    writeFileSync(join(home, ".ns-bridge", "arnict.json"), JSON.stringify({ apiKey: "ak-test-arnict" }));
   }
 
   it("previews and writes nothing", async () => {
@@ -897,20 +1016,70 @@ describe("ns-bridge zcode setup", () => {
     expect(ids).toEqual(["ns-bridge-kiro", "ns-bridge-devin"]);
   });
 
-  it("does not register arnict yet: setup and status stay to the vendors serve routes", async () => {
-    const paths = fresh();
-    writeFileSync(
-      join(paths.catalogs, "arnict.json"),
-      JSON.stringify({ fetchedAt: 1, models: [{ id: "arnict-main", contextWindow: 1_000_000, maxTokens: 32_000 }] }),
-    );
-    const { done } = zcodeRun("setup", paths, { apply: true });
+  it("registers arnict when a key resolves in the temp home", async () => {
+    const paths = fresh({ arnict: true });
+    seedArnictKey(paths.home);
+    const { io, done } = zcodeRun("setup", paths, { apply: true });
     expect(await done).toBe(0);
-    const ids = readJson(paths.providerConfig).config.providerConfigRules.providerRules.map((rule) => rule.providerId);
-    expect(ids).toEqual(["ns-bridge-kiro", "ns-bridge-devin", "ns-bridge-grok"]);
+    const json = readJson(paths.providerConfig);
+    const ids = json.config.providerConfigRules.providerRules.map((rule) => rule.providerId);
+    expect(ids).toEqual(["ns-bridge-kiro", "ns-bridge-devin", "ns-bridge-grok", "ns-bridge-arnict"]);
+    // The glm-5.3 rule reports the native-window window: 383616 + 13000 +
+    // min(131072, 21000) = 417616, so ZCode compacts at 383616.
+    const flash = json.config.modelConfigRules.providerModelRules.find(
+      (rule) => rule.providerId === "ns-bridge-arnict" && rule.modelId === "zai/glm-5.3-flash-uncensored",
+    );
+    expect(flash?.config?.properties).toMatchObject({ contextWindow: 417616, inputFormat: { supportsImage: true } });
+    expect(flash?.config?.optionSpecs).toMatchObject({ maxOutputTokens: { max: 131072 } });
+    expect(
+      json.config.modelConfigRules.providerModelRules.find((rule) => rule.modelId === "zai/glm-5.3-uncensored"),
+    ).toMatchObject({
+      providerId: "ns-bridge-arnict",
+      config: { properties: { contextWindow: 417616, inputFormat: { supportsImage: false } } },
+    });
+    expect([...io.stdout, ...io.stderr].join("\n")).not.toContain("ak-test-arnict");
 
     const status = zcodeRun("status", paths);
     expect(await status.done).toBe(0);
-    expect(status.io.stdout.join("\n")).not.toContain("ns-bridge-arnict");
+    expect(status.io.stdout.join("\n")).toContain("ns-bridge-arnict  present, 2 model(s)");
+  });
+
+  it("honors --default with a slashy arnict model id", async () => {
+    const paths = fresh({ arnict: true });
+    seedArnictKey(paths.home);
+    expect(await zcodeRun("setup", paths, { apply: true }).done).toBe(0);
+    const withDefault = zcodeRun("setup", paths, { apply: true, default: "arnict/zai/glm-5.3-flash-uncensored" });
+    expect(await withDefault.done).toBe(0);
+    expect(readJson(paths.providerConfig).config.defaultModelSelection).toEqual({
+      providerId: "ns-bridge-arnict",
+      modelId: "zai/glm-5.3-flash-uncensored",
+      options: { reasoningLevel: "high" },
+    });
+  });
+
+  it("skips arnict with the login note when no key resolves", async () => {
+    const paths = fresh({ arnict: true });
+    const { io, done } = zcodeRun("setup", paths, { apply: true });
+    expect(await done).toBe(0);
+    expect(io.stdout.join("\n")).toContain("# skipped arnict: no API key (ns-bridge arnict login)");
+    expect(
+      readJson(paths.providerConfig).config.providerConfigRules.providerRules.map((rule) => rule.providerId),
+    ).toEqual(["ns-bridge-kiro", "ns-bridge-devin", "ns-bridge-grok"]);
+  });
+
+  it("keeps a registered arnict provider while its key is missing", async () => {
+    const paths = fresh({ arnict: true });
+    seedArnictKey(paths.home);
+    const now = new Date(2026, 0, 2, 3, 4, 5);
+    expect(await zcodeRun("setup", paths, { apply: true, now }).done).toBe(0);
+    const before = readJson(paths.providerConfig);
+    rmSync(join(paths.home, ".ns-bridge", "arnict.json"));
+
+    const { io, done } = zcodeRun("setup", paths, { apply: true, now });
+    expect(await done).toBe(0);
+    expect(io.stdout.join("\n")).toContain("# skipped arnict: no API key (ns-bridge arnict login)");
+    expect(io.stdout.join("\n")).toContain("already up to date");
+    expect(readJson(paths.providerConfig)).toEqual(before);
   });
 
   it("keeps a registered provider whose catalog goes missing, untouched", async () => {

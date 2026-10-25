@@ -20,6 +20,11 @@ export interface CatalogPaths {
 export interface CatalogEntry {
   id: string;
   contextWindow?: number;
+  /**
+   * The larger window the vendor actually serves, when the catalog recorded
+   * one (arnict writes it as `nativeContextWindow`, OMP as `maxContextWindow`).
+   */
+  maxContextWindow?: number;
   maxTokens?: number;
   /** Where compaction triggers, when the catalog recorded one. */
   thresholdTokens?: number;
@@ -142,9 +147,11 @@ function entriesFrom(models: unknown[]): CatalogEntry[] {
   for (const entry of models) {
     if (!isRecord(entry) || typeof entry.id !== "string" || entry.id.length === 0) continue;
     const compaction = isRecord(entry.compaction) ? entry.compaction : undefined;
+    const maxWindow = positive(entry.maxContextWindow) ?? positive(entry.nativeContextWindow);
     entries.push({
       id: entry.id,
       ...(positive(entry.contextWindow) !== undefined ? { contextWindow: positive(entry.contextWindow) } : {}),
+      ...(maxWindow !== undefined ? { maxContextWindow: maxWindow } : {}),
       ...(positive(entry.maxTokens) !== undefined ? { maxTokens: positive(entry.maxTokens) } : {}),
       // A recorded threshold of 0 is still a threshold: a window no larger than
       // its reservation compacts immediately.

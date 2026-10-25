@@ -7,6 +7,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  ARNICT_CATALOG_CACHE_DIR_ENV,
+  ArnictApiError,
+  ArnictAuthError,
+  type ArnictModelSpec,
+  readArnictCatalog,
+  streamArnict,
+} from "ns-arnict-core";
+import {
   type BridgeContext,
   type BridgeEffort,
   type BridgeStreamEvent,
@@ -229,7 +237,48 @@ const grokBackend: AnthropicBackend = {
 };
 
 // ---------------------------------------------------------------------------
+// Arnict
+// ---------------------------------------------------------------------------
 
-export function createBundledBackends(): Record<"kiro" | "devin" | "grok", AnthropicBackend> {
-  return { kiro: kiroBackend, devin: devinBackend, grok: grokBackend };
+/** The cache root `ns-bridge models refresh` writes into, same as grok's. */
+function arnictCatalogCacheDir(home = homedir(), env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[ARNICT_CATALOG_CACHE_DIR_ENV]?.trim();
+  if (override) return override;
+  return join(home, ".pi", "agent", "cache", "ns-pi-provider");
+}
+
+function arnictModels(): ArnictModelSpec[] {
+  return readArnictCatalog({ cacheDir: arnictCatalogCacheDir() });
+}
+
+async function* arnictStream(request: BackendRequest): AsyncIterable<BridgeStreamEvent> {
+  // No contextWindow: the core records the native 1,048,576-token window
+  // Arnict serves against, not the standard window hosts compact inside.
+  yield* streamArnict({
+    model: request.model,
+    messages: request.context.messages,
+    systemPrompt: request.context.systemPrompt,
+    tools: toCoreTools(request.context.tools),
+    effort: request.effort,
+    sessionId: request.sessionId,
+    signal: request.signal,
+  });
+}
+
+const arnictBackend: AnthropicBackend = {
+  listModels: () => arnictModels().map((model) => ({ id: model.id, name: model.name })),
+  stream: arnictStream,
+  errorStatus: (error) => {
+    if (isMissingLogin(error) || error instanceof ArnictAuthError) return 401;
+    if (error instanceof ArnictApiError && (error.status === 401 || error.status === 403)) return 401;
+    return undefined;
+  },
+  // Arnict core error messages are already redacted.
+  formatError: plainErrorMessage,
+};
+
+// ---------------------------------------------------------------------------
+
+export function createBundledBackends(): Record<"kiro" | "devin" | "grok" | "arnict", AnthropicBackend> {
+  return { kiro: kiroBackend, devin: devinBackend, grok: grokBackend, arnict: arnictBackend };
 }
