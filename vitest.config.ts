@@ -57,6 +57,12 @@ export default defineConfig({
       },
       {
         test: {
+          name: "arnict-dsh",
+          include: ["packages/dsh-llm-arnict/test/**/*.test.ts"],
+        },
+      },
+      {
+        test: {
           name: "cli",
           include: ["packages/cli/test/**/*.test.ts"],
         },
