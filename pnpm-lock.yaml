@@ -286,6 +286,9 @@ importers:
 
   packages/pi-provider:
     dependencies:
+      ns-arnict-core:
+        specifier: workspace:*
+        version: link:../arnict-core
       ns-bridge-core:
         specifier: workspace:*
         version: link:../bridge-core

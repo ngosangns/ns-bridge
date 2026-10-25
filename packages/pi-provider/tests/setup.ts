@@ -5,7 +5,7 @@ import { afterAll } from "vitest";
 
 // kiro-core and devin-core resolve their caches and credential stores from the
 // home directory, some at import time. Keep tests off the developer's live
-// Kiro / Devin / Grok state.
+// Kiro / Devin / Grok / Arnict state.
 const testHome = mkdtempSync(join(tmpdir(), "ns-pi-provider-test-"));
 process.env.HOME = testHome;
 process.env.USERPROFILE = testHome;
@@ -20,6 +20,8 @@ for (const key of [
   "WINDSURF_API_KEY",
   "DEVIN_CREDENTIALS_PATH",
   "NS_DEVIN_MODEL_CACHE",
+  "ARNICT_API_KEY",
+  "NS_BRIDGE_ARNICT_CONFIG",
 ]) {
   delete process.env[key];
 }

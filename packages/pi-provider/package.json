@@ -33,6 +33,7 @@
   "types": "./index.ts",
   "exports": {
     ".": "./index.ts",
+    "./arnict": "./src/arnict.ts",
     "./kiro": "./src/kiro.ts",
     "./devin": "./src/devin.ts",
     "./grok": "./src/grok.ts",
@@ -85,6 +86,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
+    "ns-arnict-core": "workspace:*",
     "ns-bridge-core": "workspace:*",
     "ns-devin-core": "workspace:*",
     "ns-grok-core": "workspace:*",

@@ -4,18 +4,18 @@
  * `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds,
  * `NS_OMP_PROVIDER_DISABLE` removes.
  *
- * No file: kiro, devin, and grok on.
+ * No file: kiro, devin, grok, and arnict on.
  */
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const PROVIDER_KEYS = ["kiro", "devin", "grok"] as const;
+export const PROVIDER_KEYS = ["kiro", "devin", "grok", "arnict"] as const;
 export type ProviderKey = (typeof PROVIDER_KEYS)[number];
 export type ProviderSelection = Record<ProviderKey, boolean>;
 
-const DEFAULT_SELECTION: ProviderSelection = { kiro: true, devin: true, grok: true };
+const DEFAULT_SELECTION: ProviderSelection = { kiro: true, devin: true, grok: true, arnict: true };
 
 export function selectionFilePath(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   return env.NS_BRIDGE_PROVIDERS ?? join(home, ".ns-bridge", "providers.json");
@@ -64,7 +64,7 @@ function listed(value: string | undefined): Partial<Record<ProviderKey, true>> |
   const found: Partial<Record<ProviderKey, true>> = {};
   for (const item of value.split(/[\s,]+/)) {
     const name = item.trim().toLowerCase();
-    if (name === "kiro" || name === "devin" || name === "grok") found[name] = true;
+    if (name === "kiro" || name === "devin" || name === "grok" || name === "arnict") found[name] = true;
   }
   return found;
 }
