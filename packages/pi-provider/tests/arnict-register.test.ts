@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ARNICT_PROVIDER_ID, registerArnictProvider } from "../src/arnict/register.js";
-import { resetDefaultCatalogCache } from "../src/shared/catalog-cache.js";
 import { resolveProviderSelection } from "../src/selection.js";
+import { resetDefaultCatalogCache } from "../src/shared/catalog-cache.js";
 
 function mockPi() {
   const providers = new Map<string, unknown>();
@@ -77,7 +77,12 @@ describe("arnict registration", () => {
       baseUrl: string;
       apiKey: string;
       api: string;
-      models: Array<{ id: string; contextWindow: number; maxContextWindow?: number; cost: { cacheRead: number; cacheWrite: number } }>;
+      models: Array<{
+        id: string;
+        contextWindow: number;
+        maxContextWindow?: number;
+        cost: { cacheRead: number; cacheWrite: number };
+      }>;
     };
     expect(cfg.name).toBe("Arnict");
     expect(cfg.baseUrl).toBe("https://api.arnict.com/v1");

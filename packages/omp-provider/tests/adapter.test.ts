@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  adaptProviderConfig,
   ARNICT_PROVIDER_ID,
+  adaptProviderConfig,
   SESSION_START_ALIASES,
   toFetchDynamicModels,
   toOmpApiKey,
@@ -13,6 +13,17 @@ import {
 const tools = [{ name: "read", description: "Read", parameters: { type: "object" } }];
 
 const ompCompactThreshold = (window: number) => window - Math.max(Math.floor(window * 0.15), 16_384);
+
+const firstModel = (config: Record<string, unknown>) => {
+  const first = (config.models as Array<Record<string, unknown>>)[0];
+  if (first === undefined) throw new Error("adapted config has no models");
+  return first;
+};
+
+const windowOf = (row: Record<string, unknown>) => {
+  if (typeof row.contextWindow !== "number") throw new Error("model row has no numeric contextWindow");
+  return row.contextWindow;
+};
 
 /** The row ns-pi-provider registers for arnict's GLM standard window. */
 const arnictGlmRow = {
@@ -132,9 +143,6 @@ describe("adaptProviderConfig", () => {
 });
 
 describe("arnict model rows", () => {
-  const firstModel = (config: Record<string, unknown>) =>
-    (config.models as Array<Record<string, number>>)[0]!;
-
   it("registers zai/glm-5.3-flash-uncensored at the smallest window whose OMP threshold reaches Pi's 383,616", () => {
     const adapted = adaptProviderConfig(
       { name: "Arnict", api: "arnict-chat", models: [{ ...arnictGlmRow }] },
@@ -142,7 +150,7 @@ describe("arnict model rows", () => {
       ARNICT_PROVIDER_ID,
     );
     const row = firstModel(adapted);
-    const window = row.contextWindow!;
+    const window = windowOf(row);
     expect(ompCompactThreshold(window)).toBe(383_616);
     expect(ompCompactThreshold(window - 1)).toBeLessThan(383_616); // smallest such window
     expect(window).toBeLessThanOrEqual(1_048_576);
@@ -157,25 +165,21 @@ describe("arnict model rows", () => {
       {},
       "arnict",
     );
-    expect(ompCompactThreshold(firstModel(adapted).contextWindow!)).toBe(383_616);
+    expect(ompCompactThreshold(windowOf(firstModel(adapted)))).toBe(383_616);
   });
 
   it("caps the mapped window at maxContextWindow, or at the row's own window when it has none", () => {
-    const capped = adaptProviderConfig(
-      { models: [{ ...arnictGlmRow, maxContextWindow: 420_000 }] },
-      {},
-      "arnict",
-    );
-    expect(firstModel(capped).contextWindow!).toBe(420_000);
+    const capped = adaptProviderConfig({ models: [{ ...arnictGlmRow, maxContextWindow: 420_000 }] }, {}, "arnict");
+    expect(windowOf(firstModel(capped))).toBe(420_000);
     const bare: Record<string, unknown> = { ...arnictGlmRow };
     delete bare.maxContextWindow;
     const own = adaptProviderConfig({ models: [bare] }, {}, "arnict");
-    expect(firstModel(own).contextWindow!).toBe(400_000);
+    expect(windowOf(firstModel(own))).toBe(400_000);
   });
 
   it("lands a smaller standard window on its own Pi threshold when a native window rides along", () => {
     const standard = adaptProviderConfig({ models: [{ ...arnictGlmRow, contextWindow: 200_000 }] }, {}, "arnict");
-    const window = firstModel(standard).contextWindow!;
+    const window = windowOf(firstModel(standard));
     expect(ompCompactThreshold(window)).toBe(200_000 - 16_384);
     expect(window).toBeLessThanOrEqual(1_048_576);
   });
@@ -186,21 +190,21 @@ describe("arnict model rows", () => {
       {},
       "arnict",
     );
-    const fetcher = adapted.fetchDynamicModels as (key?: string) => Promise<Array<Record<string, number>>>;
-    expect(ompCompactThreshold((await fetcher(undefined))[0]!.contextWindow!)).toBe(383_616);
+    const fetcher = adapted.fetchDynamicModels as (key?: string) => Promise<Array<Record<string, unknown>>>;
+    const dynamic = (await fetcher(undefined))[0];
+    if (dynamic === undefined) throw new Error("expected at least one dynamic model");
+    expect(ompCompactThreshold(windowOf(dynamic))).toBe(383_616);
 
     const nullable = adaptProviderConfig({ models: [], fetchDynamicModels: async () => null }, {}, "arnict");
     await expect((nullable.fetchDynamicModels as (key?: string) => Promise<unknown>)(undefined)).resolves.toBeNull();
   });
 
   it("maps refreshModels results when building fetchDynamicModels for arnict", async () => {
-    const adapted = adaptProviderConfig(
-      { models: [], refreshModels: async () => [{ ...arnictGlmRow }] },
-      {},
-      "arnict",
-    );
-    const fetcher = adapted.fetchDynamicModels as (key?: string) => Promise<Array<Record<string, number>>>;
-    expect(ompCompactThreshold((await fetcher(undefined))[0]!.contextWindow!)).toBe(383_616);
+    const adapted = adaptProviderConfig({ models: [], refreshModels: async () => [{ ...arnictGlmRow }] }, {}, "arnict");
+    const fetcher = adapted.fetchDynamicModels as (key?: string) => Promise<Array<Record<string, unknown>>>;
+    const dynamic = (await fetcher(undefined))[0];
+    if (dynamic === undefined) throw new Error("expected at least one dynamic model");
+    expect(ompCompactThreshold(windowOf(dynamic))).toBe(383_616);
   });
 
   it("leaves kiro rows untouched", () => {
@@ -250,14 +254,20 @@ describe("wrapExtensionApi", () => {
     pi.registerProvider("arnict", { models: [arnictRow], fetchDynamicModels: async () => [arnictRow] });
     pi.registerProvider("kiro", { models: [kiroRow] });
 
-    const arnict = real.providers.get("arnict")!;
-    const window = (arnict.models as Array<Record<string, number>>)[0]!.contextWindow!;
-    expect(ompCompactThreshold(window)).toBe(383_616);
-    const dynamic = await (arnict.fetchDynamicModels as (key?: string) => Promise<Array<Record<string, number>>>)(
+    const arnict = real.providers.get("arnict");
+    if (arnict === undefined) throw new Error("arnict provider was not registered");
+    const staticRow = (arnict.models as Array<Record<string, unknown>>)[0];
+    if (staticRow === undefined) throw new Error("arnict has no static models");
+    expect(ompCompactThreshold(windowOf(staticRow))).toBe(383_616);
+    const dynamic = await (arnict.fetchDynamicModels as (key?: string) => Promise<Array<Record<string, unknown>>>)(
       undefined,
     );
-    expect(ompCompactThreshold(dynamic[0]!.contextWindow!)).toBe(383_616);
+    const dynamicRow = dynamic[0];
+    if (dynamicRow === undefined) throw new Error("arnict returned no dynamic models");
+    expect(ompCompactThreshold(windowOf(dynamicRow))).toBe(383_616);
 
-    expect((real.providers.get("kiro")!.models as unknown[])[0]).toBe(kiroRow);
+    const kiro = real.providers.get("kiro");
+    if (kiro === undefined) throw new Error("kiro provider was not registered");
+    expect((kiro.models as unknown[])[0]).toBe(kiroRow);
   });
 });

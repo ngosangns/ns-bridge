@@ -29,7 +29,10 @@ afterEach(() => {
 
 const KEY = "arnict-secret-key-value";
 
-function fakeFetch(body: unknown): { fetchImpl: typeof fetch; calls: Array<{ url: string; headers: Record<string, string> }> } {
+function fakeFetch(body: unknown): {
+  fetchImpl: typeof fetch;
+  calls: Array<{ url: string; headers: Record<string, string> }>;
+} {
   const calls: Array<{ url: string; headers: Record<string, string> }> = [];
   const fetchImpl = (async (url: unknown, init?: RequestInit) => {
     calls.push({
@@ -121,7 +124,9 @@ describe("refreshArnictModels", () => {
     const flash = stored.models.find((m) => m.id === "zai/glm-5.3-flash-uncensored");
     expect(flash?.cost).toEqual({ input: 0.125, output: 0.5, cacheRead: 0.05, cacheWrite: 0 });
     // The compaction budget a core spec carries survives onto the catalog row.
-    expect(flash?.compaction).toEqual(arnictBootstrapModels().find((m) => m.id === "zai/glm-5.3-flash-uncensored")?.compaction);
+    expect(flash?.compaction).toEqual(
+      arnictBootstrapModels().find((m) => m.id === "zai/glm-5.3-flash-uncensored")?.compaction,
+    );
 
     // An id the table does not know gets the default shape and no rates.
     const unknown = stored.models.find((m) => m.id === "brand/new-model");
