@@ -17,6 +17,10 @@
     "./dsh": {
       "types": "./dist/dsh/index.d.ts",
       "default": "./dist/dsh/index.js"
+    },
+    "./anthropic": {
+      "types": "./dist/anthropic/index.d.ts",
+      "default": "./dist/anthropic/index.js"
     }
   },
   "license": "MIT",

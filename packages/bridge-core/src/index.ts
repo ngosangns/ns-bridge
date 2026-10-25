@@ -2,6 +2,7 @@
 // under subpaths so a host only loads what it speaks:
 //   ns-bridge-core/pi   Pi (@earendil-works/pi-ai) and OMP (@oh-my-pi/pi-ai)
 //   ns-bridge-core/dsh  DeepSeek Harness (@deepseek-ai/dsh-llm)
+//   ns-bridge-core/anthropic  ZCode (@ai-sdk/anthropic), via a local HTTP server
 
 export { setUsageHost, type UsageHost } from "ns-core-utils";
 export { toBridgeEffort } from "./effort.js";
