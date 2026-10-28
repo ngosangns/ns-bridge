@@ -1,6 +1,6 @@
 /**
  * Update this CLI itself. Host plugins stay on `ns-bridge update`.
- * Like every other mutating command, the default is a preview; `--apply` runs it.
+ * Like every other mutating command, the default applies; `--dry-run` previews it.
  */
 
 import { createRequire } from "node:module";

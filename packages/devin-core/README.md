@@ -16,7 +16,7 @@ The public entry points (`streamDevin`, `fetchDevinModels`, `fetchDevinUsage`,
 `loginDevinWithPkce`) run in this package: Connect/protobuf streaming, model
 discovery, usage, and the browser PKCE login. The credential store, the model
 cache, and the error vocabulary stay here too. Hosts read the cache file.
-`ns-bridge models refresh devin --apply` is what calls `fetchDevinModels`.
+`ns-bridge models refresh devin` is what calls `fetchDevinModels`.
 
 ## What it does
 

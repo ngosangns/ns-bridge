@@ -1,5 +1,5 @@
 /**
- * Catalog refresh loads the Pi provider only when `--apply` runs.
+ * Catalog refresh loads the Pi provider only when the command applies.
  * `status`, `models list`, and install previews do not import it.
  */
 

@@ -4,7 +4,7 @@ DeepSeek Harness (dsh) LLM adapter that adds Arnict as a model provider. The
 model list is the catalog file at
 `~/.pi/agent/cache/ns-pi-provider/arnict.models.json`, including a file past
 its TTL; `NS_ARNICT_CATALOG_CACHE_DIR` points a deployment elsewhere.
-`ns-bridge models refresh arnict --apply` writes that file. Streaming posts one
+`ns-bridge models refresh arnict` writes that file. Streaming posts one
 `/v1/chat/completions` call to `api.arnict.com` with the stored API key
 (`ARNICT_API_KEY` or `~/.ns-bridge/arnict.json`). There is no other HTTP
 client in this package.

@@ -7,7 +7,7 @@ model provider. Sessions come from the machine — `devin auth login` — so no
 credential setup lives here.
 
 The last npm release is `0.4.3`. Install it with
-`ns-bridge install dsh --profile <profile> --apply`.
+`ns-bridge install dsh --profile <profile>`.
 
 ```yaml
 - id: llm-devin

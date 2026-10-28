@@ -15,7 +15,7 @@ host adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
 - **Endpoints** — SSO region to management/runtime host resolution.
 - **Model catalog** — the bootstrap list, the authenticated regional catalog,
   and a validated on-disk cache at `~/.ns-kiro-provider-models-cache.json`.
-  Hosts read that file. `ns-bridge models refresh kiro --apply` writes it.
+  Hosts read that file. `ns-bridge models refresh kiro` writes it.
   Per-model billing weights (`rateMultiplier`) come from kiro-cli, the only
   source that publishes them.
 - **Usage** — Kiro reports no token counts, only a billed amount, surfaced as

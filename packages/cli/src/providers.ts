@@ -283,7 +283,7 @@ function pluginBlock(raw: string, provider: ProviderName): string | undefined {
 }
 
 export function formatProviderPlan(plan: ProviderPlan, apply: boolean): string[] {
-  const lines = apply ? [] : ["# dry-run (pass --apply to run)"];
+  const lines = apply ? [] : ["# dry-run (run without --dry-run to apply)"];
   for (const step of plan.steps) lines.push(step.line);
   if (plan.skipDsh) lines.push("# dsh skipped: pass --profile <name>");
   return lines;

@@ -8,7 +8,7 @@ The last npm release is `0.5.3`. npm marks it deprecated. Install it with the
 maintained CLI, or with OMP directly:
 
 ```bash
-ns-bridge install omp --apply
+ns-bridge install omp
 omp plugin install ns-omp-provider-kiro
 ```
 
@@ -43,7 +43,7 @@ writing the refresh back so both tools stay on the same token. With no session
 on the machine it prompts for a Kiro API key (`ksk_…`) instead.
 
 `/model` lists the catalog file for the account's region
-(`~/.ns-kiro-provider-models-cache.json`). `ns-bridge models refresh kiro --apply`
+(`~/.ns-kiro-provider-models-cache.json`). `ns-bridge models refresh kiro`
 writes that file from Kiro's management API. While OMP is running it reads the
 file and does not fetch a new one.
 

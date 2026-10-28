@@ -23,7 +23,7 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok), [`ns-dsh-llm-arnict`](packages/dsh-llm-arnict) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
 | cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Installs host packages and refreshes model catalogs outside the host process |
 
-Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh --apply` writes them.
+Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh` writes them.
 
 ### Where a change goes
 
@@ -229,7 +229,7 @@ pnpm --filter @ngosangns/ns-bridge build   # dist/serve-entry.js must exist
 tmp=$(mktemp -d)
 export NS_BRIDGE_ZCODE_CONFIG=$tmp/zcode.json
 export ZCODE_PERSONAL_PROVIDER_CONFIG_FILE=$tmp/provider_config.json
-node packages/cli/dist/main.js zcode setup --no-service --force --apply
+node packages/cli/dist/main.js zcode setup --no-service --force
 node packages/cli/dist/main.js serve       # reads the same temp config
 ```
 

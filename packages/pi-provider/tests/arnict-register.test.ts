@@ -117,7 +117,7 @@ describe("arnict registration", () => {
     const models = await runCommand(commands, "models");
     expect(models).toContain("zai/glm-5.3-flash-uncensored");
     const refresh = await runCommand(commands, "refresh");
-    expect(refresh).toContain("ns-bridge models refresh arnict --apply");
+    expect(refresh).toContain("ns-bridge models refresh arnict");
     const unknown = await runCommand(commands, "bogus");
     expect(unknown).toContain("Unknown action");
   });

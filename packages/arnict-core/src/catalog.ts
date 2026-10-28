@@ -1,5 +1,5 @@
 // ABOUTME: The Arnict model catalog contract: bootstrap ids, defaults, and the on-disk cache shape.
-// ABOUTME: Hosts read the file; `ns-bridge models refresh arnict --apply` writes it.
+// ABOUTME: Hosts read the file; `ns-bridge models refresh arnict` writes it.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

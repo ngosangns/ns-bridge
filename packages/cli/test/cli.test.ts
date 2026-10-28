@@ -35,17 +35,17 @@ describe("ns-bridge", () => {
     expect(code).toBe(0);
     expect(io.stdout.join("\n")).toContain("ns-bridge models refresh");
     expect(io.stdout.join("\n")).toContain("omp plugin upgrade");
-    expect(io.stdout.join("\n")).toContain("--apply");
+    expect(io.stdout.join("\n")).toContain("--dry-run");
     expect(runner).not.toHaveBeenCalled();
   });
 
   it("previews pi and omp install and skips dsh without a profile", async () => {
     const io = capture();
     const runner = vi.fn<Runner>(async () => ({ code: 0, stdout: "", stderr: "" }));
-    const code = await run(["install"], { ...io, runner });
+    const code = await run(["install", "--dry-run"], { ...io, runner });
     expect(code).toBe(0);
     expect(io.stdout).toEqual([
-      "# dry-run (pass --apply to run)",
+      "# dry-run (run without --dry-run to apply)",
       "pi install npm:@ngosangns/ns-pi-provider",
       "omp plugin install ns-omp-provider-kiro",
       "# dsh skipped: pass --profile <name>",
@@ -55,7 +55,7 @@ describe("ns-bridge", () => {
 
   it("previews omp upgrade and a dsh update for a named profile", async () => {
     const io = capture();
-    const code = await run(["update", "all", "--profile", "headless"], io);
+    const code = await run(["update", "all", "--profile", "headless", "--dry-run"], io);
     expect(code).toBe(0);
     expect(io.stdout).toContain("omp plugin upgrade ns-omp-provider-kiro");
     expect(io.stdout).toContain(
@@ -65,7 +65,7 @@ describe("ns-bridge", () => {
 
   it("uninstalls the old ns-omp-provider along with the kiro plugin, but never installs or upgrades it", async () => {
     const io = capture();
-    expect(await run(["uninstall", "omp"], io)).toBe(0);
+    expect(await run(["uninstall", "omp", "--dry-run"], io)).toBe(0);
     expect(io.stdout).toContain("omp plugin uninstall ns-omp-provider-kiro ns-omp-provider");
     expect(io.stdout.join("\n")).not.toMatch(/(install|upgrade) ns-omp-provider( |$)/);
     const help = capture();
@@ -73,17 +73,26 @@ describe("ns-bridge", () => {
     expect(help.stdout.join("\n")).toContain("OMP has its own devin, xai, and xai-oauth providers");
   });
 
-  it("runs host commands only with --apply", async () => {
+  it("runs host commands by default", async () => {
     const io = capture();
     const calls: string[][] = [];
     const runner: Runner = async (argv) => {
       calls.push(argv);
       return { code: 0, stdout: "installed", stderr: "" };
     };
-    const code = await run(["install", "pi", "--apply"], { ...io, runner });
+    const code = await run(["install", "pi"], { ...io, runner });
     expect(code).toBe(0);
     expect(calls).toEqual([["pi", "install", "npm:@ngosangns/ns-pi-provider"]]);
     expect(io.stdout).toContain("installed");
+  });
+
+  it("rejects the removed --apply flag", async () => {
+    const io = capture();
+    const runner = vi.fn<Runner>(async () => ({ code: 0, stdout: "", stderr: "" }));
+    const code = await run(["install", "pi", "--apply"], { ...io, runner });
+    expect(code).toBe(1);
+    expect(io.stderr.join("\n")).toContain("--apply was removed");
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it("returns 2 when a host command fails and does not continue", async () => {
@@ -93,7 +102,7 @@ describe("ns-bridge", () => {
       calls.push(argv);
       return { code: 1, stdout: "", stderr: "nope" };
     };
-    const code = await run(["install", "--apply"], { ...io, runner });
+    const code = await run(["install"], { ...io, runner });
     expect(code).toBe(2);
     expect(calls).toEqual([["pi", "install", "npm:@ngosangns/ns-pi-provider"]]);
     expect(io.stderr.join("\n")).toContain("exited 1");
@@ -102,7 +111,7 @@ describe("ns-bridge", () => {
   it("refuses the desktop profile and does not spawn", async () => {
     const io = capture();
     const runner = vi.fn<Runner>(async () => ({ code: 0, stdout: "", stderr: "" }));
-    const code = await run(["install", "dsh", "--profile", "desktop", "--apply"], { ...io, runner });
+    const code = await run(["install", "dsh", "--profile", "desktop"], { ...io, runner });
     expect(code).toBe(1);
     expect(io.stderr.join("\n")).toContain("Electron");
     expect(runner).not.toHaveBeenCalled();
@@ -254,9 +263,9 @@ describe("ns-bridge", () => {
       grok: vi.fn(async () => ({ count: 1 })),
       arnict: vi.fn(async () => ({ count: 1 })),
     };
-    const code = await run(["models", "refresh", "kiro"], { ...io, refreshers });
+    const code = await run(["models", "refresh", "kiro", "--dry-run"], { ...io, refreshers });
     expect(code).toBe(0);
-    expect(io.stdout).toEqual(["# dry-run (pass --apply to run)", "refresh kiro"]);
+    expect(io.stdout).toEqual(["# dry-run (run without --dry-run to apply)", "refresh kiro"]);
     expect(refreshers.kiro).not.toHaveBeenCalled();
     expect(refreshers.devin).not.toHaveBeenCalled();
   });
@@ -270,7 +279,7 @@ describe("ns-bridge", () => {
       grok: vi.fn(async () => ({ count: 1 })),
       arnict,
     };
-    const code = await run(["models", "refresh", "arnict", "--apply"], { ...io, refreshers });
+    const code = await run(["models", "refresh", "arnict"], { ...io, refreshers });
     expect(code).toBe(0);
     expect(io.stdout).toEqual(["arnict: 4 model(s) source=live"]);
     expect(arnict).toHaveBeenCalledOnce();
@@ -279,7 +288,7 @@ describe("ns-bridge", () => {
     expect(refreshers.grok).not.toHaveBeenCalled();
   });
 
-  it("refreshes only the selected vendor when --apply is set", async () => {
+  it("refreshes only the selected vendor by default", async () => {
     const io = capture();
     const refreshers: ModelRefresh = {
       kiro: vi.fn(async () => ({ count: 3, detail: "region=us-east-1" })),
@@ -289,7 +298,7 @@ describe("ns-bridge", () => {
       }),
       arnict: vi.fn(async () => ({ count: 1 })),
     };
-    const code = await run(["models", "refresh", "kiro", "--apply"], { ...io, refreshers });
+    const code = await run(["models", "refresh", "kiro"], { ...io, refreshers });
     expect(code).toBe(0);
     expect(io.stdout).toEqual(["kiro: 3 model(s) region=us-east-1"]);
     expect(refreshers.devin).not.toHaveBeenCalled();
@@ -306,7 +315,7 @@ describe("ns-bridge", () => {
       grok: vi.fn(async () => ({ count: 1 })),
       arnict: vi.fn(async () => ({ count: 1 })),
     };
-    const code = await run(["models", "refresh", "--apply"], { ...io, refreshers });
+    const code = await run(["models", "refresh"], { ...io, refreshers });
     expect(code).toBe(1);
     expect(io.stdout).toEqual(["kiro: 1 model(s)"]);
     expect(io.stderr).toEqual(["devin: catalog down"]);
@@ -314,16 +323,16 @@ describe("ns-bridge", () => {
     expect(refreshers.arnict).not.toHaveBeenCalled();
   });
 
-  it("previews a provider disable and does not write", async () => {
+  it("previews a provider disable with --dry-run and does not write", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
     const io = capture();
     const selection = join(dir, "providers.json");
-    const code = await run(["providers", "disable", "pi", "grok"], {
+    const code = await run(["providers", "disable", "pi", "grok", "--dry-run"], {
       ...io,
       providerPaths: { selection, piSettings: join(dir, "missing.json"), dshHome: dir },
     });
     expect(code).toBe(0);
-    expect(io.stdout[0]).toBe("# dry-run (pass --apply to run)");
+    expect(io.stdout[0]).toBe("# dry-run (run without --dry-run to apply)");
     expect(io.stdout[1]).toContain("grok off");
     expect(() => readFileSync(selection, "utf8")).toThrow();
   });
@@ -335,10 +344,10 @@ describe("ns-bridge", () => {
     writeFileSync(piSettings, JSON.stringify({ packages: ["npm:@ngosangns/ns-pi-provider"] }));
     const paths = { selection, piSettings, dshHome: dir };
     const io = capture();
-    expect(await run(["providers", "disable", "pi", "devin", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+    expect(await run(["providers", "disable", "pi", "devin"], { ...io, providerPaths: paths })).toBe(0);
     // Only the choice is written. Defaults stay out of the file, so no reader mistakes one for a choice.
     expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ devin: false });
-    expect(await run(["providers", "disable", "omp", "kiro", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+    expect(await run(["providers", "disable", "omp", "kiro"], { ...io, providerPaths: paths })).toBe(0);
     expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ kiro: false, devin: false });
     const status = capture();
     expect(await run(["providers", "status", "pi"], { ...status, providerPaths: paths })).toBe(0);
@@ -360,7 +369,7 @@ describe("ns-bridge", () => {
     writeFileSync(piSettings, JSON.stringify({ packages: ["npm:@ngosangns/ns-pi-provider"] }));
     const io = capture();
     expect(
-      await run(["providers", "enable", "pi", "arnict", "--apply"], {
+      await run(["providers", "enable", "pi", "arnict"], {
         ...io,
         providerPaths: { selection, piSettings, dshHome: dir },
       }),
@@ -380,7 +389,7 @@ describe("ns-bridge", () => {
       const { selection, paths } = setup();
       for (const provider of ["devin", "grok"]) {
         const io = capture();
-        expect(await run(["providers", "enable", "omp", provider, "--apply"], { ...io, providerPaths: paths })).toBe(1);
+        expect(await run(["providers", "enable", "omp", provider], { ...io, providerPaths: paths })).toBe(1);
         expect(io.stderr.join("\n")).toContain(`omp does not use ns-bridge for ${provider}`);
         expect(io.stdout).toEqual([]);
       }
@@ -397,8 +406,8 @@ describe("ns-bridge", () => {
       const { selection, paths } = setup();
       writeFileSync(selection, JSON.stringify({ kiro: true, devin: true, grok: true }));
       const io = capture();
-      expect(await run(["providers", "disable", "omp", "devin", "--apply"], { ...io, providerPaths: paths })).toBe(0);
-      expect(await run(["providers", "disable", "omp", "grok", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+      expect(await run(["providers", "disable", "omp", "devin"], { ...io, providerPaths: paths })).toBe(0);
+      expect(await run(["providers", "disable", "omp", "grok"], { ...io, providerPaths: paths })).toBe(0);
       expect(io.stdout.join("\n")).toContain("omp devin off (nothing to change");
       expect(io.stdout.join("\n")).toContain("omp grok off (nothing to change");
       expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ kiro: true, devin: true, grok: true });
@@ -419,11 +428,11 @@ describe("ns-bridge", () => {
     it("enables and disables arnict for omp through the shared file", async () => {
       const { selection, paths } = setup();
       const io = capture();
-      expect(await run(["providers", "enable", "omp", "arnict", "--apply"], { ...io, providerPaths: paths })).toBe(0);
+      expect(await run(["providers", "enable", "omp", "arnict"], { ...io, providerPaths: paths })).toBe(0);
       expect(io.stdout.join("\n")).toContain("arnict on");
       expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ arnict: true });
       const off = capture();
-      expect(await run(["providers", "disable", "omp", "arnict", "--apply"], { ...off, providerPaths: paths })).toBe(0);
+      expect(await run(["providers", "disable", "omp", "arnict"], { ...off, providerPaths: paths })).toBe(0);
       expect(JSON.parse(readFileSync(selection, "utf8"))).toEqual({ arnict: false });
     });
 
@@ -458,7 +467,7 @@ describe("ns-bridge", () => {
     const paths = { selection: join(dir, "providers.json"), piSettings: join(dir, "settings.json"), dshHome: dir };
     const off = capture();
     expect(
-      await run(["providers", "disable", "dsh", "grok", "--profile", "headless", "--apply"], {
+      await run(["providers", "disable", "dsh", "grok", "--profile", "headless"], {
         ...off,
         providerPaths: paths,
       }),
@@ -466,7 +475,7 @@ describe("ns-bridge", () => {
     expect(readFileSync(patch, "utf8")).toContain("disabled: true");
     const on = capture();
     expect(
-      await run(["providers", "enable", "dsh", "grok", "--profile", "headless", "--apply"], {
+      await run(["providers", "enable", "dsh", "grok", "--profile", "headless"], {
         ...on,
         providerPaths: paths,
       }),
@@ -493,7 +502,7 @@ describe("ns-bridge", () => {
     const paths = { selection: join(dir, "providers.json"), piSettings: join(dir, "settings.json"), dshHome: dir };
     const off = capture();
     expect(
-      await run(["providers", "disable", "dsh", "arnict", "--profile", "headless", "--apply"], {
+      await run(["providers", "disable", "dsh", "arnict", "--profile", "headless"], {
         ...off,
         providerPaths: paths,
       }),
@@ -501,7 +510,7 @@ describe("ns-bridge", () => {
     expect(readFileSync(patch, "utf8")).toContain("disabled: true");
     const on = capture();
     expect(
-      await run(["providers", "enable", "dsh", "arnict", "--profile", "headless", "--apply"], {
+      await run(["providers", "enable", "dsh", "arnict", "--profile", "headless"], {
         ...on,
         providerPaths: paths,
       }),
@@ -515,7 +524,7 @@ describe("ns-bridge", () => {
     writeFileSync(emptyPatch, "- insert:\n    - id: llm-grok\n      name: ns-dsh-llm-grok\n");
     const missing = capture();
     expect(
-      await run(["providers", "disable", "dsh", "arnict", "--profile", "headless", "--apply"], {
+      await run(["providers", "disable", "dsh", "arnict", "--profile", "headless"], {
         ...missing,
         providerPaths: {
           selection: join(emptyDir, "providers.json"),
@@ -534,24 +543,24 @@ describe("ns-bridge", () => {
       calls.push(argv);
       return { code: 0, stdout: "0.2.0\n", stderr: "" };
     };
-    const code = await run(["update"], { ...io, runner, version: "0.1.12" });
+    const code = await run(["update", "--dry-run"], { ...io, runner, version: "0.1.12" });
     expect(code).toBe(0);
     expect(calls).toEqual([["npm", "view", "@ngosangns/ns-bridge", "version"]]);
     expect(io.stdout).toEqual([
-      "# dry-run (pass --apply to run)",
+      "# dry-run (run without --dry-run to apply)",
       "@ngosangns/ns-bridge 0.1.12 → 0.2.0",
       "npm install -g @ngosangns/ns-bridge@0.2.0",
     ]);
   });
 
-  it("installs the latest CLI only with --apply", async () => {
+  it("installs the latest CLI by default", async () => {
     const io = capture();
     const calls: string[][] = [];
     const runner: Runner = async (argv) => {
       calls.push(argv);
       return { code: 0, stdout: argv[1] === "view" ? "0.2.0\n" : "added 1 package", stderr: "" };
     };
-    const code = await run(["update", "--apply"], { ...io, runner, version: "0.1.12" });
+    const code = await run(["update"], { ...io, runner, version: "0.1.12" });
     expect(code).toBe(0);
     expect(calls[1]).toEqual(["npm", "install", "-g", "@ngosangns/ns-bridge@0.2.0"]);
     expect(io.stdout.at(-1)).toBe("@ngosangns/ns-bridge updated 0.1.12 → 0.2.0");
@@ -564,7 +573,7 @@ describe("ns-bridge", () => {
       calls.push(argv);
       return { code: 0, stdout: "0.1.12\n", stderr: "" };
     };
-    const code = await run(["update", "--apply"], { ...io, runner, version: "0.1.12" });
+    const code = await run(["update"], { ...io, runner, version: "0.1.12" });
     expect(code).toBe(0);
     expect(calls).toEqual([["npm", "view", "@ngosangns/ns-bridge", "version"]]);
     expect(io.stdout).toEqual(["@ngosangns/ns-bridge 0.1.12 is already the latest"]);
@@ -573,7 +582,7 @@ describe("ns-bridge", () => {
   it("reports an npm lookup failure and does not install", async () => {
     const io = capture();
     const runner: Runner = async () => ({ code: 1, stdout: "", stderr: "ENOTFOUND" });
-    const code = await run(["update", "--apply"], { ...io, runner, version: "0.1.12" });
+    const code = await run(["update"], { ...io, runner, version: "0.1.12" });
     expect(code).toBe(2);
     expect(io.stderr.join("\n")).toContain("ENOTFOUND");
   });
@@ -845,9 +854,9 @@ describe("kiro profile", () => {
   it("previews a pin without writing it", async () => {
     const io = capture();
     const { ops, selections } = fakeOps();
-    expect(await run(["kiro", "profile", "use", "us-east-1"], { ...io, kiroProfiles: ops })).toBe(0);
+    expect(await run(["kiro", "profile", "use", "us-east-1", "--dry-run"], { ...io, kiroProfiles: ops })).toBe(0);
     expect(io.stdout).toEqual([
-      "# dry-run (pass --apply to run)",
+      "# dry-run (run without --dry-run to apply)",
       "pin KiroProfile-us-east-1 (us-east-1) in /home/me/.ns-bridge/kiro-profile.json",
     ]);
     expect(selections).toEqual([]);
@@ -858,7 +867,7 @@ describe("kiro profile", () => {
     const { ops, selections } = fakeOps();
     const { kiro, refreshers } = fakeRefreshers();
     expect(
-      await run(["kiro", "profile", "use", "kiroprofile-us-east-1", "--apply"], {
+      await run(["kiro", "profile", "use", "kiroprofile-us-east-1"], {
         ...io,
         kiroProfiles: ops,
         refreshers,
@@ -872,7 +881,7 @@ describe("kiro profile", () => {
     const cached = fakeOps({ cached: [usArn] });
     const second = fakeRefreshers();
     expect(
-      await run(["kiro", "profile", "use", usArn, "--apply"], {
+      await run(["kiro", "profile", "use", usArn], {
         ...again,
         kiroProfiles: cached.ops,
         refreshers: second.refreshers,
@@ -887,7 +896,7 @@ describe("kiro profile", () => {
     const { ops, selections } = fakeOps({ cached: [] });
     const { refreshers } = fakeRefreshers();
     const apArn = "arn:aws:codewhisperer:ap-southeast-1:123456789012:profile/AP";
-    expect(await run(["kiro", "profile", "use", apArn, "--apply"], { ...io, kiroProfiles: ops, refreshers })).toBe(0);
+    expect(await run(["kiro", "profile", "use", apArn], { ...io, kiroProfiles: ops, refreshers })).toBe(0);
     expect(selections).toEqual([{ arn: apArn }]);
     expect(io.stdout).toContain(`pinned ${apArn} (ap-southeast-1) in /home/me/.ns-bridge/kiro-profile.json`);
     expect(io.stderr).toContain(
@@ -912,7 +921,7 @@ describe("kiro profile", () => {
       const { ops, selections } = fakeOps();
       const { kiro, refreshers } = fakeRefreshers();
       expect(
-        await run(["kiro", "profile", "use", "us-east-1", "--apply"], {
+        await run(["kiro", "profile", "use", "us-east-1"], {
           ...io,
           kiroProfiles: ops,
           refreshers,
@@ -927,7 +936,7 @@ describe("kiro profile", () => {
     }
   });
 
-  it("drops the pin on reset --apply", async () => {
+  it("drops the pin on reset", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ns-bridge-kiro-profile-"));
     const selectionPath = join(dir, "kiro-profile.json");
     writeFileSync(selectionPath, "{}\n");
@@ -935,10 +944,10 @@ describe("kiro profile", () => {
     const { ops, selections } = fakeOps();
     ops.selectionPath = selectionPath;
     try {
-      expect(await run(["kiro", "profile", "reset"], { ...io, kiroProfiles: ops })).toBe(0);
+      expect(await run(["kiro", "profile", "reset", "--dry-run"], { ...io, kiroProfiles: ops })).toBe(0);
       expect(selections).toEqual([]);
       expect(io.stdout).toContain(`remove ${selectionPath}`);
-      expect(await run(["kiro", "profile", "reset", "--apply"], { ...io, kiroProfiles: ops })).toBe(0);
+      expect(await run(["kiro", "profile", "reset"], { ...io, kiroProfiles: ops })).toBe(0);
       expect(selections).toEqual([undefined]);
       expect(io.stdout).toContain(`removed ${selectionPath}; Kiro follows the login's profile again`);
     } finally {
@@ -953,8 +962,8 @@ describe("kiro profile", () => {
     const { ops, selections } = fakeOps();
     ops.selectionPath = selectionPath;
     try {
+      expect(await run(["kiro", "profile", "reset", "--dry-run"], { ...io, kiroProfiles: ops })).toBe(0);
       expect(await run(["kiro", "profile", "reset"], { ...io, kiroProfiles: ops })).toBe(0);
-      expect(await run(["kiro", "profile", "reset", "--apply"], { ...io, kiroProfiles: ops })).toBe(0);
       expect(selections).toEqual([]);
       const line = `no pin at ${selectionPath}; Kiro already follows the login's profile`;
       expect(io.stdout.filter((printed) => printed === line)).toHaveLength(2);

@@ -14,16 +14,16 @@ ns-bridge help
 process. Pi, OMP, and DSH read those files.
 
 ```bash
-ns-bridge install          # preview
-ns-bridge install --apply  # pi + omp; DSH needs --profile
-ns-bridge update --apply       # this CLI, from npm
+ns-bridge install --dry-run # preview pi + omp; DSH needs --profile
+ns-bridge install          # pi + omp; DSH needs --profile
+ns-bridge update               # this CLI, from npm
 ns-bridge models list
 ns-bridge usage                # cache hit and tokens the plugins recorded
-ns-bridge providers disable pi grok --apply
-ns-bridge models refresh --apply
+ns-bridge providers disable pi grok
+ns-bridge models refresh
 ```
 
-Mutating commands preview unless you pass `--apply`. DSH needs `--profile <name>`.
+Mutating commands apply by default; pass `--dry-run` to preview them. DSH needs `--profile <name>`.
 The `desktop` profile stays with the Electron app. See [packages/cli](packages/cli).
 
 ## Sign in
@@ -48,7 +48,7 @@ models, signed in with an API key rather than a vendor CLI:
 ns-bridge arnict login   # reads the key from piped stdin or a hidden prompt,
                          # stores it in ~/.ns-bridge/arnict.json (0600)
 ns-bridge arnict status
-ns-bridge models refresh arnict --apply
+ns-bridge models refresh arnict
 ```
 
 `ARNICT_API_KEY` outranks the file. No published install carries `arnict`:
@@ -70,18 +70,18 @@ Models (USD per 1M tokens, input/cached/output, arnict.com/docs/pricing):
 ## Pi
 
 ```bash
-ns-bridge install pi --apply
+ns-bridge install pi
 pi --model kiro/claude-sonnet-4-6
 ```
 
 Registers `kiro`, `devin`, and `grok`. `/ns-pi refresh` and `/grok refresh`
-point at `ns-bridge models refresh --apply`. The installed `ns-pi-provider`
+point at `ns-bridge models refresh`. The installed `ns-pi-provider`
 predates Arnict — see [Arnict](#arnict) for loading it from this repo.
 
 ## OMP
 
 ```bash
-ns-bridge install omp --apply
+ns-bridge install omp
 ```
 
 Registers `kiro` only. For `arnict`, see [Arnict](#arnict). OMP ships `devin`, `xai`, and `xai-oauth` itself, so ns-bridge no
@@ -93,7 +93,7 @@ longer provides `devin` or `grok` there: sign in with `/login devin` and `/login
 ## DeepSeek Harness
 
 ```bash
-ns-bridge install dsh --profile <profile> --apply
+ns-bridge install dsh --profile <profile>
 ```
 
 The CLI refuses profile `desktop`; the Electron app owns it. Then in that
@@ -130,9 +130,9 @@ provider.
 
 ```bash
 ns-bridge serve                    # http://127.0.0.1:47821/<vendor>/v1/messages
-ns-bridge zcode setup --apply      # register the providers + install the launch agent
+ns-bridge zcode setup              # register the providers + install the launch agent
 ns-bridge zcode status
-ns-bridge zcode remove --apply     # strips them again; ~/.ns-bridge/zcode.json stays
+ns-bridge zcode remove             # strips them again; ~/.ns-bridge/zcode.json stays
 ```
 
 `serve` binds loopback only and reads its port and token from
@@ -150,9 +150,9 @@ narrows further. `--default <vendor>/<model>` also makes that model ZCode's
 default, at reasoning level `high`. Compaction windows follow ns-bridge's
 per-model policy, so ZCode compacts where the other hosts do.
 
-**Quit ZCode before `setup --apply` or `remove --apply`** — the app keeps the
+**Quit ZCode before `zcode setup` or `zcode remove`** — the app keeps the
 provider config in memory and rewrites it on its next save — and restart ZCode
-afterwards. `--force` skips that check. With `--apply` on macOS, setup also
+afterwards. `--force` skips that check. On macOS, setup also
 installs a launch agent (`dev.ngosangns.ns-bridge.serve`) that keeps `serve`
 running; it pins the `ns-bridge` on `PATH`, so install this CLI globally
 first, and logs land in `~/.ns-bridge/logs/serve.log`. `--no-service` skips
@@ -166,9 +166,9 @@ Example flow:
 
 ```bash
 npm install -g @ngosangns/ns-bridge
-ns-bridge models refresh --apply
+ns-bridge models refresh
 # quit ZCode, then:
-ns-bridge zcode setup --default kiro/claude-sonnet-4-6 --apply
+ns-bridge zcode setup --default kiro/claude-sonnet-4-6
 # restart ZCode and pick an ns-bridge model
 ```
 

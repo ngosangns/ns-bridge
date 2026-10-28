@@ -1,9 +1,9 @@
 /**
  * `ns-bridge` command dispatcher.
  *
- * Mutating commands print the host argv and exit 0. `--apply` runs them.
- * That matches the OKF tools in ns-docs: a preview is the default, and a write
- * is an explicit flag.
+ * Mutating commands apply by default. `--dry-run` prints the host argv and
+ * exits 0 without spawning. A write is the default; a preview is the explicit
+ * flag.
  */
 
 import { spawn } from "node:child_process";
@@ -59,28 +59,28 @@ export interface RunOptions {
 
 const HELP = `ns-bridge — install, update, and refresh providers outside Pi, OMP, and DSH.
 
-Mutating commands preview and do not spawn. Pass --apply to run them.
---dry-run is the default.
+Mutating commands apply by default. Pass --dry-run to preview them without
+spawning.
 
 Usage:
-  ns-bridge install [pi|omp|dsh|all] [--apply] [--profile <name>]
-  ns-bridge update [--apply]
-  ns-bridge update <pi|omp|dsh|all> [--apply] [--profile <name>]
-  ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
+  ns-bridge install [pi|omp|dsh|all] [--dry-run] [--profile <name>]
+  ns-bridge update [--dry-run]
+  ns-bridge update <pi|omp|dsh|all> [--dry-run] [--profile <name>]
+  ns-bridge uninstall [pi|omp|dsh|all] [--dry-run] [--profile <name>]
   ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok|arnict] [--profile <name>]
-  ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok|arnict> [--apply] [--profile <name>]
+  ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok|arnict> [--dry-run] [--profile <name>]
   ns-bridge usage [--vendor <kiro|devin|grok|arnict>] [--day YYYY-MM-DD] [--days <n>] [--json]
   ns-bridge usage --session <id> [--vendor <name>] [--json]
   ns-bridge models list [kiro|devin|grok|arnict|all]
-  ns-bridge models refresh [kiro|devin|grok|arnict|all] [--apply]
+  ns-bridge models refresh [kiro|devin|grok|arnict|all] [--dry-run]
   ns-bridge kiro profile [list]
-  ns-bridge kiro profile use <name|region|arn> [--apply]
-  ns-bridge kiro profile reset [--apply]
+  ns-bridge kiro profile use <name|region|arn> [--dry-run]
+  ns-bridge kiro profile reset [--dry-run]
   ns-bridge serve [--port N] [--host H] [--allow-remote]
-  ns-bridge zcode setup [--apply] [--vendors <list>] [--default <vendor>/<model>]
+  ns-bridge zcode setup [--dry-run] [--vendors <list>] [--default <vendor>/<model>]
            [--force] [--no-service]
   ns-bridge zcode status
-  ns-bridge zcode remove [--apply] [--force]
+  ns-bridge zcode remove [--dry-run] [--force]
   ns-bridge arnict login [--stdin]
   ns-bridge arnict logout
   ns-bridge arnict status [--json]
@@ -106,7 +106,7 @@ providers enable/disable writes the host's own switch:
   dsh       disabled: true on the plugin id in the profile's cordis.patch.yml
 
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
-install/update <host> without --profile skips DSH and still previews Pi and OMP.
+install/update <host> without --profile skips DSH and still handles Pi and OMP.
 These commands install the npm packages. A local Pi path stays until that install runs.
 
 usage reads the ledger the plugins write under ~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl.
@@ -114,7 +114,7 @@ It never calls the network. Hit is cacheRead over prompt tokens, summed, not an 
 per-step ratios. NS_BRIDGE_USAGE=0 stops the plugins from recording.
 
 update with no host updates this CLI. It looks up the latest @ngosangns/ns-bridge
-on npm and, with --apply, runs npm install -g @ngosangns/ns-bridge@<latest>.
+on npm and runs npm install -g @ngosangns/ns-bridge@<latest>.
 It does not touch host plugins. A host argument updates those plugins instead.
 
 kiro profile lists the Kiro profiles your login can use and marks the active one.
@@ -124,7 +124,7 @@ Hosts read the pin on every request. KIRO_PROFILE_ARN outranks it.
 
 Model catalogs are files the hosts read. Providers do not refresh them.
 This command writes those files:
-  ns-bridge models refresh --apply
+  ns-bridge models refresh
 
 serve runs a local Anthropic-Messages server ZCode can point an Anthropic
 client at: http://127.0.0.1:<port>/<vendor>/v1/messages with vendor in
@@ -137,7 +137,7 @@ zcode registers those endpoints as personal providers in the ZCode app
 (~/.zcode/v2/provider_config.json; ZCODE_PERSONAL_PROVIDER_CONFIG_FILE moves
 it). setup writes that file — quit ZCode first, because the app keeps it in
 memory and rewrites it when it saves or quits, and restart ZCode afterwards.
-With --apply setup also installs a launch agent
+setup also installs a launch agent
 (dev.ngosangns.ns-bridge.serve) that keeps ns-bridge serve running;
 --no-service skips it. remove strips the providers and the agent but leaves
 ~/.ns-bridge/zcode.json alone. Vendors switched off in
@@ -364,7 +364,7 @@ async function refreshModels(
   options: RunOptions,
 ): Promise<number> {
   if (!apply) {
-    log("# dry-run (pass --apply to run)");
+    log("# dry-run (run without --dry-run to apply)");
     for (const vendor of vendors) log(`refresh ${vendor}`);
     return 0;
   }
@@ -409,7 +409,7 @@ async function runSelfUpdate(
     return 0;
   }
   if (!parsed.apply) {
-    log("# dry-run (pass --apply to run)");
+    log("# dry-run (run without --dry-run to apply)");
     log(`${PACKAGE_NAME} ${current} → ${latest}`);
     log(formatCommand(plan.command));
     return 0;
@@ -445,7 +445,7 @@ async function runHost(
     return 1;
   }
   if (!parsed.apply) {
-    log("# dry-run (pass --apply to run)");
+    log("# dry-run (run without --dry-run to apply)");
     for (const argv of plan.commands) log(formatCommand(argv));
     if (plan.skipDsh) log("# dsh skipped: pass --profile <name>");
     return 0;
@@ -496,7 +496,7 @@ async function runKiroProfile(
     const pinned = existsSync(ops.selectionPath);
     const noPin = `no pin at ${ops.selectionPath}; Kiro already follows the login's profile`;
     if (!parsed.apply) {
-      log("# dry-run (pass --apply to run)");
+      log("# dry-run (run without --dry-run to apply)");
       log(pinned ? `remove ${ops.selectionPath}` : noPin);
       return 0;
     }
@@ -532,7 +532,7 @@ async function runKiroProfile(
     err(`# ${match.arn} is not in this login's listing; Kiro rejects requests if the login cannot use it`);
   }
   if (!parsed.apply) {
-    log("# dry-run (pass --apply to run)");
+    log("# dry-run (run without --dry-run to apply)");
     log(`pin ${label} in ${ops.selectionPath}`);
     return 0;
   }
@@ -551,7 +551,7 @@ async function runKiroProfile(
       log(refreshLine("kiro", await refreshers.kiro()));
     } catch (error) {
       err(`kiro: ${error instanceof Error ? error.message : String(error)}`);
-      err("the pin is saved; run ns-bridge models refresh kiro --apply to fetch its catalog");
+      err("the pin is saved; run ns-bridge models refresh kiro to fetch its catalog");
       return 2;
     }
   }
@@ -631,7 +631,7 @@ interface Parsed {
 
 function parseArgs(argv: readonly string[]): Parsed | { error: string } {
   const positionals: string[] = [];
-  let apply = false;
+  let apply = true;
   let profile: string | undefined;
   let help = false;
   let stdin = false;
@@ -659,8 +659,7 @@ function parseArgs(argv: readonly string[]): Parsed | { error: string } {
       continue;
     }
     if (arg === "--apply") {
-      apply = true;
-      continue;
+      return { error: "--apply was removed; mutating commands apply by default. Pass --dry-run to preview." };
     }
     if (arg === "--dry-run") {
       apply = false;

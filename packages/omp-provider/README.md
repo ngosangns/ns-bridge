@@ -41,7 +41,7 @@ Pi still gets `devin` and `grok` from `@ngosangns/ns-pi-provider`.
 
 ```bash
 # maintained installer (installs ns-omp-provider-kiro, the Kiro plugin for OMP)
-ns-bridge install omp --apply
+ns-bridge install omp
 
 # local link (a clone of ns-bridge, after `pnpm -r build`)
 omp plugin link ~/Github/ngosangns/ns-bridge/packages/omp-provider
@@ -99,7 +99,7 @@ same `ns-kiro-core`, so deferring to the dedicated plugin loses nothing.
 - **No `/ns-pi` or `/grok` commands** — they went with the Devin and Grok registration.
   `ns-bridge models list` and `ns-bridge providers status omp` cover the status.
 - **Catalog files** — the models OMP shows are the ones already on disk.
-  `ns-bridge models refresh --apply` writes them. `fetchDynamicModels` returns
+  `ns-bridge models refresh` writes them. `fetchDynamicModels` returns
   a fresh file, or null when the file is missing, empty, or past its TTL, and
   does not call the vendor.
 - **Kiro catalog** — with no saved catalog snapshot, `kiro`

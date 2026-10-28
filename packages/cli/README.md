@@ -9,27 +9,27 @@ ns-bridge help
 
 ## Commands
 
-Mutating commands preview. `--apply` runs them. `--dry-run` is the default.
+Mutating commands apply by default. Pass `--dry-run` to preview them.
 
 ```bash
-ns-bridge install [pi|omp|dsh|all] [--apply] [--profile <name>]
-ns-bridge update [--apply]
-ns-bridge update <pi|omp|dsh|all> [--apply] [--profile <name>]
-ns-bridge uninstall [pi|omp|dsh|all] [--apply] [--profile <name>]
+ns-bridge install [pi|omp|dsh|all] [--dry-run] [--profile <name>]
+ns-bridge update [--dry-run]
+ns-bridge update <pi|omp|dsh|all> [--dry-run] [--profile <name>]
+ns-bridge uninstall [pi|omp|dsh|all] [--dry-run] [--profile <name>]
 ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
-ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--apply] [--profile <name>]
+ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--dry-run] [--profile <name>]
 ns-bridge usage [--vendor <kiro|devin|grok>] [--day YYYY-MM-DD] [--days <n>] [--json]
 ns-bridge usage --session <id> [--vendor <name>] [--json]
 ns-bridge models list [kiro|devin|grok|all]
-ns-bridge models refresh [kiro|devin|grok|all] [--apply]
+ns-bridge models refresh [kiro|devin|grok|all] [--dry-run]
 ns-bridge kiro profile [list]
-ns-bridge kiro profile use <name|region|arn> [--apply]
-ns-bridge kiro profile reset [--apply]
+ns-bridge kiro profile use <name|region|arn> [--dry-run]
+ns-bridge kiro profile reset [--dry-run]
 ns-bridge serve [--port N] [--host H] [--allow-remote]
-ns-bridge zcode setup [--apply] [--vendors <list>] [--default <vendor>/<model>]
+ns-bridge zcode setup [--dry-run] [--vendors <list>] [--default <vendor>/<model>]
            [--force] [--no-service]
 ns-bridge zcode status
-ns-bridge zcode remove [--apply] [--force]
+ns-bridge zcode remove [--dry-run] [--force]
 ns-bridge status
 ```
 
@@ -43,9 +43,9 @@ ns-bridge status
 
 OMP ships `devin`, `xai`, and `xai-oauth` itself, so only `kiro` comes from a plugin there (`/login devin`, `/login xai-oauth`). `ns-omp-provider`, the old plugin that also registered `devin` and `grok`, is no longer installed or upgraded; `uninstall omp` still removes it, or run `omp plugin uninstall ns-omp-provider`. Model ids `devin/…` and `grok/…` in OMP's `config.yml` then resolve to OMP's own `devin` and (for Grok) `xai-oauth/…` or `xai/…`.
 
-DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it. `install` and `update <host>` without `--profile` skip DSH and still preview Pi and OMP.
+DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it. `install` and `update <host>` without `--profile` skip DSH and still handle Pi and OMP.
 
-`update` with no host updates this CLI, not the host plugins. It asks npm for the latest `@ngosangns/ns-bridge` and, with `--apply`, runs `npm install -g @ngosangns/ns-bridge@<latest>`. Already current prints the version and does not install. A host argument (`pi`, `omp`, `dsh`, or `all`) updates those plugins instead.
+`update` with no host updates this CLI, not the host plugins. It asks npm for the latest `@ngosangns/ns-bridge` and runs `npm install -g @ngosangns/ns-bridge@<latest>`. Already current prints the version and does not install. A host argument (`pi`, `omp`, `dsh`, or `all`) updates those plugins instead.
 
 `providers enable` and `providers disable` turn one of `kiro`, `devin`, or `grok` on or off. Pi and OMP share `~/.ns-bridge/providers.json` (`NS_BRIDGE_PROVIDERS` overrides the path); the extension reads it at launch. With no file, all three are on. OMP only takes `kiro` from it: `providers enable omp devin|grok` is refused with the reason, `providers disable omp devin|grok` changes nothing, `providers status omp` shows them as `not provided`, and `devin` or `grok` in the file or in an env list are ignored by the OMP plugin (they still apply to Pi). `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds, and `NS_OMP_PROVIDER_DISABLE` removes. DSH writes `disabled: true` on that plugin's id in the profile's `cordis.patch.yml`. In OMP, `kiro` stays with `ns-omp-provider-kiro` while that plugin is installed, whatever the file or an env list says. Only the key you change is written; defaults never land in the file.
 
@@ -59,8 +59,8 @@ The default view groups the newest 10 days by day and vendor. `--session <id>` l
 - Devin: `$NS_DEVIN_MODEL_CACHE`, or `$XDG_DATA_HOME/ns-devin-provider/models.json`
 - Grok: `~/.pi/agent/cache/ns-pi-provider/grok.models.json`
 
-`models refresh --apply` writes those files from the bundled refresh. A missing file is reported as missing. The command does not print the in-memory fallback list.
+`models refresh` writes those files from the bundled refresh. A missing file is reported as missing. The command does not print the in-memory fallback list.
 
 Pi, OMP, and DSH read those files while they run. They do not refresh them.
 
-`kiro profile` lists the Kiro profiles your login can use (it asks Kiro in `us-east-1`, `eu-central-1`, and the login's own region) and marks the one requests run on. `(login)` tags the profile the login carries on its own, which is what Kiro uses when nothing is pinned: kiro-cli's pick at `kiro-cli login`, or for a social (desktop) login the token's own profile. `use` takes a profile name, a region that holds exactly one profile, or an ARN. A well-formed ARN the listing does not show (a profile in another region) is pinned with a warning; Kiro rejects requests if the login cannot use it. The pin lives in `~/.ns-bridge/kiro-profile.json`. With `--apply` it also fetches that profile's catalog the first time. The Kiro cache keeps one catalog per profile, so switching back and forth later needs no fetch. `reset --apply` removes the pin. Pi, OMP, and DSH read the pin on every request, so a switch applies from the next turn. A host's model list reloads when the host restarts. `KIRO_PROFILE_ARN` outranks the pin.
+`kiro profile` lists the Kiro profiles your login can use (it asks Kiro in `us-east-1`, `eu-central-1`, and the login's own region) and marks the one requests run on. `(login)` tags the profile the login carries on its own, which is what Kiro uses when nothing is pinned: kiro-cli's pick at `kiro-cli login`, or for a social (desktop) login the token's own profile. `use` takes a profile name, a region that holds exactly one profile, or an ARN. A well-formed ARN the listing does not show (a profile in another region) is pinned with a warning; Kiro rejects requests if the login cannot use it. The pin lives in `~/.ns-bridge/kiro-profile.json`. It also fetches that profile's catalog the first time. The Kiro cache keeps one catalog per profile, so switching back and forth later needs no fetch. `reset` removes the pin. Pi, OMP, and DSH read the pin on every request, so a switch applies from the next turn. A host's model list reloads when the host restarts. `KIRO_PROFILE_ARN` outranks the pin.

@@ -1,4 +1,4 @@
-/** Host package commands. Mutating commands are previews until `--apply`. */
+/** Host package commands. Mutating commands apply unless `--dry-run`. */
 
 export const PI_SOURCE = "npm:@ngosangns/ns-pi-provider";
 /**

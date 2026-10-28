@@ -1,6 +1,6 @@
 /**
  * Built by esbuild into one file. The typecheck project excludes this module
- * so it does not compile the provider sources. `ns-bridge models refresh --apply`
+ * so it does not compile the provider sources. `ns-bridge models refresh`
  * and `ns-bridge kiro profile` are the only commands that load the result.
  */
 import { refreshArnictModels } from "@ngosangns/ns-pi-provider/arnict";

@@ -212,7 +212,7 @@ export async function registerArnictProvider(pi: ExtensionAPI): Promise<void> {
     }
 
     if (action === "refresh" || action === "refresh-models") {
-      notify("Refresh Arnict models with `ns-bridge models refresh arnict --apply`.", "info");
+      notify("Refresh Arnict models with `ns-bridge models refresh arnict`.", "info");
       return;
     }
 
@@ -244,7 +244,7 @@ export async function registerArnictProvider(pi: ExtensionAPI): Promise<void> {
   publish(refreshed, true);
 
   // A catalog written while extensions were loading (or after startup, by
-  // `ns-bridge models refresh arnict --apply`) is republished here.
+  // `ns-bridge models refresh arnict`) is republished here.
   pi.on("session_start", () => {
     void refreshArnictModels({ allowNetwork: false }).then((next) => publish(next));
   });

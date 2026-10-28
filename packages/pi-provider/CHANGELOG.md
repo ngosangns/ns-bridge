@@ -2,7 +2,7 @@
 
 Development of `@ngosangns/ns-pi-provider` stopped at **0.5.3**. npm marks that version deprecated. The maintained package is [`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge).
 
-This file records notes through 0.4.0 and the 0.1.x line. Releases after 0.4.0 were not appended. The Go sidecar described under 0.4.0 is not in the tree: Kiro and Devin run in the host process, and `ns-bridge models refresh --apply` writes the model catalogs.
+This file records notes through 0.4.0 and the 0.1.x line. Releases after 0.4.0 were not appended. The Go sidecar described under 0.4.0 is not in the tree: Kiro and Devin run in the host process, and `ns-bridge models refresh` writes the model catalogs.
 
 ## 0.4.0
 

@@ -4,7 +4,7 @@
  *
  * ZCode stores personal providers in ~/.zcode/v2/provider_config.json and
  * keeps that file in memory while the desktop app runs, so an edit while it
- * runs is lost on the app's next save. setup and remove refuse --apply while
+ * runs is lost on the app's next save. setup and remove refuse to apply while
  * ZCode runs unless --force. The file can hold other providers' entries and
  * secrets, so its contents are never printed — only ids and counts we own.
  *
@@ -743,7 +743,7 @@ async function zcodeSetup(options: ZcodeCommandOptions, home: string, platform: 
   const servePath = resolveServeConfigPath(options, home);
   if (await refuseWhileZcodeRuns(options, providerConfigPath)) return 1;
 
-  // The serve config (and with it the token) is only created on --apply, so a
+  // The serve config (and with it the token) is only created when applying, so a
   // preview uses a placeholder key that never reaches a file or the terminal.
   const serve = apply ? ensureZcodeServeConfig(servePath) : readZcodeServeConfig(servePath);
   const plan = planZcodeProviders(readCatalogs(options.catalogPaths ?? catalogPaths(), planned), {
@@ -797,7 +797,7 @@ async function zcodeSetup(options: ZcodeCommandOptions, home: string, platform: 
   const plistPath = launchAgentPlistPath(home);
 
   if (!apply) {
-    log("# dry-run (pass --apply to run)");
+    log("# dry-run (run without --dry-run to apply)");
     for (const provider of plan.providers) {
       log(`register ${provider.providerId}  ${provider.modelIds.length} model(s)  ${provider.baseUrl}`);
       const summary = modelSummary(provider.modelIds);
@@ -807,7 +807,7 @@ async function zcodeSetup(options: ZcodeCommandOptions, home: string, platform: 
       }
     }
     for (const skip of plan.skipped) log(`# skipped ${skip.vendor}: ${skip.reason}`);
-    if (serve === undefined) log(`# create ${servePath} (token generated on --apply)`);
+    if (serve === undefined) log(`# create ${servePath} (token generated when applied)`);
     if (merged.changed) {
       const note = file.state === "ready" ? `  (backup ${backupPathFor(providerConfigPath, now)})` : "  (new file)";
       log(`write ${providerConfigPath}${note}`);
@@ -944,7 +944,7 @@ async function zcodeRemove(options: ZcodeCommandOptions, home: string, platform:
   }
 
   if (!apply) {
-    log("# dry-run (pass --apply to run)");
+    log("# dry-run (run without --dry-run to apply)");
     for (const entry of registered) log(`remove ${entry.providerId}  ${entry.modelCount} model(s)`);
     if (registered.length === 0) log(`${providerConfigPath} has no ns-bridge providers`);
     if (merged.changed) log(`write ${providerConfigPath}  (backup ${backupPathFor(providerConfigPath, now)})`);

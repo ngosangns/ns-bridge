@@ -7,14 +7,14 @@ Unified [Pi](https://pi.dev) coding-agent providers for **Kiro**, **Devin**, and
 - Provider ids: `kiro`, `devin`, `grok`
 - Auth: the vendor CLI's session (kiro-cli / Kiro IDE, `devin auth`, `grok`), plus API keys
 - Streaming + reasoning/thinking where supported
-- Model catalogs are files on disk. `ns-bridge models refresh --apply` writes them. This package reads them.
+- Model catalogs are files on disk. `ns-bridge models refresh` writes them. This package reads them.
 - Commands: `/ns-pi status`, `/ns-pi refresh` (points at the CLI), `/grok status|models|refresh`, `/devin-status`
 
 ## Install in Pi
 
 ```bash
 # maintained installer (installs this package's last npm release)
-ns-bridge install pi --apply
+ns-bridge install pi
 
 # the same host command, last published version
 pi install npm:@ngosangns/ns-pi-provider
@@ -44,7 +44,7 @@ Pi-specific translation (context in, `AssistantMessageEventStream` out) is
 | **grok** | [`ns-grok-core`](../grok-core): Grok CLI login in `~/.grok/auth.json` | `~/.pi/agent/cache/ns-pi-provider/grok.models.json` | Responses API over SSE, via `ns-bridge-core/pi`. The host runs the tools |
 
 Grok does not spawn the CLI to answer. `grok models` runs only when
-`ns-bridge models refresh grok --apply` rewrites the catalog file.
+`ns-bridge models refresh grok` rewrites the catalog file.
 
 Shared modules under `src/shared/` provide HTTP helpers, credential env resolution, and `CatalogCache` (TTL + optional ETag, in-memory + `~/.pi/agent/cache/ns-pi-provider`).
 

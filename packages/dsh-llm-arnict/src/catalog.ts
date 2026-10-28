@@ -3,8 +3,8 @@
  *
  * The catalog contract — bootstrap ids, defaults, and the file shape — lives in
  * `ns-arnict-core`, so this adapter and the Pi provider cannot disagree about a
- * model. Only the directory is host-specific: `ns-bridge models refresh arnict
- * --apply` writes the file under the Pi cache root, and the harness reads it
+ * model. Only the directory is host-specific: `ns-bridge models refresh arnict`
+ * writes the file under the Pi cache root, and the harness reads it
  * from there. A machine that never refreshed falls back to the bootstrap list.
  */
 

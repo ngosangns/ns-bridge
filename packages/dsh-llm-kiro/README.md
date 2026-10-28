@@ -19,7 +19,7 @@ The last npm release is `0.5.3`. npm marks it deprecated.
 
 ```bash
 kiro-cli login
-ns-bridge install dsh --profile <profile> --apply
+ns-bridge install dsh --profile <profile>
 ```
 
 That runs `dsh plugin --profile <profile> add ns-dsh-llm-kiro`. `dsh plugin add`

@@ -255,7 +255,7 @@ export async function registerGrokProvider(pi: ExtensionAPI): Promise<void> {
     }
 
     if (action === "refresh" || action === "refresh-models") {
-      notify("Refresh Grok models with `ns-bridge models refresh grok --apply`.", "info");
+      notify("Refresh Grok models with `ns-bridge models refresh grok`.", "info");
       return;
     }
 

@@ -206,7 +206,7 @@ function zcodeRun(action: "setup" | "status" | "remove", paths: CmdPaths, overri
   const argv = ["zcode", action];
   if (overrides.vendors !== undefined) argv.push("--vendors", overrides.vendors);
   if (overrides.default !== undefined) argv.push("--default", overrides.default);
-  if (overrides.apply) argv.push("--apply");
+  if (!overrides.apply) argv.push("--dry-run");
   if (overrides.force) argv.push("--force");
   if (overrides.noService) argv.push("--no-service");
   return { io, calls, done: run(argv, options) };
@@ -842,7 +842,7 @@ describe("ns-bridge zcode setup", () => {
     const paths = fresh();
     const { io, calls, done } = zcodeRun("setup", paths);
     expect(await done).toBe(0);
-    expect(io.stdout[0]).toBe("# dry-run (pass --apply to run)");
+    expect(io.stdout[0]).toBe("# dry-run (run without --dry-run to apply)");
     expect(io.stdout.join("\n")).toContain("register ns-bridge-kiro  3 model(s)  http://127.0.0.1:47821/kiro");
     expect(io.stdout.join("\n")).toContain(`write ${paths.providerConfig}  (new file)`);
     expect(io.stdout.join("\n")).toContain(`write ${paths.plist}`);
@@ -973,7 +973,7 @@ describe("ns-bridge zcode setup", () => {
     expect(io.stdout.join("\n")).not.toContain("backup ");
   });
 
-  it("refuses --apply while ZCode runs, unless --force", async () => {
+  it("refuses to apply while ZCode runs, unless --force", async () => {
     const paths = fresh();
     const refused = zcodeRun("setup", paths, { apply: true, routes: ZCODE_RUNNING });
     expect(await refused.done).toBe(1);
@@ -1233,7 +1233,7 @@ describe("ns-bridge zcode remove", () => {
     const before = readFileSync(paths.providerConfig, "utf8");
     const { io, done } = zcodeRun("remove", paths);
     expect(await done).toBe(0);
-    expect(io.stdout[0]).toBe("# dry-run (pass --apply to run)");
+    expect(io.stdout[0]).toBe("# dry-run (run without --dry-run to apply)");
     expect(io.stdout.join("\n")).toContain("remove ns-bridge-kiro  1 model(s)");
     expect(io.stdout.join("\n")).toContain(`remove ${paths.plist}`);
     expect(io.stdout.join("\n")).toContain(`${paths.serveConfig} stays`);
@@ -1268,7 +1268,7 @@ describe("ns-bridge zcode remove", () => {
     expect(existsSync(paths.plist)).toBe(false);
   });
 
-  it("refuses --apply while ZCode runs", async () => {
+  it("refuses to apply while ZCode runs", async () => {
     const paths = seeded();
     mergedWithOurs(paths);
     const { io, done } = zcodeRun("remove", paths, { apply: true, routes: ZCODE_RUNNING });

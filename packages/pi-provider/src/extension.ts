@@ -86,7 +86,7 @@ export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProvid
 
       if (action === "refresh") {
         const which = target === "all" ? "" : ` ${target}`;
-        ctx.ui.notify(`Refresh model catalogs with \`ns-bridge models refresh${which} --apply\`.`, "info");
+        ctx.ui.notify(`Refresh model catalogs with \`ns-bridge models refresh${which}\`.`, "info");
         return;
       }
 

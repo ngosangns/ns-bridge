@@ -3,12 +3,12 @@
 > Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
 
 The last npm release is `ns-dsh-llm-grok@0.1.1`. Install it with
-`ns-bridge install dsh --profile <profile> --apply`.
+`ns-bridge install dsh --profile <profile>`.
 
 DeepSeek Harness (dsh) LLM adapter that adds Grok as a model provider. The
 model list is the catalog file at
 `~/.pi/agent/cache/ns-pi-provider/grok.models.json`, including a file past its
-15-minute TTL. `ns-bridge models refresh grok --apply` writes that file.
+15-minute TTL. `ns-bridge models refresh grok` writes that file.
 Streaming spawns the local `grok` CLI. There is no HTTP client in this package.
 
 ```yaml
