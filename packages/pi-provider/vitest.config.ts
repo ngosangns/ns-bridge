@@ -6,7 +6,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     exclude: process.env.NS_PI_LIVE === "1" ? [] : ["tests/live/**"],
     setupFiles: ["./tests/setup.ts"],
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    testTimeout: process.env.NS_PI_LIVE === "1" ? 120_000 : 30_000,
+    hookTimeout: process.env.NS_PI_LIVE === "1" ? 120_000 : 30_000,
   },
 });

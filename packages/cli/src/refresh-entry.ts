@@ -7,6 +7,7 @@ import { refreshArnictModels } from "@ngosangns/ns-pi-provider/arnict";
 import { refreshDevinModels } from "@ngosangns/ns-pi-provider/devin";
 import { refreshGrokModels } from "@ngosangns/ns-pi-provider/grok";
 import { refreshKiroModels } from "@ngosangns/ns-pi-provider/kiro";
+import { refreshQoderModels } from "@ngosangns/ns-pi-provider/qoder";
 import {
   getKiroProfileOverride,
   hasCachedKiroProfileCatalog,
@@ -38,6 +39,13 @@ export function createBundledRefresh(): ModelRefresh {
       return {
         count: refreshed.models.length,
         // Core error messages are already redacted; the key never reaches detail.
+        detail: refreshed.error ? `source=${refreshed.source} error=${refreshed.error}` : `source=${refreshed.source}`,
+      };
+    },
+    qoder: async () => {
+      const refreshed = await refreshQoderModels({ force: true, allowNetwork: true });
+      return {
+        count: refreshed.models.length,
         detail: refreshed.error ? `source=${refreshed.source} error=${refreshed.error}` : `source=${refreshed.source}`,
       };
     },

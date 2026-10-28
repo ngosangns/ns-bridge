@@ -37,6 +37,7 @@
     "./kiro": "./src/kiro.ts",
     "./devin": "./src/devin.ts",
     "./grok": "./src/grok.ts",
+    "./qoder": "./src/qoder.ts",
     "./shared": "./src/shared/index.ts",
     "./selection": "./src/selection.ts",
     "./package.json": "./package.json"
@@ -90,6 +91,7 @@
     "ns-bridge-core": "workspace:*",
     "ns-devin-core": "workspace:*",
     "ns-grok-core": "workspace:*",
-    "ns-kiro-core": "workspace:*"
+    "ns-kiro-core": "workspace:*",
+    "ns-qoder-core": "workspace:*"
   }
 }

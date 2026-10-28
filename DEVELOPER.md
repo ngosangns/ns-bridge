@@ -17,13 +17,34 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | vendor core | [`ns-devin-core`](packages/devin-core) | The Devin protocol in this process: Cascade over Connect/protobuf, PKCE login, credentials files, the model catalog cache, usage, error vocabulary, and request/result conversion |
 | vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./cli` — locating the Grok CLI and reading its model list |
 | vendor core | [`ns-arnict-core`](packages/arnict-core) | The Arnict protocol in this process: OpenAI chat completions over SSE, API key auth (env or key file), the model catalog with published rates, and USD cost in the usage ledger as credits with `creditUnit` "USD" |
-| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, `grok`, and `arnict` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
+| vendor core | [`ns-qoder-core`](packages/qoder-core) | Qoder via `@qoder-ai/qoder-agent-sdk` and qodercli: one query per host turn, host tool schemas on an in-process MCP mirror, catalog and auth |
+| host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, `grok`, `arnict`, and `qoder` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter's Kiro and Arnict registrations behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
-| host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok), [`ns-dsh-llm-arnict`](packages/dsh-llm-arnict) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
+| host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok), [`ns-dsh-llm-arnict`](packages/dsh-llm-arnict), [`ns-dsh-llm-qoder`](packages/dsh-llm-qoder) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
 | cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Installs host packages and refreshes model catalogs outside the host process |
 
 Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh` writes them.
+
+### What each refresh takes from the vendor
+
+A catalog row carries only what the vendor reports. A field the vendor does not report keeps a shared
+default, and no table in this repo names a model's capabilities.
+
+| Vendor | Source | Fields taken from it |
+|---|---|---|
+| Kiro | `ListAvailableModels` | id, name, `tokenLimits`, effort schema, `supportedInputTypes` (image input), `rateMultiplier` and `rateUnit`. `kiro-cli chat --list-models` is the fallback for a rate the entry omits. |
+| Qoder | SDK `getAvailableModels()` | id, `displayName`, `isReasoning`, `isVl` (image input), `defaultContextWindow` (capped by `maxInputTokens`), `maxOutputTokens`, `efforts` |
+| Grok | `grok models` and `~/.grok/models_cache.json` | id, `name`, `context_window`, `max_completion_tokens`, `supports_reasoning_effort` |
+| Devin | `GetCliModelConfigs` | id, label, window, rates, effort and fast-mode families, thinking support |
+| Arnict | `GET /v1/models` | ids only. Everything else is `ARNICT_KNOWN_MODELS`, copied from arnict.com/docs/pricing. |
+
+The bootstrap lists (`bootstrapKiroModels`, `BOOTSTRAP_IDS` in Qoder, `GROK_BOOTSTRAP_MODEL_IDS`) are cold-start
+seeds for a host that never refreshed. They are not read once a refresh has written a catalog.
+
+Not synced because the vendor publishes no machine-readable source: Kiro's cache-pricing constants
+(`KIRO_CREDIT_RATES`, measured; see `scripts/kiro-pricing.mjs`), the Claude compaction target, long-context
+thresholds, request user-agent strings, and Arnict's rates and windows.
 
 ### Where a change goes
 
@@ -93,9 +114,15 @@ caller wins, so `ns-omp-provider` keeps `omp` even though it bundles the Pi adap
   turns, then append known token counts) and edit `KIRO_CREDIT_RATES` and the fixtures in
   `cache-from-credits.test.ts`. `gpt-5-6-luna` has no cold cap (a cold prompt bills at `fresh`) and
   doubles every rate from about 275k prompt tokens; it was fitted from ledger turns and sits in
-  `KIRO_UNCAPPED_MODELS`, with 270k-275k refused because the two tiers mix there. Any other model was
+  `KIRO_UNCAPPED_MODELS`, with 270k-275k refused because the two tiers mix there. `auto` was fitted the same
+  way (cold cap 0.00316 like haiku/opus, no long-context tier up to 565k). Any other model was
   not measured and is refused (`cacheSource: none`); the comment above `KIRO_CREDIT_RATES` says how to
   fit one from the ledger. A long answer is refused because the output-token term is itself an estimate.
+  `node scripts/kiro-pricing.mjs [--days N] [--min-turns N]` checks the constants against the live
+  `kiro-cli chat --list-models` multipliers and the ledger. It replays each turn through
+  `deriveKiroCacheFromCredits`, exits 1 when a modeled model's bills no longer fit (Kiro repriced), and
+  lists unmeasured models that have enough turns to fit. It edits nothing: a constant is a measurement,
+  so a person updates `KIRO_CREDIT_RATES` and the fixtures.
 - The same derivation reaches the host. `streamKiro` runs `applyCreditDerivedCache` on the usage event
   after the opt-in estimator: an exact result moves the cached share from `input` to `cacheRead`,
   replaces the estimator's guess, and sets `cacheDerived: "credits"`. Wire counters are never touched,
@@ -252,7 +279,7 @@ cd ns-bridge
 pnpm install
 pnpm -r build       # check typechecks against built declarations, so build first
 pnpm -r check
-pnpm test           # vitest projects: bridge, core-utils, kiro, devin, grok, grok-dsh, arnict, arnict-dsh, cli, pi, omp
+pnpm test           # vitest projects: bridge, core-utils, kiro, devin, grok, grok-dsh, arnict, arnict-dsh, qoder, cli, pi, omp
 pnpm vitest run --project kiro   # one project
 pnpm lint           # biome check .  (lint:fix / format to write)
 ```
@@ -268,7 +295,10 @@ pi --no-extensions -e ./packages/pi-provider/index.ts --list-models
 pi --no-extensions -e ./packages/pi-provider/index.ts --model kiro/claude-haiku-4-5 -p "hi"
 omp --no-extensions -e ./packages/omp-provider-kiro/dist/index.js --model kiro/claude-haiku-4-5 -p "hi"
 NS_PI_LIVE=1 pnpm --filter @ngosangns/ns-pi-provider test:live
+NS_QODER_LIVE=1 pnpm vitest run --project qoder packages/qoder-core/test/live/smoke.test.ts
 ```
+
+`@qoder-ai/qoder-agent-sdk` downloads a **worker runtime** on postinstall. `pnpm-workspace.yaml` sets `allowBuilds` for that package to `true`. `ns-qoder-core` also runs `scripts/ensure-sdk-runtime.cjs` after install. If you still see `Qoder worker runtime not found`, run `pnpm install` from the repo root or `node packages/qoder-core/scripts/ensure-sdk-runtime.cjs`. Auth: `qodercli login` or `QODER_PERSONAL_ACCESS_TOKEN`.
 
 A DSH profile can point at a local build with
 `dsh plugin --profile <name> add link:<path>/packages/dsh-llm-kiro`.

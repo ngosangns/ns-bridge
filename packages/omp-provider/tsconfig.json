@@ -15,7 +15,8 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@ngosangns/ns-pi-provider/kiro": ["./src/types/ns-pi-provider-kiro.d.ts"],
-      "@ngosangns/ns-pi-provider/arnict": ["./src/types/ns-pi-provider-arnict.d.ts"]
+      "@ngosangns/ns-pi-provider/arnict": ["./src/types/ns-pi-provider-arnict.d.ts"],
+      "@ngosangns/ns-pi-provider/qoder": ["./src/types/ns-pi-provider-qoder.d.ts"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],

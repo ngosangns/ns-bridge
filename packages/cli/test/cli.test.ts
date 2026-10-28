@@ -24,6 +24,7 @@ function pathsIn(dir: string): CatalogPaths {
     devin: join(dir, "devin.json"),
     grok: join(dir, "grok.json"),
     arnict: join(dir, "arnict.json"),
+    qoder: join(dir, "qoder.json"),
   };
 }
 
@@ -59,7 +60,7 @@ describe("ns-bridge", () => {
     expect(code).toBe(0);
     expect(io.stdout).toContain("omp plugin upgrade ns-omp-provider-kiro");
     expect(io.stdout).toContain(
-      "dsh plugin --profile headless update ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok",
+      "dsh plugin --profile headless update ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok ns-dsh-llm-qoder",
     );
   });
 
@@ -153,7 +154,7 @@ describe("ns-bridge", () => {
   it("rejects an unknown vendor naming the accepted list", async () => {
     const io = capture();
     expect(await run(["models", "list", "nope"], io)).toBe(1);
-    expect(io.stderr).toEqual(["unknown vendor nope (expected kiro, devin, grok, arnict, or all)"]);
+    expect(io.stderr).toEqual(["unknown vendor nope (expected kiro, devin, grok, arnict, qoder, or all)"]);
   });
 
   it("lists arnict ids from its catalog file", async () => {
@@ -262,6 +263,7 @@ describe("ns-bridge", () => {
       devin: vi.fn(async () => ({ count: 1 })),
       grok: vi.fn(async () => ({ count: 1 })),
       arnict: vi.fn(async () => ({ count: 1 })),
+      qoder: vi.fn(async () => ({ count: 1 })),
     };
     const code = await run(["models", "refresh", "kiro", "--dry-run"], { ...io, refreshers });
     expect(code).toBe(0);
@@ -278,6 +280,7 @@ describe("ns-bridge", () => {
       devin: vi.fn(async () => ({ count: 1 })),
       grok: vi.fn(async () => ({ count: 1 })),
       arnict,
+      qoder: vi.fn(async () => ({ count: 1 })),
     };
     const code = await run(["models", "refresh", "arnict"], { ...io, refreshers });
     expect(code).toBe(0);
@@ -297,6 +300,7 @@ describe("ns-bridge", () => {
         throw new Error("grok should not run");
       }),
       arnict: vi.fn(async () => ({ count: 1 })),
+      qoder: vi.fn(async () => ({ count: 1 })),
     };
     const code = await run(["models", "refresh", "kiro"], { ...io, refreshers });
     expect(code).toBe(0);
@@ -314,6 +318,7 @@ describe("ns-bridge", () => {
       }),
       grok: vi.fn(async () => ({ count: 1 })),
       arnict: vi.fn(async () => ({ count: 1 })),
+      qoder: vi.fn(async () => ({ count: 1 })),
     };
     const code = await run(["models", "refresh"], { ...io, refreshers });
     expect(code).toBe(1);
@@ -359,7 +364,7 @@ describe("ns-bridge", () => {
   it("rejects an unknown provider naming the accepted list", async () => {
     const io = capture();
     expect(await run(["providers", "enable", "pi", "nope"], io)).toBe(1);
-    expect(io.stderr).toEqual(["unknown provider nope (expected kiro, devin, grok, or arnict)"]);
+    expect(io.stderr).toEqual(["unknown provider nope (expected kiro, devin, grok, arnict, or qoder)"]);
   });
 
   it("enables arnict for pi and writes the shared file", async () => {
@@ -682,6 +687,26 @@ describe("ns-bridge", () => {
       expect(session.stdout[2]).toContain("<=90.0%*");
     });
 
+    it("counts a capped step as cold only when no first step, shrink, idle gap or other session explains it", async () => {
+      const capped = { vendor: "kiro", cacheRead: undefined, cacheHitRatio: null, cacheSource: "credits-capped" };
+      const warm = { vendor: "kiro", cacheSource: "credits" };
+      const usageDir = ledger({
+        "2026-10-21/kiro/s1.jsonl": [
+          line({ ...capped, step: 1, ts: "2026-10-21T05:00:00.000Z", promptTokens: 30000 }), // first step
+          line({ ...warm, step: 2, ts: "2026-10-21T05:00:10.000Z", promptTokens: 31000, gapMs: 10_000 }),
+          line({ ...capped, step: 3, ts: "2026-10-21T05:00:20.000Z", promptTokens: 32000, gapMs: 10_000 }), // cold
+          line({ ...capped, step: 4, ts: "2026-10-21T05:00:30.000Z", promptTokens: 9000, gapMs: 10_000 }), // shrank
+          line({ ...capped, step: 5, ts: "2026-10-21T05:10:30.000Z", promptTokens: 9500, gapMs: 600_000 }), // idle
+        ],
+        "2026-10-21/kiro/s2.jsonl": [
+          line({ ...capped, session: "s2", step: 1, ts: "2026-10-21T05:00:05.000Z", promptTokens: 8000 }), // first of s2
+        ],
+      });
+      const io = capture();
+      await run(["usage"], { ...io, usageDir });
+      expect(io.stdout[1]).toContain("1/6 (16.7%)");
+    });
+
     it("marks hit ratios derived from credits so they are not read as provider counters", async () => {
       const usageDir = ledger({
         "2026-10-21/kiro/s1.jsonl": [
@@ -836,7 +861,7 @@ describe("kiro profile", () => {
 
   function fakeRefreshers() {
     const kiro = vi.fn(async () => ({ count: 3, detail: "region=us-east-1" }));
-    const refreshers: ModelRefresh = { kiro, devin: vi.fn(), grok: vi.fn(), arnict: vi.fn() };
+    const refreshers: ModelRefresh = { kiro, devin: vi.fn(), grok: vi.fn(), arnict: vi.fn(), qoder: vi.fn() };
     return { kiro, refreshers };
   }
 

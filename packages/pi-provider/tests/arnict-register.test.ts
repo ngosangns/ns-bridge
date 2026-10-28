@@ -130,7 +130,7 @@ describe("arnict selection", () => {
 
   it("follows the providers file and env lists like the other keys", () => {
     const only = resolveProviderSelection({ NS_OMP_PROVIDERS: "arnict" });
-    expect(only).toEqual({ kiro: false, devin: false, grok: false, arnict: true });
+    expect(only).toEqual({ kiro: false, devin: false, grok: false, arnict: true, qoder: false });
 
     const mixed = resolveProviderSelection({ NS_OMP_PROVIDERS: "grok, arnict" });
     expect(mixed.grok).toBe(true);

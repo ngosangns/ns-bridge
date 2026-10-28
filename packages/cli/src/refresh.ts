@@ -15,6 +15,7 @@ export interface ModelRefresh {
   devin: () => Promise<RefreshResult>;
   grok: () => Promise<RefreshResult>;
   arnict: () => Promise<RefreshResult>;
+  qoder: () => Promise<RefreshResult>;
 }
 
 /**

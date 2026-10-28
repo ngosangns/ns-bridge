@@ -132,6 +132,7 @@ function catalogPathsIn(dir: string): CatalogPaths {
     devin: join(dir, "devin.json"),
     grok: join(dir, "grok.json"),
     arnict: join(dir, "arnict.json"),
+    qoder: join(dir, "qoder.json"),
   };
 }
 

@@ -51,6 +51,12 @@ export default defineConfig({
       },
       {
         test: {
+          name: "qoder",
+          include: ["packages/{qoder-core,dsh-llm-qoder}/test/**/*.test.ts"],
+        },
+      },
+      {
+        test: {
           name: "grok-dsh",
           include: ["packages/dsh-llm-grok/test/**/*.test.ts"],
         },

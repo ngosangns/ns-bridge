@@ -134,10 +134,36 @@ export interface UsageRow {
   credits: number;
   capped: number;
   none: number;
+  /** Capped steps that follow an earlier step of the same session with no explanation. See {@link isUnexplainedCold}. */
+  cold: number;
+  /** Steps whose bill says something about the cache (`credits` or `credits-capped`): the base for `cold`. */
+  billed: number;
+}
+
+/** A cached prefix expired between 245 s and 404 s of idle time (Kiro, measured in kiro-core). */
+const CACHE_IDLE_EXPIRY_MS = 245_000;
+
+/**
+ * A bill on the no-cache ceiling that neither a first step, nor a prompt that shrank (compaction
+ * rewrites the prefix), nor a long idle gap explains. What is left means the prefix changed
+ * between two steps that should have shared it.
+ */
+function isUnexplainedCold(record: UsageLine, previous: UsageLine | undefined): boolean {
+  if (record.cacheSource !== "credits-capped" || !previous) return false;
+  if (record.promptTokens < previous.promptTokens) return false;
+  return record.gapMs === null || record.gapMs < CACHE_IDLE_EXPIRY_MS;
 }
 
 /** Group by local day (the folder the writer used is not on the record, so derive it the same way) and vendor. */
 export function summarize(records: readonly UsageLine[], dayOf: (ts: string) => string): UsageRow[] {
+  const cold = new Set<UsageLine>();
+  const lastOfSession = new Map<string, UsageLine>();
+  for (const record of records) {
+    if (record.session === null) continue;
+    const key = `${record.vendor}\u0000${record.session}`;
+    if (isUnexplainedCold(record, lastOfSession.get(key))) cold.add(record);
+    lastOfSession.set(key, record);
+  }
   const groups = new Map<string, UsageLine[]>();
   for (const record of records) {
     const key = `${dayOf(record.ts)}\u0000${record.vendor}`;
@@ -165,6 +191,9 @@ export function summarize(records: readonly UsageLine[], dayOf: (ts: string) => 
       credits: list.filter((record) => record.cacheSource === "credits").length,
       capped: list.filter((record) => record.cacheSource === "credits-capped").length,
       none: list.filter((record) => record.cacheSource === "none").length,
+      cold: list.filter((record) => cold.has(record)).length,
+      billed: list.filter((record) => record.cacheSource === "credits" || record.cacheSource === "credits-capped")
+        .length,
     });
   }
   return rows.sort((a, b) => b.day.localeCompare(a.day) || a.vendor.localeCompare(b.vendor));
@@ -221,10 +250,15 @@ function sourceLabel(row: UsageRow): string {
   return parts.join(", ") || "-";
 }
 
+/** Unexplained cold steps over steps whose bill speaks about the cache; `-` when no bill does. */
+function coldLabel(row: UsageRow): string {
+  return row.billed > 0 ? `${row.cold}/${row.billed} (${percent(row.cold / row.billed)})` : "-";
+}
+
 export function formatSummary(rows: readonly UsageRow[]): string[] {
   if (rows.length === 0) return ["no usage recorded"];
   const table = [
-    ["day", "vendor", "steps", "prompt", "hit", "write", "source"],
+    ["day", "vendor", "steps", "prompt", "hit", "write", "source", "cold"],
     ...rows.map((row) => [
       row.day,
       row.vendor,
@@ -233,6 +267,7 @@ export function formatSummary(rows: readonly UsageRow[]): string[] {
       percent(row.hit),
       percent(row.write),
       sourceLabel(row),
+      coldLabel(row),
     ]),
   ];
   return pad(table);

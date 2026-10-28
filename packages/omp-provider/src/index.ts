@@ -13,6 +13,7 @@
  */
 import { registerArnictProvider } from "@ngosangns/ns-pi-provider/arnict";
 import { registerKiroProvider } from "@ngosangns/ns-pi-provider/kiro";
+import { registerQoderProvider } from "@ngosangns/ns-pi-provider/qoder";
 import { setUsageHost } from "ns-bridge-core";
 
 import { wrapExtensionApi } from "./adapter.js";
@@ -50,6 +51,13 @@ export default async function nsOmpProvider(pi: object): Promise<void> {
       await registerArnictProvider(wrapExtensionApi(pi));
     } catch (err) {
       console.warn(`[ns-omp-provider] arnict registration failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  if (resolveProviderSelection().qoder) {
+    try {
+      await registerQoderProvider(wrapExtensionApi(pi));
+    } catch (err) {
+      console.warn(`[ns-omp-provider] qoder registration failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

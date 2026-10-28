@@ -4,10 +4,13 @@ export {
   registerKiroProvider,
   registerDevinProvider,
   registerGrokProvider,
+  registerQoderProvider,
   refreshKiroModels,
   refreshDevinModels,
   refreshGrokModels,
   KIRO_PROVIDER_ID,
   DEVIN_PROVIDER_ID,
   GROK_PROVIDER_ID,
+  QODER_PROVIDER_ID,
+  refreshQoderModels,
 } from "./src/extension.js";

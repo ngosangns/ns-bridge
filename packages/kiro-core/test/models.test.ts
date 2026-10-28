@@ -200,10 +200,33 @@ describe("Feature 2: Model Definitions", () => {
       expect(mapped.every((model) => model.rateMultiplier === undefined)).toBe(true);
     });
 
-    it("advertises verified Luna vision without broadening other non-Claude models", () => {
-      expect(mapped.find((model) => model.id === "gpt-5-6-luna")?.input).toEqual(["text", "image"]);
-      expect(mapped.find((model) => model.id === "openai-gpt-5-6")?.input).toEqual(["text"]);
-      expect(mapped.find((model) => model.id === "qwen3-coder-next")?.input).toEqual(["text"]);
+    it("takes image input from the catalog's supportedInputTypes, in both directions", () => {
+      const [withImage, textOnly, silent] = mapKiroCatalogModels(
+        [
+          { modelId: "deepseek-3.2", supportedInputTypes: ["TEXT", "IMAGE"] },
+          // The seed says Claude takes images. The catalog is newer, so it wins.
+          { modelId: "claude-sonnet-4.6", supportedInputTypes: ["TEXT"] },
+          // No list at all: keep what the seed already knew.
+          { modelId: "claude-opus-4.8" },
+        ],
+        TEST_REGION,
+      );
+      expect(withImage?.input).toEqual(["text", "image"]);
+      expect(textOnly?.input).toEqual(["text"]);
+      expect(silent?.input).toEqual(["text", "image"]);
+    });
+
+    it("takes the billing weight from the catalog entry and prefers it over kiro-cli", () => {
+      const [fromCatalog, fromCliOnly] = mapKiroCatalogModels(
+        [{ modelId: "claude-opus-4.8", rateMultiplier: 2.2, rateUnit: "Credit" }, { modelId: "claude-sonnet-4.6" }],
+        TEST_REGION,
+        new Map([
+          ["claude-opus-4.8", { multiplier: 9 }],
+          ["claude-sonnet-4.6", { multiplier: 1.3, unit: "Credit" }],
+        ]),
+      );
+      expect(fromCatalog).toMatchObject({ rateMultiplier: 2.2, rateUnit: "Credit" });
+      expect(fromCliOnly).toMatchObject({ rateMultiplier: 1.3, rateUnit: "Credit" });
     });
 
     it("retains fresh schema and token metadata for a model also present in the bootstrap list", () => {
@@ -304,26 +327,6 @@ describe("Feature 2: Model Definitions", () => {
         reserveTokens: 8_192,
         thresholdTokens: 191_808,
       });
-    });
-
-    it("repairs stale Luna image metadata in memory without rewriting the cache", () => {
-      const [cachedLuna] = mapKiroCatalogModels([{ modelId: "gpt-5.6-luna" }], TEST_REGION);
-      cachedLuna.input = ["text"];
-      const serialized = JSON.stringify({
-        version: KIRO_MANAGEMENT_CACHE_VERSION,
-        source: KIRO_MANAGEMENT_CACHE_SOURCE,
-        regions: {
-          [TEST_REGION]: {
-            region: TEST_REGION,
-            fetchedAt: Date.now(),
-            models: [cachedLuna],
-          },
-        },
-      });
-      writeFileSync(KIRO_MANAGEMENT_CACHE_PATH, serialized, "utf-8");
-
-      expect(getCachedModels(TEST_REGION)[0]?.input).toEqual(["text", "image"]);
-      expect(readFileSync(KIRO_MANAGEMENT_CACHE_PATH, "utf-8")).toBe(serialized);
     });
 
     it("ignores both the old Q cache path and an unversioned cache at the management path", () => {

@@ -10,11 +10,17 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const PROVIDERS = ["kiro", "devin", "grok", "arnict"] as const;
+export const PROVIDERS = ["kiro", "devin", "grok", "arnict", "qoder"] as const;
 export type ProviderName = (typeof PROVIDERS)[number];
 export type ProviderSelection = Record<ProviderName, boolean>;
 
-export const DEFAULT_SELECTION: ProviderSelection = { kiro: true, devin: true, grok: true, arnict: true };
+export const DEFAULT_SELECTION: ProviderSelection = {
+  kiro: true,
+  devin: true,
+  grok: true,
+  arnict: true,
+  qoder: true,
+};
 
 export interface SelectionEnv {
   /** Allow-list. Naming kiro opts it in. */
@@ -31,8 +37,8 @@ export function selectionPath(env: NodeJS.ProcessEnv = process.env, home = homed
 
 export function parseProvider(value: string | undefined): ProviderName | { error: string } {
   const name = value?.trim().toLowerCase();
-  if (name === "kiro" || name === "devin" || name === "grok" || name === "arnict") return name;
-  return { error: `unknown provider ${value ?? ""} (expected kiro, devin, grok, or arnict)` };
+  if (name === "kiro" || name === "devin" || name === "grok" || name === "arnict" || name === "qoder") return name;
+  return { error: `unknown provider ${value ?? ""} (expected kiro, devin, grok, arnict, or qoder)` };
 }
 
 /** File values for known providers. Unknown keys and bad shapes are ignored. */
@@ -97,7 +103,8 @@ function parseList(value: string | undefined): Partial<Record<ProviderName, true
   const found: Partial<Record<ProviderName, true>> = {};
   for (const item of value.split(/[\s,]+/)) {
     const name = item.trim().toLowerCase();
-    if (name === "kiro" || name === "devin" || name === "grok" || name === "arnict") found[name] = true;
+    if (name === "kiro" || name === "devin" || name === "grok" || name === "arnict" || name === "qoder")
+      found[name] = true;
   }
   return found;
 }

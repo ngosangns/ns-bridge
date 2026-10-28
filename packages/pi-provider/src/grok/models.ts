@@ -9,7 +9,7 @@
 
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { grokBootstrapModels } from "ns-grok-core";
-import { discoverGrokModels, type GrokModelDescriptor, grokContextWindowsFromCache } from "ns-grok-core/cli";
+import { discoverGrokModels, type GrokModelDescriptor, grokModelInfoFromCache } from "ns-grok-core/cli";
 import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, THINKING_LEVEL_MAP } from "./config.js";
 
 export { parseGrokModelsOutput } from "ns-grok-core/cli";
@@ -43,7 +43,7 @@ export async function discoverModels(
   source: "live" | "fallback";
   error?: string;
 }> {
-  const discovered = await discoverGrokModels(binary, grokContextWindowsFromCache(contextCache));
+  const discovered = await discoverGrokModels(binary, grokModelInfoFromCache(contextCache));
   if (discovered.source === "live") return discovered;
   return { ...discovered, models: fallbackModels() };
 }
@@ -52,8 +52,8 @@ function toProviderModel(d: GrokModelDescriptor): ProviderModelConfig {
   return {
     id: d.id,
     name: d.name,
-    reasoning: true,
-    thinkingLevelMap: { ...THINKING_LEVEL_MAP },
+    reasoning: d.supportsReasoningEffort ?? true,
+    ...(d.supportsReasoningEffort === false ? {} : { thinkingLevelMap: { ...THINKING_LEVEL_MAP } }),
     input: ["text"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: d.contextWindow ?? DEFAULT_CONTEXT_WINDOW,

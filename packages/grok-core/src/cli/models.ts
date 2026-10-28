@@ -6,38 +6,59 @@ import { GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MAX_TOKENS } from "../catalog
 import { resolveGrokBinary } from "./binary.js";
 import type { GrokModelDescriptor } from "./types.js";
 
+/** What the CLI's own model cache says about one model. A field it leaves out stays undefined. */
+export interface GrokCacheInfo {
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  supportsReasoningEffort?: boolean;
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 /**
- * The context window each model is actually using, read from the CLI's own
- * model cache (`~/.grok/models_cache.json`).
+ * What the CLI's own model cache (`~/.grok/models_cache.json`) records for each
+ * model: display name, context window, output ceiling and whether it takes a
+ * reasoning effort.
  *
  * `grok models` prints only ids, and every model there was assumed to have the
- * same window. The cache disagrees: it records the window in use
- * (`context_window`) separately from the ceiling (`context_windows`). A host
- * compacts against the window it is handed, so the ceiling would let a prompt
- * through that the proxy then rejects.
+ * same window, name and capabilities. The cache disagrees: it records the window
+ * in use (`context_window`) separately from the ceiling (`context_windows`). A
+ * host compacts against the window it is handed, so the ceiling would let a
+ * prompt through that the proxy then rejects. `max_completion_tokens` is null
+ * today, so the output ceiling stays the default until the CLI sets one.
  */
-export function grokContextWindowsFromCache(raw: string | undefined): Map<string, number> {
-  const windows = new Map<string, number>();
-  if (!raw?.trim()) return windows;
+export function grokModelInfoFromCache(raw: string | undefined): Map<string, GrokCacheInfo> {
+  const out = new Map<string, GrokCacheInfo>();
+  if (!raw?.trim()) return out;
   try {
     const parsed = JSON.parse(raw) as { models?: unknown };
     const models = parsed?.models;
-    if (!models || typeof models !== "object") return windows;
+    if (!models || typeof models !== "object") return out;
     for (const [id, entry] of Object.entries(models)) {
-      const info = (entry as { info?: unknown } | null)?.info;
-      const window = (info as { context_window?: unknown } | null)?.context_window;
-      if (typeof window === "number" && Number.isInteger(window) && window > 0) windows.set(id, window);
+      const info = (entry as { info?: Record<string, unknown> } | null)?.info;
+      if (!info || typeof info !== "object") continue;
+      out.set(id, {
+        ...(typeof info.name === "string" && info.name.length > 0 ? { name: info.name } : {}),
+        ...(positiveInteger(info.context_window) ? { contextWindow: info.context_window } : {}),
+        ...(positiveInteger(info.max_completion_tokens) ? { maxTokens: info.max_completion_tokens } : {}),
+        ...(typeof info.supports_reasoning_effort === "boolean"
+          ? { supportsReasoningEffort: info.supports_reasoning_effort }
+          : {}),
+      });
     }
   } catch {
-    // A cache the CLI is mid-write is unusable, not fatal: the caller keeps its default.
+    // A cache the CLI is mid-write is unusable, not fatal: the caller keeps its defaults.
   }
-  return windows;
+  return out;
 }
 
 /** Parse the bullet list `grok models` prints. */
 export function parseGrokModelsOutput(
   stdout: string,
-  contextWindows?: ReadonlyMap<string, number>,
+  cache?: ReadonlyMap<string, GrokCacheInfo>,
 ): GrokModelDescriptor[] {
   const models: GrokModelDescriptor[] = [];
   const seen = new Set<string>();
@@ -53,35 +74,36 @@ export function parseGrokModelsOutput(
       const id = m[1].replace(/[(),]+$/g, "");
       if (!seen.has(id)) {
         seen.add(id);
-        models.push(describe(id, contextWindows));
+        models.push(describe(id, cache));
       }
       continue;
     }
     const d = line.match(defaultLine);
     if (d && !seen.has(d[1])) {
       seen.add(d[1]);
-      models.unshift(describe(d[1], contextWindows));
+      models.unshift(describe(d[1], cache));
     }
   }
 
   return models;
 }
 
-/** One listed model. The cache names its window; a model the cache lacks keeps the default. */
-function describe(id: string, contextWindows?: ReadonlyMap<string, number>): GrokModelDescriptor {
+/** One listed model. The cache says what it knows; a model the cache lacks keeps the defaults. */
+function describe(id: string, cache?: ReadonlyMap<string, GrokCacheInfo>): GrokModelDescriptor {
+  const info = cache?.get(id);
   return {
     id,
-    name: id,
-    contextWindow: contextWindows?.get(id) ?? GROK_DEFAULT_CONTEXT_WINDOW,
-    maxTokens: GROK_DEFAULT_MAX_TOKENS,
-    supportsReasoningEffort: true,
+    name: info?.name ?? id,
+    contextWindow: info?.contextWindow ?? GROK_DEFAULT_CONTEXT_WINDOW,
+    maxTokens: info?.maxTokens ?? GROK_DEFAULT_MAX_TOKENS,
+    supportsReasoningEffort: info?.supportsReasoningEffort ?? true,
   };
 }
 
 /** Ask the CLI for its model list, falling back to the bootstrap descriptors. */
 export async function discoverGrokModels(
   binary?: string,
-  contextWindows?: ReadonlyMap<string, number>,
+  cache?: ReadonlyMap<string, GrokCacheInfo>,
 ): Promise<{
   models: GrokModelDescriptor[];
   source: "live" | "fallback";
@@ -95,7 +117,7 @@ export async function discoverGrokModels(
         else resolve(out);
       });
     });
-    const parsed = parseGrokModelsOutput(stdout, contextWindows);
+    const parsed = parseGrokModelsOutput(stdout, cache);
     if (parsed.length === 0) {
       return { models: [], source: "fallback", error: "empty model list from CLI" };
     }

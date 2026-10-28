@@ -1,5 +1,5 @@
 /**
- * ns-pi-provider — unified Pi extension registering kiro, devin, grok, and arnict.
+ * ns-pi-provider — unified Pi extension registering kiro, devin, grok, arnict, and qoder.
  * Loads gracefully when credentials are missing (fallback models + login hooks).
  */
 
@@ -9,6 +9,7 @@ import { ARNICT_PROVIDER_ID, refreshArnictModels, registerArnictProvider } from 
 import { DEVIN_PROVIDER_ID, devinCatalogStatus, refreshDevinModels, registerDevinProvider } from "./devin/register.js";
 import { GROK_PROVIDER_ID, refreshGrokModels, registerGrokProvider } from "./grok/register.js";
 import { KIRO_PROVIDER_ID, kiroCatalogStatus, refreshKiroModels, registerKiroProvider } from "./kiro/register.js";
+import { QODER_PROVIDER_ID, refreshQoderModels, registerQoderProvider } from "./qoder/register.js";
 import { resolveProviderSelection } from "./selection.js";
 import { getDefaultCatalogCache } from "./shared/index.js";
 
@@ -18,6 +19,7 @@ export interface NsPiProviderOptions {
   devin?: boolean;
   grok?: boolean;
   arnict?: boolean;
+  qoder?: boolean;
 }
 
 export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProviderOptions = {}): Promise<void> {
@@ -27,6 +29,7 @@ export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProvid
   const enableDevin = options.devin !== false;
   const enableGrok = options.grok !== false;
   const enableArnict = options.arnict !== false;
+  const enableQoder = options.qoder !== false;
 
   if (enableKiro) {
     try {
@@ -56,6 +59,13 @@ export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProvid
       console.warn(`[ns-pi-provider] arnict registration failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  if (enableQoder) {
+    try {
+      await registerQoderProvider(pi);
+    } catch (err) {
+      console.warn(`[ns-pi-provider] qoder registration failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   pi.registerCommand("ns-pi", {
     description: "ns-pi-provider: /ns-pi refresh | status",
@@ -70,6 +80,7 @@ export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProvid
         const cache = getDefaultCatalogCache();
         const grok = cache.lookup(GROK_PROVIDER_ID);
         const arnict = cache.lookup(ARNICT_PROVIDER_ID);
+        const qoder = cache.lookup(QODER_PROVIDER_ID);
         const lines = [
           kiroCatalogStatus(),
           devinCatalogStatus(),
@@ -79,6 +90,9 @@ export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProvid
           arnict.hit
             ? `${ARNICT_PROVIDER_ID}: ${arnict.snapshot.models.length} model(s) cached (age ${Math.round((Date.now() - arnict.snapshot.fetchedAt) / 1000)}s)`
             : `${ARNICT_PROVIDER_ID}: no cache (${arnict.reason})`,
+          qoder.hit
+            ? `${QODER_PROVIDER_ID}: ${qoder.snapshot.models.length} model(s) cached (age ${Math.round((Date.now() - qoder.snapshot.fetchedAt) / 1000)}s)`
+            : `${QODER_PROVIDER_ID}: no cache (${qoder.reason})`,
         ];
         ctx.ui.notify(lines.join("\n"), "info");
         return;
@@ -90,7 +104,7 @@ export async function registerAllProviders(pi: ExtensionAPI, options: NsPiProvid
         return;
       }
 
-      ctx.ui.notify("Usage: /ns-pi status | refresh [all|kiro|devin|grok|arnict]", "warning");
+      ctx.ui.notify("Usage: /ns-pi status | refresh [all|kiro|devin|grok|arnict|qoder]", "warning");
     },
   });
 }
@@ -104,12 +118,15 @@ export {
   DEVIN_PROVIDER_ID,
   GROK_PROVIDER_ID,
   KIRO_PROVIDER_ID,
+  QODER_PROVIDER_ID,
   refreshArnictModels,
   refreshDevinModels,
   refreshGrokModels,
   refreshKiroModels,
+  refreshQoderModels,
   registerArnictProvider,
   registerDevinProvider,
   registerGrokProvider,
   registerKiroProvider,
+  registerQoderProvider,
 };

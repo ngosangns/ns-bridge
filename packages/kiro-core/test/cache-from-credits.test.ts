@@ -114,6 +114,16 @@ describe("deriveKiroCacheFromCredits", () => {
     }
   });
 
+  it("reads auto at its own multiplier: warm up to 565k tokens is cached, a cold first turn is on the cap", () => {
+    // Real OMP turns from the usage ledger, 2026-10-28. Auto has no long-context tier, so a 525k prompt floors at `cached`.
+    const AUTO = { model: "auto", rateMultiplier: 1, creditUnit: unit };
+    const warm = appended(AUTO, 524825, 32, 0.88466);
+    expect(warm?.exact).toBe(true);
+    if (warm?.exact) expect(warm.cacheRead / 524825).toBeGreaterThan(0.99);
+    const cold = appended(AUTO, 34579, 5, 0.10992);
+    expect(cold?.exact).toBe(false);
+  });
+
   it("refuses a model it never measured instead of guessing its cap", () => {
     expect(
       deriveKiroCacheFromCredits({

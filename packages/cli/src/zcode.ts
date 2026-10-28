@@ -48,7 +48,13 @@ export const ZCODE_LAUNCH_AGENT_LABEL = "dev.ngosangns.ns-bridge.serve";
 const SCHEMA_VERSION = 1;
 const HEALTH_TIMEOUT_MS = 2000;
 const FALLBACK_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-const VENDOR_LABEL: Record<Vendor, string> = { kiro: "Kiro", devin: "Devin", grok: "Grok", arnict: "Arnict" };
+const VENDOR_LABEL: Record<Vendor, string> = {
+  kiro: "Kiro",
+  devin: "Devin",
+  grok: "Grok",
+  arnict: "Arnict",
+  qoder: "Qoder",
+};
 
 /** The vendors setup registers: the mounts `ns-bridge serve` routes. Arnict joins only with a key. */
 const ZCODE_VENDORS: readonly Vendor[] = ["kiro", "devin", "grok", "arnict"];

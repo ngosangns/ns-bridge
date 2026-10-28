@@ -33,6 +33,7 @@ const DSH_PLUGIN: Record<ProviderName, string> = {
   devin: "ns-dsh-llm-devin",
   grok: "ns-dsh-llm-grok",
   arnict: "ns-dsh-llm-arnict",
+  qoder: "ns-dsh-llm-qoder",
 };
 
 const DSH_ID: Record<ProviderName, string> = {
@@ -40,6 +41,7 @@ const DSH_ID: Record<ProviderName, string> = {
   devin: "llm-devin",
   grok: "llm-grok",
   arnict: "llm-arnict",
+  qoder: "llm-qoder",
 };
 
 const PI_SOURCE = "npm:@ngosangns/ns-pi-provider";
@@ -97,7 +99,11 @@ export function planProviders(
     if (typeof parsed !== "string") return { steps: [], skipDsh: false, error: parsed.error };
     provider = parsed;
   } else if (action !== "status") {
-    return { steps: [], skipDsh: false, error: "enable and disable need a provider: kiro, devin, grok, or arnict" };
+    return {
+      steps: [],
+      skipDsh: false,
+      error: "enable and disable need a provider: kiro, devin, grok, arnict, or qoder",
+    };
   }
 
   if (action === "enable" && provider && hosts.includes("omp") && OMP_NATIVE[provider]) {

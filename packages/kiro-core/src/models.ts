@@ -30,8 +30,20 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 const DEFAULT_MAX_TOKENS = 8_192;
 const ZERO_COST = Object.freeze({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 const REASONING_FAMILY_MARKERS = ["opus", "sonnet", "fable", "coder", "deepseek", "gpt", "glm", "qwen"];
-/** Non-Claude models whose Kiro runtime vision support has been verified end to end. */
-const VERIFIED_IMAGE_MODEL_IDS = new Set(["gpt-5.6-luna"]);
+/** Image input counts only when the catalog lists it; a missing list keeps what the seed or cache knew. */
+function catalogInput(model: KiroCatalogModel): Array<"text" | "image"> | undefined {
+  const types = model.supportedInputTypes;
+  if (!Array.isArray(types) || types.length === 0) return undefined;
+  const upper = types.map((type) => (typeof type === "string" ? type.toUpperCase() : ""));
+  return upper.includes("IMAGE") ? ["text", "image"] : ["text"];
+}
+
+/** The billing weight Kiro publishes on the catalog entry itself. */
+function catalogRate(model: KiroCatalogModel): KiroModelRate | undefined {
+  const multiplier = model.rateMultiplier;
+  if (typeof multiplier !== "number" || !Number.isFinite(multiplier) || multiplier <= 0) return undefined;
+  return { multiplier, ...(typeof model.rateUnit === "string" && model.rateUnit ? { unit: model.rateUnit } : {}) };
+}
 
 type KiroTokenLimits = NonNullable<KiroCatalogModel["tokenLimits"]>;
 
@@ -507,10 +519,6 @@ function hasReasoningFamilyFallback(modelId: string): boolean {
   return normalizedId === "auto" || REASONING_FAMILY_MARKERS.some((marker) => normalizedId.includes(marker));
 }
 
-function hasVerifiedImageInput(kiroModelId: string): boolean {
-  return kiroModelId.startsWith("claude-") || VERIFIED_IMAGE_MODEL_IDS.has(kiroModelId.toLowerCase());
-}
-
 /**
  * The compaction budget for a Kiro model, taken inside its standard-price
  * window so compaction fires before a turn crosses into a long-context tier
@@ -550,13 +558,6 @@ function withCompaction<T extends KiroModelSpec>(model: T): T {
     return model;
   }
   return { ...model, compaction: budget };
-}
-
-/** Correct capability metadata from older caches without rewriting the user's cache file. */
-function applyVerifiedCapabilities(model: KiroModel): KiroModel {
-  const corrected = withCompaction(model);
-  if (!hasVerifiedImageInput(model.kiroModelId) || model.input.includes("image")) return corrected;
-  return { ...corrected, input: ["text", "image"] };
 }
 
 function validateCatalogMetadata(model: KiroCatalogModel): {
@@ -614,7 +615,7 @@ export function mapKiroCatalogModels(
     seenIds.add(id);
 
     const existing = kiroModels.find((model) => model.id === id);
-    const rate = rates?.get(kiroModelId);
+    const rate = catalogRate(catalogModel) ?? rates?.get(kiroModelId);
     const { schema, tokenLimits } = validateCatalogMetadata(catalogModel);
     // Two-tier resolution, same as the request path: an authoritative schema
     // wins, and a known-model guess fills in only when the catalog carried no
@@ -641,7 +642,7 @@ export function mapKiroCatalogModels(
         (schema !== undefined && effortConfig !== undefined) ||
         (schema === undefined && hasReasoningFamilyFallback(id)),
       ...applyEffortLadder(effortConfig),
-      input: existing ? [...existing.input] : hasVerifiedImageInput(kiroModelId) ? ["text", "image"] : ["text"],
+      input: catalogInput(catalogModel) ?? (existing ? [...existing.input] : ["text"]),
       ...(id.startsWith("claude-") ? { recoverTextToolCalls: false } : {}),
       cost: ZERO_COST,
       ...(rate ? { rateMultiplier: rate.multiplier, ...(rate.unit ? { rateUnit: rate.unit } : {}) } : {}),
@@ -677,7 +678,7 @@ export function getCachedModels(region: string): KiroModel[] {
   const models = activeCacheEntry(cache, region)?.models ?? cache?.regions[region]?.models ?? kiroModels;
   let changed = false;
   const corrected = models.map((model) => {
-    const result = applyVerifiedCapabilities(model);
+    const result = withCompaction(model);
     if (result !== model) changed = true;
     return result;
   });
@@ -702,9 +703,9 @@ export async function updateKiroModelsCache(accessToken: string, region: string,
   const auth = { accessToken, region };
   const resolvedProfileArn = await resolveKiroProfileArn(auth, profileArn);
   const response = await fetchKiroModelCatalog(auth, resolvedProfileArn);
-  // Billing weights come from kiro-cli, the only source that publishes them.
-  // Absent when it is not installed, which leaves the catalog rate-less rather
-  // than failing the refresh.
+  // The catalog entry carries the billing weight (`rateMultiplier`). kiro-cli is
+  // the fallback for an entry that omits it, and is absent when not installed,
+  // which leaves that model rate-less rather than failing the refresh.
   const models = mapKiroCatalogModels(response.models, region, await getKiroCliModelRates());
   const cache: ManagementModelsCache = readManagementCache() ?? {
     version: KIRO_MANAGEMENT_CACHE_VERSION,

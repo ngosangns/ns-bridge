@@ -7,13 +7,14 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type Vendor = "kiro" | "devin" | "grok" | "arnict";
+export type Vendor = "kiro" | "devin" | "grok" | "arnict" | "qoder";
 
 export interface CatalogPaths {
   kiro: string;
   devin: string;
   grok: string;
   arnict: string;
+  qoder: string;
 }
 
 /** One listed model, with the compaction budget the catalog wrote for it. */
@@ -46,12 +47,14 @@ export interface CatalogReport {
   groups: CatalogGroup[];
 }
 
-const VENDORS: readonly Vendor[] = ["kiro", "devin", "grok", "arnict"];
+const VENDORS: readonly Vendor[] = ["kiro", "devin", "grok", "arnict", "qoder"];
 
 export function parseVendors(target: string | undefined): Vendor[] | { error: string } {
   if (!target || target === "all") return [...VENDORS];
-  if (target === "kiro" || target === "devin" || target === "grok" || target === "arnict") return [target];
-  return { error: `unknown vendor ${target} (expected kiro, devin, grok, arnict, or all)` };
+  if (target === "kiro" || target === "devin" || target === "grok" || target === "arnict" || target === "qoder") {
+    return [target];
+  }
+  return { error: `unknown vendor ${target} (expected kiro, devin, grok, arnict, qoder, or all)` };
 }
 
 /** Same files the provider packages write. Overrides match those packages. */
@@ -62,6 +65,7 @@ export function catalogPaths(env: NodeJS.ProcessEnv = process.env, home = homedi
     devin: env.NS_DEVIN_MODEL_CACHE ?? join(dataHome, "ns-devin-provider", "models.json"),
     grok: join(home, ".pi", "agent", "cache", "ns-pi-provider", "grok.models.json"),
     arnict: join(home, ".pi", "agent", "cache", "ns-pi-provider", "arnict.models.json"),
+    qoder: join(home, ".pi", "agent", "cache", "ns-pi-provider", "qoder.models.json"),
   };
 }
 

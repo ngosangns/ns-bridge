@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { refreshDevinModels, resolveDevinToken } from "../../src/devin/register.js";
 import { grokAuthPresent, refreshGrokModels } from "../../src/grok/register.js";
 import { refreshKiroModels } from "../../src/kiro/register.js";
+import { qoderAuthPresent, refreshQoderModels } from "../../src/qoder/register.js";
 
 const LIVE = process.env.NS_PI_LIVE === "1";
 
@@ -48,4 +49,15 @@ describe.runIf(LIVE)("live smoke (creds)", () => {
     expect(result.models.length).toBeGreaterThan(0);
     console.info(`[live] grok: ${result.models.length} models [${result.source}]`);
   });
+
+  it("qoder models when auth present", async () => {
+    if (!qoderAuthPresent() && !has(join(homedir(), ".qoder", ".auth"))) {
+      console.info("[live] qoder: skip (no qodercli session / PAT)");
+      return;
+    }
+    const result = await refreshQoderModels({ force: true, allowNetwork: true });
+    expect(result.models.length).toBeGreaterThan(0);
+    expect(result.source).toBe("live");
+    console.info(`[live] qoder: ${result.models.length} models [${result.source}]`);
+  }, 120_000);
 });

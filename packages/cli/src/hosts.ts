@@ -8,7 +8,7 @@ export const PI_SOURCE = "npm:@ngosangns/ns-pi-provider";
  */
 export const OMP_PACKAGES = ["ns-omp-provider-kiro"] as const;
 export const OMP_LEGACY_PACKAGES = ["ns-omp-provider"] as const;
-export const DSH_PACKAGES = ["ns-dsh-llm-kiro", "ns-dsh-llm-devin", "ns-dsh-llm-grok"] as const;
+export const DSH_PACKAGES = ["ns-dsh-llm-kiro", "ns-dsh-llm-devin", "ns-dsh-llm-grok", "ns-dsh-llm-qoder"] as const;
 
 export type Host = "pi" | "omp" | "dsh";
 export type HostAction = "install" | "update" | "uninstall";

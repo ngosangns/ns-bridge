@@ -33,6 +33,14 @@
  * boundary every rate doubles: prompts of 250k-270k tokens floor at 0.00167, prompts from
  * 275k up floor at 0.00334 and top out at 0.03325. Between 270k and 275k the two tiers mix
  * (token counts here are tiktoken estimates, not Kiro's), so that band is refused.
+ *
+ * auto (rateMultiplier 1) was fitted 2026-10-28 from 1,381 OMP turns of 20k+ prompt tokens in the
+ * usage ledger (2026-10-27..28). Warm turns floor at 0.001679 per 1k, which is `cached`, from 20k
+ * to 565k prompt tokens with no step at any size, so it has no long-context tier. Cold turns sit on
+ * 0.00316, the haiku/opus cap. Checked the other way: for 957 consecutive turns under the cap, the
+ * cached share the bill implies lands within 2% of the previous prompt's size (median -0.5%), which
+ * is what a cached prefix must be. "auto" routes to whichever model Kiro picks, so the cap is the
+ * one the traffic showed, not a vendor price.
  * See {@link KIRO_UNCAPPED_MODELS}.
  *
  * A model in neither table is refused, and the ledger records `cacheSource: "none"` for
@@ -57,6 +65,7 @@ export const KIRO_CREDIT_RATES = {
    * cap, so matching on "sonnet" was wrong.
    */
   coldPer1k: {
+    auto: 0.003165,
     "claude-haiku-4-5": 0.003165,
     "claude-opus-5": 0.003165,
     "claude-sonnet-5-5": 0.00614,
