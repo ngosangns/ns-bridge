@@ -17,7 +17,7 @@
 //       exits non-zero unless the CLI is in the plan at that version
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -25,6 +25,9 @@ const packagesDir = join(root, "packages");
 
 const all = readdirSync(packagesDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
+  // Stale build-residue directories (dist/node_modules left behind by a
+  // deleted package) have no manifest and are not packages.
+  .filter((entry) => existsSync(join(packagesDir, entry.name, "package.json")))
   .map((entry) => {
     const dir = join("packages", entry.name);
     const manifest = JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8"));
