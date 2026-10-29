@@ -178,8 +178,11 @@ function ompSteps(action: HostAction, paths: HostPaths): HostStep[] {
     return [{ host: "omp", argv: ["omp", "plugin", "uninstall", ...OMP_LEGACY_PACKAGES] }];
   }
   return [
-    // The bundle carries kiro now, so the separate kiro plugin must go first.
-    { host: "omp", argv: ["omp", "plugin", "uninstall", "ns-omp-provider-kiro"], tolerate: true },
+    // Both npm plugins must go before the bundle registers: ns-omp-provider-kiro
+    // would register the same providers twice, and the npm ns-omp-provider shares
+    // the bundle's manifest name. On an already-migrated host this drops the
+    // linked bundle and the install below registers it again.
+    { host: "omp", argv: ["omp", "plugin", "uninstall", ...OMP_LEGACY_PACKAGES], tolerate: true },
     { host: "omp", argv: ["omp", "plugin", "install", hostBundleDir(paths, "omp")] },
   ];
 }
@@ -194,6 +197,9 @@ function dshSteps(action: HostAction, profile: string, paths: HostPaths): HostSt
   }
   const links = PROVIDERS.map((provider) => `link:${dshBundleDir(paths, provider)}`);
   return [
+    // The npm registry packages the CLI used to ship go first: a profile holding
+    // both ns-dsh-llm-kiro and the link would load the same plugin twice.
+    { host: "dsh", argv: ["dsh", "plugin", "--profile", profile, "remove", ...DSH_PACKAGES], tolerate: true },
     { host: "dsh", argv: ["dsh", "plugin", "--profile", profile, "add", ...links] },
     { host: "dsh", label: `ensure provider blocks in ${patch}`, apply: () => ensureDshPatch(patch) },
   ];

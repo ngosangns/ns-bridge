@@ -78,7 +78,7 @@ describe("ns-bridge", () => {
       "pi uninstall npm:@ngosangns/ns-pi-provider",
       `pi install ${tree.pi}`,
       `prune stale local entries in ${join(tree.paths.home, ".pi", "agent", "settings.json")}`,
-      "omp plugin uninstall ns-omp-provider-kiro",
+      "omp plugin uninstall ns-omp-provider-kiro ns-omp-provider",
       `omp plugin install ${tree.omp}`,
       "# dsh skipped: pass --profile <name>",
     ]);
@@ -92,6 +92,16 @@ describe("ns-bridge", () => {
     expect(code).toBe(0);
     const out = io.stdout.join("\n");
     expect(out).toContain(`omp plugin install ${tree.omp}`);
+    expect(out).toContain(
+      [
+        "dsh plugin --profile headless remove",
+        "ns-dsh-llm-kiro",
+        "ns-dsh-llm-devin",
+        "ns-dsh-llm-grok",
+        "ns-dsh-llm-arnict",
+        "ns-dsh-llm-qoder",
+      ].join(" "),
+    );
     expect(out).toContain(
       [
         "dsh plugin --profile headless add",
@@ -156,10 +166,12 @@ describe("ns-bridge", () => {
     };
     expect(await run(["install", "omp"], { ...io, runner, hostPaths: tree.paths })).toBe(0);
     expect(calls).toEqual([
-      ["omp", "plugin", "uninstall", "ns-omp-provider-kiro"],
+      ["omp", "plugin", "uninstall", "ns-omp-provider-kiro", "ns-omp-provider"],
       ["omp", "plugin", "install", tree.omp],
     ]);
-    expect(io.stdout.join("\n")).toContain("# ignored: omp plugin uninstall ns-omp-provider-kiro exited 1");
+    expect(io.stdout.join("\n")).toContain(
+      "# ignored: omp plugin uninstall ns-omp-provider-kiro ns-omp-provider exited 1",
+    );
     expect(io.stderr).toEqual([]);
   });
 

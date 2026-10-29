@@ -50,7 +50,7 @@ describe("planHostCommands install", () => {
     expect(argvOf(plan.steps)).toEqual([
       ["pi", "uninstall", "npm:@ngosangns/ns-pi-provider"],
       ["pi", "install", pi],
-      ["omp", "plugin", "uninstall", "ns-omp-provider-kiro"],
+      ["omp", "plugin", "uninstall", "ns-omp-provider-kiro", "ns-omp-provider"],
       ["omp", "plugin", "install", omp],
     ]);
     expect(plan.steps[0]?.tolerate).toBe(true);
@@ -60,10 +60,12 @@ describe("planHostCommands install", () => {
     expect(plan.skipDsh).toBe(false);
   });
 
-  it("links all five provider bundles for DSH and edits the profile patch", () => {
+  it("removes the npm DSH packages before linking the five provider bundles", () => {
     const { paths } = tree();
     const plan = planHostCommands("install", ["dsh"], "headless", paths);
-    const [link, patch] = plan.steps;
+    const [remove, link, patch] = plan.steps;
+    expect(remove?.argv).toEqual(["dsh", "plugin", "--profile", "headless", "remove", ...DSH_PACKAGES]);
+    expect(remove?.tolerate).toBe(true);
     expect(link?.argv).toEqual([
       "dsh",
       "plugin",
@@ -72,6 +74,7 @@ describe("planHostCommands install", () => {
       "add",
       ...PROVIDERS.map((provider) => `link:${dshBundleDir(paths, provider)}`),
     ]);
+    expect(link?.tolerate).toBeUndefined();
     expect(patch?.argv).toBeUndefined();
     expect(patch?.label).toContain(dshPatchPath(paths, "headless"));
   });
@@ -89,7 +92,8 @@ describe("planHostCommands install", () => {
     const { paths } = tree();
     const plan = planHostCommands("install", ["dsh"], "headless", paths);
     expect(plan.steps[0]?.apply).toBeUndefined();
-    expect(typeof plan.steps[1]?.apply).toBe("function");
+    expect(plan.steps[1]?.apply).toBeUndefined();
+    expect(typeof plan.steps[2]?.apply).toBe("function");
   });
 });
 

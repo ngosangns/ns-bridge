@@ -125,7 +125,7 @@ function settingsPackages(): unknown[] {
 }
 
 describe("ns-bridge install/uninstall against fake hosts", () => {
-  it("installs all three hosts, migrating Pi and OMP off the npm plugins", () => {
+  it("installs all three hosts, migrating Pi, OMP, and DSH off the npm plugins", () => {
     const result = nsBridge(["install", "all", "--profile", "test"]);
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
@@ -142,9 +142,10 @@ describe("ns-bridge install/uninstall against fake hosts", () => {
     const calls = readFileSync(log, "utf8").trim().split("\n");
     expect(calls[0]).toBe("pi uninstall npm:@ngosangns/ns-pi-provider");
     expect(calls[1]).toBe(`pi install ${piBundle}`);
-    expect(calls[2]).toBe("omp plugin uninstall ns-omp-provider-kiro");
+    expect(calls[2]).toBe("omp plugin uninstall ns-omp-provider-kiro ns-omp-provider");
     expect(calls[3]).toBe(`omp plugin install ${ompBundle}`);
-    expect(calls[4]).toBe(
+    expect(calls[4]).toBe(`dsh plugin --profile test remove ${PROVIDERS.map((p) => `ns-dsh-llm-${p}`).join(" ")}`);
+    expect(calls[5]).toBe(
       `dsh plugin --profile test add ${PROVIDERS.map((p) => `link:${join(cliRoot, "dist", "hosts", "dsh", p)}`).join(" ")}`,
     );
   });
