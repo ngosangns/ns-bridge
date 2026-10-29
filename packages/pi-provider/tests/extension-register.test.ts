@@ -8,7 +8,7 @@ import { resolveProviderSelection } from "../src/selection.js";
 function mockPi() {
   const providers = new Map<string, unknown>();
   const commands = new Map<string, unknown>();
-  const handlers: Array<{ event: string; fn: Function }> = [];
+  const handlers: Array<{ event: string; fn: (...args: never[]) => unknown }> = [];
   return {
     providers,
     commands,
@@ -21,7 +21,7 @@ function mockPi() {
       registerCommand: vi.fn((name: string, def: unknown) => {
         commands.set(name, def);
       }),
-      on: vi.fn((event: string, fn: Function) => {
+      on: vi.fn((event: string, fn: (...args: never[]) => unknown) => {
         handlers.push({ event, fn });
       }),
       events: { on: vi.fn(), emit: vi.fn() },

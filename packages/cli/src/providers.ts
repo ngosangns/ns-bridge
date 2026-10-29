@@ -1,20 +1,20 @@
 /**
- * `ns-bridge providers` — turn kiro, devin, grok, or arnict on or off.
+ * `ns-bridge providers` — turn kiro, devin, grok, arnict, or qoder on or off.
  *
  * Pi and OMP register from one file, `~/.ns-bridge/providers.json`. The
  * extensions read it at launch; this command writes it. DSH has no such
  * file: the profile patch carries `disabled: true` on the plugin id.
  *
- * OMP ships `devin`, `xai`, and `xai-oauth` itself and takes only `kiro` and
- * `arnict` from this project (ns-omp-provider registers arnict), so devin and
- * grok are not a choice for `omp`. Their keys in the shared file stay for Pi
- * and are ignored by the OMP plugin.
+ * OMP ships `devin`, `xai`, and `xai-oauth` itself and takes `kiro`, `arnict`,
+ * and `qoder` from this project, so devin and grok are not a choice for `omp`.
+ * Their keys in the shared file stay for Pi and are ignored by the OMP plugin.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { type Host, parseHosts } from "./hosts.js";
+import { dirname, join } from "node:path";
+import { DSH_ID, DSH_PLUGIN, dshPluginState, setDshPluginEnabled } from "./dsh-patch.js";
+import { type Host, isPiBundleSource, PI_SOURCE, parseHosts } from "./hosts.js";
 import {
   PROVIDERS,
   type ProviderName,
@@ -28,25 +28,7 @@ import {
 
 export type ProviderAction = "enable" | "disable" | "status";
 
-const DSH_PLUGIN: Record<ProviderName, string> = {
-  kiro: "ns-dsh-llm-kiro",
-  devin: "ns-dsh-llm-devin",
-  grok: "ns-dsh-llm-grok",
-  arnict: "ns-dsh-llm-arnict",
-  qoder: "ns-dsh-llm-qoder",
-};
-
-const DSH_ID: Record<ProviderName, string> = {
-  kiro: "llm-kiro",
-  devin: "llm-devin",
-  grok: "llm-grok",
-  arnict: "llm-arnict",
-  qoder: "llm-qoder",
-};
-
-const PI_SOURCE = "npm:@ngosangns/ns-pi-provider";
-
-/** Why `omp` has no devin or grok here, and what to use in OMP instead. Arnict is a choice: ns-omp-provider registers it. */
+/** Why `omp` has no devin or grok here, and what to use in OMP instead. Arnict and qoder are choices: the bundled ns-omp-provider registers them. */
 const OMP_NATIVE: Partial<Record<ProviderName, string>> = {
   devin: "OMP has its own devin provider; use /login devin or DEVIN_API_KEY",
   grok: "OMP has its own xai and xai-oauth providers; use /login xai-oauth or XAI_API_KEY",
@@ -194,9 +176,10 @@ function piPackageInstalled(settingsPath: string): boolean {
   }
   const packages = parsed.packages;
   if (!Array.isArray(packages)) return false;
+  const base = dirname(settingsPath);
   return packages.some((entry) => {
     const source = typeof entry === "string" ? entry : sourceOf(entry);
-    return source === PI_SOURCE || source.endsWith("/pi-provider");
+    return source === PI_SOURCE || source.endsWith("/pi-provider") || isPiBundleSource(source, base);
   });
 }
 
@@ -257,9 +240,9 @@ function readDshProvider(
   } catch {
     return { on: false, note: "patch missing" };
   }
-  const block = pluginBlock(raw, provider);
-  if (!block) return { on: false, note: "not installed" };
-  return { on: !/^\s*disabled:\s*true\s*$/m.test(block) };
+  const state = dshPluginState(raw, provider);
+  if (state === "missing") return { on: false, note: "not installed" };
+  return { on: state === "on" };
 }
 
 function writeDshProvider(patch: string, provider: ProviderName, enabled: boolean): string | { error: string } {
@@ -270,22 +253,11 @@ function writeDshProvider(patch: string, provider: ProviderName, enabled: boolea
     return { error: `dsh patch not found: ${patch}` };
   }
   const id = DSH_ID[provider];
-  const block = pluginBlock(raw, provider);
-  if (!block) return { error: `${DSH_PLUGIN[provider]} is not in ${patch}` };
-  const disabled = /^\s*disabled:\s*true\s*$/m.test(block);
-  if (enabled === !disabled) return `${id} already ${enabled ? "on" : "off"}`;
-  const nextBlock = enabled ? block.replace(/\n\s*disabled:\s*true\s*$/m, "") : `${block}\n  disabled: true`;
-  writeFileSync(patch, raw.replace(block, nextBlock), "utf8");
+  const state = dshPluginState(raw, provider);
+  if (state === "missing") return { error: `${DSH_PLUGIN[provider]} is not in ${patch}` };
+  if (enabled === (state === "on")) return `${id} already ${enabled ? "on" : "off"}`;
+  writeFileSync(patch, setDshPluginEnabled(raw, provider, enabled), "utf8");
   return `${id} ${enabled ? "on" : "off"}`;
-}
-
-/** The insert entry for this provider, from its `id:` line through its indented body. */
-function pluginBlock(raw: string, provider: ProviderName): string | undefined {
-  const id = DSH_ID[provider];
-  const match = new RegExp(`^    - id: ${id}\\n(?:(?:    [^\\n]*|  disabled: true)\\n)*`, "m").exec(
-    raw.endsWith("\n") ? raw : `${raw}\n`,
-  );
-  return match?.[0].replace(/\n$/, "");
 }
 
 export function formatProviderPlan(plan: ProviderPlan, apply: boolean): string[] {

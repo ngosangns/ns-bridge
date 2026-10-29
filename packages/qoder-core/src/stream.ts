@@ -1,12 +1,20 @@
 // ABOUTME: One Qoder agent-sdk query per host turn. The host owns the tool loop.
 
-import { type Options, type Query, query, type SDKMessage, type SDKUserMessage } from "@qoder-ai/qoder-agent-sdk";
+import {
+  type Options,
+  ProcessTransport,
+  type Query,
+  query,
+  type SDKMessage,
+  type SDKUserMessage,
+} from "@qoder-ai/qoder-agent-sdk";
 import { recordUsage } from "ns-core-utils";
 import { type ResolvedQoderAuth, requireQoderAuth } from "./auth.js";
 import { QODER_DEFAULT_CONTEXT_WINDOW, qoderBootstrapModels } from "./catalog.js";
 import { QoderApiError } from "./errors.js";
 import { buildQoderPrompt, collectQoderImages, qoderImageData } from "./prompt.js";
 import { createSdkReduceState, finishSdkReduce, reduceSdkMessage } from "./sdk-reduce.js";
+import { qoderSessionId } from "./session.js";
 import { createHostToolMcpServer, hostToolName } from "./tools.js";
 import type { QoderEffort, QoderMessage, QoderStreamEvent, QoderTool } from "./types.js";
 
@@ -50,6 +58,11 @@ function aborted(): Error {
   const error = new Error("This operation was aborted");
   error.name = "AbortError";
   return error;
+}
+
+/** OMP runs its extensions on Bun. */
+function runsOnBun(): boolean {
+  return (process.versions as Record<string, string | undefined>).bun !== undefined;
 }
 
 function sdkEffort(effort: QoderEffort): string {
@@ -102,6 +115,11 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
   const known = new Set((options.tools ?? []).map((entry) => entry.name));
   const mcp = createHostToolMcpServer(options.tools);
   const pending: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
+  const sessionId = qoderSessionId(options.sessionId);
+  // The SDK's own transport errors name the exit but not why; the tail keeps
+  // the worker's last words so the failure reaches the host instead of a bare
+  // "exited with code".
+  let stderrTail = "";
   const sdkOptions: Options = {
     auth: auth.options,
     model: options.model,
@@ -113,6 +131,9 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
     includePartialMessages: true,
     persistSession: false,
     cwd: options.cwd ?? process.cwd(),
+    stderr: (data) => {
+      stderrTail = `${stderrTail}${data}`.slice(-2_000);
+    },
     systemPrompt: { type: "preset", preset: "qodercli", append: BRIDGE_NOTE },
     canUseTool: async (toolName, input, permission) => {
       const name = hostToolName(toolName, known);
@@ -134,9 +155,14 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
           }),
         }
       : {}),
-    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+    ...(sessionId ? { sessionId } : {}),
     ...(mcp ? { mcpServers: { "ns-bridge-host": mcp } } : {}),
     ...(options.signal ? { abortController: createAbortBridge(options.signal) } : {}),
+    // Bun's worker_threads ignores the stdout/stderr channel options this SDK's
+    // default WorkerTransport relies on, so the worker's messages never arrive.
+    // OMP runs on Bun; there the query drives qodercli over the process
+    // transport instead.
+    ...(runsOnBun() ? { transport: ProcessTransport.default } : {}),
   };
 
   const runQuery = options.queryFactory ?? query;
@@ -183,6 +209,12 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
       };
     }
     for (const event of finishSdkReduce(state)) yield event;
+  } catch (error) {
+    const detail = stderrTail.trim();
+    if (detail && error instanceof Error && !error.message.includes(detail)) {
+      throw new QoderApiError(`${error.message}: ${detail}`);
+    }
+    throw error;
   } finally {
     // After a successful result the SDK has already torn down the transport.
     // A host tool handoff must still interrupt so qodercli does not run the tool.

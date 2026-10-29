@@ -5,7 +5,7 @@ project is and how to install/use it, see [README.md](README.md).
 
 ## Layout
 
-pnpm workspace. Fourteen packages under `packages/`. npm publishes only `@ngosangns/ns-bridge`. The other packages stay at their last published version.
+pnpm workspace. Sixteen packages under `packages/`. Only `@ngosangns/ns-bridge` is publishable; every other package is `private` and exists as a build input to it, because the CLI bundles each host extension that gets installed.
 
 This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns-pi-provider`, `ns-omp-provider`, and `ns-devin-provider` (archived, each pointing here).
 
@@ -19,12 +19,47 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | vendor core | [`ns-arnict-core`](packages/arnict-core) | The Arnict protocol in this process: OpenAI chat completions over SSE, API key auth (env or key file), the model catalog with published rates, and USD cost in the usage ledger as credits with `creditUnit` "USD" |
 | vendor core | [`ns-qoder-core`](packages/qoder-core) | Qoder via `@qoder-ai/qoder-agent-sdk` and qodercli: one query per host turn, host tool schemas on an in-process MCP mirror, catalog and auth |
 | host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, `grok`, `arnict`, and `qoder` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
-| host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter's Kiro and Arnict registrations behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
+| host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter's Kiro, Arnict, and Qoder registrations behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
 | host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok), [`ns-dsh-llm-arnict`](packages/dsh-llm-arnict), [`ns-dsh-llm-qoder`](packages/dsh-llm-qoder) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
-| cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Installs host packages and refreshes model catalogs outside the host process |
+| cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Builds the host extensions into `dist/hosts/**`, registers them with Pi, OMP, and DSH, and refreshes model catalogs outside the host process |
 
 Pi, OMP, and DSH read the catalog files while they run. They do not refresh those files. `ns-bridge models refresh` writes them.
+
+### Host extension bundles
+
+`packages/cli/scripts/build.mjs` builds everything the CLI ships: the refresh
+and serve entries, then one prebuilt extension per host under `dist/hosts/`:
+
+| Path | Manifest name | Built from |
+| --- | --- | --- |
+| `dist/hosts/pi` | `@ngosangns/ns-pi-provider` | `pi-provider/index.ts`, with `@earendil-works/*` external (Pi serves them in-process) |
+| `dist/hosts/omp` | `ns-omp-provider` | `omp-provider/src/index.ts`, `@oh-my-pi/*` external, `@earendil-works/*` aliased to `omp-provider/src/compat` by `scripts/pi-compat-plugin.mjs` |
+| `dist/hosts/dsh/<vendor>` | `ns-dsh-llm-<vendor>` | each `dsh-llm-<vendor>`; `@deepseek-ai/{cordis,dsh-attachment,dsh-credentials,dsh-llm}` external and `schemastery` bundled |
+
+The generated `package.json` beside each bundle carries the host's discovery
+key (`pi.extensions` / `omp.extensions`), the peer ranges DSH needs, and no
+dependencies. `@qoder-ai/qoder-agent-sdk`, `@smithy/*`, and `js-tiktoken`
+stay external everywhere: the SDK's own postinstall downloads its worker
+runtime and native deps, and the Smithy/tiktoken stack loads lazily on Kiro
+requests. They are runtime dependencies of the CLI package, so they resolve
+from beside the bundle.
+
+Build guards fail the build rather than the host: an external outside the
+allow-list, a Pi module left in the OMP bundle, or a DSH bundle without its
+`llm-<vendor>` export. `packages/cli/test/bundles.test.ts` loads every bundle
+from a temp `node_modules` with Proxy stubs for the host modules, registers
+Qoder on Pi, checks OMP's effort and window mapping, and calls each DSH
+`apply`.
+
+`ns-bridge install` registers those directories in place
+(`packages/cli/src/hosts.ts`): Pi gets `pi install <abs dist/hosts/pi>`, OMP
+`omp plugin install <abs dir>`, DSH `link:` plugins plus the five
+`cordis.patch.yml` blocks (`packages/cli/src/dsh-patch.ts`). Install and
+update also migrate off the old npm plugins; `uninstall` removes both shapes.
+Hosts point into the installed CLI, so moving or removing it breaks the
+extensions until `install` runs again. `packages/cli/test/install.test.ts`
+drives the built CLI against fake host binaries on an isolated `HOME`.
 
 ### What each refresh takes from the vendor
 
@@ -146,13 +181,15 @@ discovery. The Kiro catalog cache (`~/.ns-kiro-provider-models-cache.json`) keep
 
 ### The `kiro` provider id in OMP
 
-`ns-omp-provider-kiro` owns `kiro` in OMP while that plugin is installed.
-`ns-omp-provider` registers `kiro` too (and nothing else: OMP provides `devin`, `xai`, and `xai-oauth` itself), but never
-while `ns-omp-provider-kiro` sits in the active plugin dir (`shouldRegisterKiro`,
-`omp-provider/src/config.ts`), whatever `~/.ns-bridge/providers.json` or the env lists
-say: two registrations of one id leave the winner to plugin load order. Without the
-dedicated plugin the file and env lists decide. `ns-bridge providers` writes only the
-key it changes, never the defaults. Both plugins run `ns-kiro-core`.
+The bundled `ns-omp-provider` owns `kiro` in OMP. Until `ns-bridge install omp`
+or `update omp` runs, an older machine may still have the separate
+`ns-omp-provider-kiro` plugin: while it sits in the active plugin dir,
+`ns-omp-provider` skips `kiro` (`shouldRegisterKiro`,
+`omp-provider/src/config.ts`), whatever `~/.ns-bridge/providers.json` or the
+env lists say, because two registrations of one id leave the winner to plugin
+load order. Install/update remove that plugin first. Without it the file and
+env lists decide. `ns-bridge providers` writes only the key it changes, never
+the defaults. Both plugins run `ns-kiro-core`.
 
 ### Compaction thresholds for Kiro models
 
@@ -277,12 +314,15 @@ real `~/.ns-bridge/zcode.json` and `~/.zcode` are untouched.
 git clone git@github.com:ngosangns/ns-bridge.git
 cd ns-bridge
 pnpm install
-pnpm -r build       # check typechecks against built declarations, so build first
+pnpm -r build       # also writes packages/cli/dist/hosts/**; check typechecks against built declarations, so build first
 pnpm -r check
 pnpm test           # vitest projects: bridge, core-utils, kiro, devin, grok, grok-dsh, arnict, arnict-dsh, qoder, cli, pi, omp
 pnpm vitest run --project kiro   # one project
 pnpm lint           # biome check .  (lint:fix / format to write)
 ```
+
+The `cli` project includes the bundle smoke test and the isolated-`HOME`
+install run; both build `packages/cli/dist` on demand when it is missing.
 
 Pi and OMP adapters keep their own formatting and are excluded from Biome.
 
@@ -293,12 +333,21 @@ Hermetic tests never touch the network. With real sessions on the machine:
 ```bash
 pi --no-extensions -e ./packages/pi-provider/index.ts --list-models
 pi --no-extensions -e ./packages/pi-provider/index.ts --model kiro/claude-haiku-4-5 -p "hi"
+pi --no-extensions -e ./packages/cli/dist/hosts/pi --model kiro/claude-haiku-4-5 -p "hi"   # what install registers
 omp --no-extensions -e ./packages/omp-provider-kiro/dist/index.js --model kiro/claude-haiku-4-5 -p "hi"
 NS_PI_LIVE=1 pnpm --filter @ngosangns/ns-pi-provider test:live
 NS_QODER_LIVE=1 pnpm vitest run --project qoder packages/qoder-core/test/live/smoke.test.ts
 ```
 
 `@qoder-ai/qoder-agent-sdk` downloads a **worker runtime** on postinstall. `pnpm-workspace.yaml` sets `allowBuilds` for that package to `true`. `ns-qoder-core` also runs `scripts/ensure-sdk-runtime.cjs` after install. If you still see `Qoder worker runtime not found`, run `pnpm install` from the repo root or `node packages/qoder-core/scripts/ensure-sdk-runtime.cjs`. Auth: `qodercli login` or `QODER_PERSONAL_ACCESS_TOKEN`.
+
+The SDK's default transport is a worker thread, and Bun's `worker_threads`
+silently gives it no stdout/stderr channel — a query there ends with an empty
+turn. OMP runs on Bun, so `ns-qoder-core` selects the SDK's `ProcessTransport`
+(which drives `qodercli`) whenever `process.versions.bun` is set; Qoder under
+OMP therefore needs the qoder CLI on `PATH`. Session ids are also normalized to
+a UUID (`qoderSessionId`), because the SDK rejects host ids such as the
+Harness's `session-<uuid>`.
 
 A DSH profile can point at a local build with
 `dsh plugin --profile <name> add link:<path>/packages/dsh-llm-kiro`.
@@ -312,7 +361,12 @@ A DSH profile can point at a local build with
 ## Releasing
 
 npm publishes only `@ngosangns/ns-bridge`. The provider packages are no longer
-developed; their last versions stay on npm and are marked deprecated.
+developed; their last versions stay on npm and are marked deprecated, and in
+this workspace they are `private: true`. `scripts/release-plan.mjs` refuses to
+run when any other package is publishable. What they build is shipped inside
+the CLI tarball as `dist/hosts/**`, so a provider change reaches users with
+the next `ns-bridge` release, not a package of its own.
+
 Publishing runs from `.github/workflows/publish.yml` using npm **trusted
 publishing** (OIDC) on the self-hosted runner, so no npm token is stored.
 The workflow accepts only a `ns-bridge@<version>` tag.

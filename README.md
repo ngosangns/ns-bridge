@@ -1,6 +1,6 @@
 # ns-bridge
 
-Kiro, Devin, Grok, and Arnict for [Pi](https://pi.dev), [OMP](https://github.com/can1357/oh-my-pi),
+Kiro, Devin, Grok, Arnict, and Qoder for [Pi](https://pi.dev), [OMP](https://github.com/can1357/oh-my-pi),
 and the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
 The published package is [`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge):
@@ -10,8 +10,9 @@ npm install -g @ngosangns/ns-bridge
 ns-bridge help
 ```
 
-`ns-bridge` installs the host plugins and writes model catalogs in its own
-process. Pi, OMP, and DSH read those files.
+`ns-bridge` ships the host extensions prebuilt, registers them with Pi, OMP,
+and DSH, and writes model catalogs in its own process. Pi, OMP, and DSH read
+those files.
 
 ```bash
 ns-bridge install --dry-run # preview pi + omp; DSH needs --profile
@@ -35,6 +36,7 @@ refreshes it, and writes the refresh back so that CLI stays on the same token.
 kiro-cli login        # Builder ID, IAM Identity Center, Google, GitHub, enterprise OIDC
 devin auth login      # or: /login devin inside Pi
 grok login            # Grok runs through the local grok CLI (or XAI_API_KEY)
+qodercli login        # or: QODER_PERSONAL_ACCESS_TOKEN
 ```
 
 A Kiro API key (`ksk_…`) and `KIRO_API_KEY` are accepted directly.
@@ -51,21 +53,30 @@ ns-bridge arnict status
 ns-bridge models refresh arnict
 ```
 
-`ARNICT_API_KEY` outranks the file. No published install carries `arnict`:
-`ns-bridge install pi` installs the last published `@ngosangns/ns-pi-provider`,
-which predates it; `ns-bridge install omp` installs `ns-omp-provider-kiro`
-only; `ns-dsh-llm-arnict` is not on npm. Build this repo and load the provider
-from the checkout: `pi -e ./packages/pi-provider/index.ts` registers `arnict`
-beside `kiro`/`devin`/`grok`; `ns-omp-provider` from this repo registers
-`arnict` and leaves `kiro` to `ns-omp-provider-kiro` when that plugin is
-installed; DSH links the adapter with
-`dsh plugin --profile <name> add link:<path>/packages/dsh-llm-arnict`.
-`ns-bridge zcode setup` adds `arnict` on its own when the vendor is enabled
-and a key is present. A provider without a key registers nothing.
+`ARNICT_API_KEY` outranks the file. Every host gets `arnict` from the
+extensions `ns-bridge install` registers; a provider without a key registers
+nothing. `ns-bridge zcode setup` adds `arnict` on its own when the vendor is
+enabled and a key is present.
 
 Models (USD per 1M tokens, input/cached/output, arnict.com/docs/pricing):
 `zai/glm-5.3-flash-uncensored` at 0.125/0.05/0.50 and
 `zai/glm-5.3-uncensored` at 1.25/0.30/2.25.
+
+## Qoder
+
+Qoder runs through `@qoder-ai/qoder-agent-sdk`: one query per host turn, with
+the host's own tools mirrored to it. Sign in with `qodercli login` or set
+`QODER_PERSONAL_ACCESS_TOKEN`.
+
+```bash
+ns-bridge models refresh qoder
+```
+
+The refresh writes `~/.pi/agent/cache/ns-pi-provider/qoder.models.json`, with
+the effort ladder Qoder reports. Pi shows it as `thinkingLevelMap`; OMP shows
+it as per-model effort levels and compacts on the catalog's threshold. The SDK
+downloads a worker runtime on install; with `--ignore-scripts` the first Qoder
+call fails until you run its postinstall.
 
 ## Pi
 
@@ -74,9 +85,8 @@ ns-bridge install pi
 pi --model kiro/claude-sonnet-4-6
 ```
 
-Registers `kiro`, `devin`, and `grok`. `/ns-pi refresh` and `/grok refresh`
-point at `ns-bridge models refresh`. The installed `ns-pi-provider`
-predates Arnict — see [Arnict](#arnict) for loading it from this repo.
+Registers `kiro`, `devin`, `grok`, `arnict`, and `qoder`. `/ns-pi refresh`,
+`/grok refresh`, and `/qoder status` point at `ns-bridge models refresh`.
 
 ## OMP
 
@@ -84,11 +94,13 @@ predates Arnict — see [Arnict](#arnict) for loading it from this repo.
 ns-bridge install omp
 ```
 
-Registers `kiro` only. For `arnict`, see [Arnict](#arnict). OMP ships `devin`, `xai`, and `xai-oauth` itself, so ns-bridge no
-longer provides `devin` or `grok` there: sign in with `/login devin` and `/login xai-oauth`
-(or `DEVIN_API_KEY` / `XAI_API_KEY`). Moving from the old plugin: replace `devin/…` and
-`grok/…` model ids in OMP's `config.yml` with OMP's own (`devin/…` from `omp models devin`,
-`xai-oauth/…` or `xai/…` for Grok), then `omp plugin uninstall ns-omp-provider`.
+Registers `kiro`, `arnict`, and `qoder`. OMP ships `devin`, `xai`, and
+`xai-oauth` itself, so ns-bridge does not provide `devin` or `grok` there:
+sign in with `/login devin` and `/login xai-oauth` (or `DEVIN_API_KEY` /
+`XAI_API_KEY`). Moving from an older install: `ns-bridge install omp` removes
+the separate `ns-omp-provider-kiro` plugin. Model ids `devin/…` and `grok/…`
+in OMP's `config.yml` resolve to OMP's own `devin` and (for Grok)
+`xai-oauth/…` or `xai/…`.
 
 ## DeepSeek Harness
 
@@ -96,8 +108,9 @@ longer provides `devin` or `grok` there: sign in with `/login devin` and `/login
 ns-bridge install dsh --profile <profile>
 ```
 
-The CLI refuses profile `desktop`; the Electron app owns it. Then in that
-profile's `cordis.patch.yml`:
+The CLI refuses profile `desktop`; the Electron app owns it. The install links
+the five provider bundles and writes their blocks into that profile's
+`cordis.patch.yml`:
 
 ```yaml
 - insert:
@@ -113,6 +126,14 @@ profile's `cordis.patch.yml`:
       name: 'ns-dsh-llm-grok'
       config:
         provider: grok
+    - id: llm-arnict
+      name: 'ns-dsh-llm-arnict'
+      config:
+        provider: arnict
+    - id: llm-qoder
+      name: 'ns-dsh-llm-qoder'
+      config:
+        provider: qoder
 
 - id: agent-default-model
   config:

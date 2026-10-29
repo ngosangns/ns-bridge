@@ -1,6 +1,6 @@
 # @ngosangns/ns-bridge
 
-CLI for the [ns-bridge](https://github.com/ngosangns/ns-bridge) providers. It installs the last published host packages and writes model catalogs in its own process. Pi, OMP, and DSH read those files.
+CLI for the [ns-bridge](https://github.com/ngosangns/ns-bridge) providers. It ships the host extensions prebuilt, registers them with Pi, OMP, and DSH, and writes model catalogs in its own process.
 
 ```bash
 npm install -g @ngosangns/ns-bridge
@@ -16,12 +16,12 @@ ns-bridge install [pi|omp|dsh|all] [--dry-run] [--profile <name>]
 ns-bridge update [--dry-run]
 ns-bridge update <pi|omp|dsh|all> [--dry-run] [--profile <name>]
 ns-bridge uninstall [pi|omp|dsh|all] [--dry-run] [--profile <name>]
-ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok] [--profile <name>]
-ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok> [--dry-run] [--profile <name>]
-ns-bridge usage [--vendor <kiro|devin|grok>] [--day YYYY-MM-DD] [--days <n>] [--json]
+ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok|arnict|qoder] [--profile <name>]
+ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok|arnict|qoder> [--dry-run] [--profile <name>]
+ns-bridge usage [--vendor <kiro|devin|grok|arnict|qoder>] [--day YYYY-MM-DD] [--days <n>] [--json]
 ns-bridge usage --session <id> [--vendor <name>] [--json]
-ns-bridge models list [kiro|devin|grok|all]
-ns-bridge models refresh [kiro|devin|grok|all] [--dry-run]
+ns-bridge models list [kiro|devin|grok|arnict|qoder|all]
+ns-bridge models refresh [kiro|devin|grok|arnict|qoder|all] [--dry-run]
 ns-bridge kiro profile [list]
 ns-bridge kiro profile use <name|region|arn> [--dry-run]
 ns-bridge kiro profile reset [--dry-run]
@@ -35,19 +35,47 @@ ns-bridge status
 
 `serve` and `zcode` register the same vendors for the ZCode app through a local Anthropic-Messages server; see the root [README](https://github.com/ngosangns/ns-bridge#zcode).
 
-| Host | Install | Update | Uninstall |
-| --- | --- | --- | --- |
-| pi | `pi install npm:@ngosangns/ns-pi-provider` | `pi update --extension npm:@ngosangns/ns-pi-provider` | `pi uninstall npm:@ngosangns/ns-pi-provider` |
-| omp | `omp plugin install ns-omp-provider-kiro` | `omp plugin upgrade ns-omp-provider-kiro` | `omp plugin uninstall ns-omp-provider-kiro ns-omp-provider` |
-| dsh | `dsh plugin --profile <name> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok` | `dsh plugin --profile <name> update …` | `dsh plugin --profile <name> remove …` |
+## Host extensions come from this package
 
-OMP ships `devin`, `xai`, and `xai-oauth` itself, so only `kiro` comes from a plugin there (`/login devin`, `/login xai-oauth`). `ns-omp-provider`, the old plugin that also registered `devin` and `grok`, is no longer installed or upgraded; `uninstall omp` still removes it, or run `omp plugin uninstall ns-omp-provider`. Model ids `devin/…` and `grok/…` in OMP's `config.yml` then resolve to OMP's own `devin` and (for Grok) `xai-oauth/…` or `xai/…`.
+The provider packages are no longer published. Every extension this CLI
+registers ships inside it, built at pack time:
+
+```
+dist/hosts/pi/                    @ngosangns/ns-pi-provider   (kiro, devin, grok, arnict, qoder)
+dist/hosts/omp/                   ns-omp-provider             (kiro, arnict, qoder)
+dist/hosts/dsh/<vendor>/          ns-dsh-llm-<vendor>         (kiro, devin, grok, arnict, qoder)
+```
+
+`install` registers those directories in place:
+
+| Host | Commands |
+| --- | --- |
+| pi | `pi uninstall npm:@ngosangns/ns-pi-provider` (tolerated), `pi install <cli>/dist/hosts/pi`, then stale local entries in `~/.pi/agent/settings.json` are pruned |
+| omp | `omp plugin uninstall ns-omp-provider-kiro` (tolerated), `omp plugin install <cli>/dist/hosts/omp` |
+| dsh | `dsh plugin --profile <name> add link:<cli>/dist/hosts/dsh/{kiro,devin,grok,arnict,qoder}`, then the five blocks are ensured in the profile's `cordis.patch.yml` |
+
+OMP ships `devin`, `xai`, and `xai-oauth` itself, so only `kiro`, `arnict`, and `qoder` come from this project there (`/login devin`, `/login xai-oauth`). Model ids `devin/…` and `grok/…` in OMP's `config.yml` resolve to OMP's own `devin` and (for Grok) `xai-oauth/…` or `xai/…`.
 
 DSH requires `--profile`. Profile `desktop` is refused: the Electron app owns it. `install` and `update <host>` without `--profile` skip DSH and still handle Pi and OMP.
 
-`update` with no host updates this CLI, not the host plugins. It asks npm for the latest `@ngosangns/ns-bridge` and runs `npm install -g @ngosangns/ns-bridge@<latest>`. Already current prints the version and does not install. A host argument (`pi`, `omp`, `dsh`, or `all`) updates those plugins instead.
+`update <host>` plans the same steps as `install`, so re-running it repairs a
+host after the CLI moved or was reinstalled. `update` with no host updates this
+CLI instead: it asks npm for the latest `@ngosangns/ns-bridge` and runs
+`npm install -g @ngosangns/ns-bridge@<latest>`.
 
-`providers enable` and `providers disable` turn one of `kiro`, `devin`, or `grok` on or off. Pi and OMP share `~/.ns-bridge/providers.json` (`NS_BRIDGE_PROVIDERS` overrides the path); the extension reads it at launch. With no file, all three are on. OMP only takes `kiro` from it: `providers enable omp devin|grok` is refused with the reason, `providers disable omp devin|grok` changes nothing, `providers status omp` shows them as `not provided`, and `devin` or `grok` in the file or in an env list are ignored by the OMP plugin (they still apply to Pi). `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds, and `NS_OMP_PROVIDER_DISABLE` removes. DSH writes `disabled: true` on that plugin's id in the profile's `cordis.patch.yml`. In OMP, `kiro` stays with `ns-omp-provider-kiro` while that plugin is installed, whatever the file or an env list says. Only the key you change is written; defaults never land in the file.
+Because hosts point into this package, uninstalling or moving it breaks their
+extensions. `ns-bridge status` reports missing bundles; re-running `install`
+after a reinstall repairs the paths. The CLI refuses to register bundles while
+it runs from an `npx` cache, where the path disappears.
+
+Rolling back: the old npm packages are still on npm at their last versions
+(`npm:@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
+`ns-dsh-llm-*`). `ns-bridge uninstall <host>` removes the local bundles first;
+then install the npm package you want with the host's own command.
+
+## Providers
+
+`providers enable` and `providers disable` turn one of `kiro`, `devin`, `grok`, `arnict`, or `qoder` on or off. Pi and OMP share `~/.ns-bridge/providers.json` (`NS_BRIDGE_PROVIDERS` overrides the path); the extension reads it at launch. With no file, all five are on. OMP only takes `kiro`, `arnict`, and `qoder` from it: `providers enable omp devin|grok` is refused with the reason, `providers disable omp devin|grok` changes nothing, `providers status omp` shows them as `not provided`, and `devin` or `grok` in the file or in an env list are ignored by the OMP plugin (they still apply to Pi). `NS_OMP_PROVIDERS` replaces the file, `NS_OMP_PROVIDER_ENABLE` adds, and `NS_OMP_PROVIDER_DISABLE` removes. DSH writes `disabled: true` on that plugin's id in the profile's `cordis.patch.yml`. In OMP, `kiro` stays with the old `ns-omp-provider-kiro` plugin while it is installed, but install/update remove it. Only the key you change is written; defaults never land in the file.
 
 `usage` reads the ledger the plugins write while they work in Pi, OMP, and DSH. Each model response appends one JSON line to `~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl` (`NS_BRIDGE_USAGE_DIR` moves the root). A response with no session id goes to `_no-session.jsonl`. Plugins record unless `NS_BRIDGE_USAGE=0`. The command makes no network call and writes nothing.
 
@@ -59,7 +87,7 @@ The default view groups the newest 10 days by day and vendor. `--session <id>` l
 
 - Kiro: `~/.ns-kiro-provider-models-cache.json`
 - Devin: `$NS_DEVIN_MODEL_CACHE`, or `$XDG_DATA_HOME/ns-devin-provider/models.json`
-- Grok: `~/.pi/agent/cache/ns-pi-provider/grok.models.json`
+- Grok, Arnict, Qoder: `~/.pi/agent/cache/ns-pi-provider/<vendor>.models.json`
 
 `models refresh` writes those files from the bundled refresh. A missing file is reported as missing. The command does not print the in-memory fallback list.
 

@@ -1,7 +1,7 @@
 {
   "name": "@ngosangns/ns-bridge",
   "version": "0.1.24",
-  "description": "Install, update, and refresh ns-bridge providers outside Pi, OMP, and DSH.",
+  "description": "Install ns-bridge providers into Pi, OMP, and DSH from prebuilt local bundles.",
   "type": "module",
   "license": "MIT",
   "author": "ngosangns",
@@ -17,7 +17,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=22"
@@ -29,7 +30,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build.mjs && chmod +x dist/main.js",
-    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.hosts.json",
     "prepublishOnly": "pnpm run check && pnpm run build"
   },
   "publishConfig": {
@@ -37,6 +38,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
+    "@qoder-ai/qoder-agent-sdk": "^1.0.56",
     "@smithy/core": "^3.34.1",
     "js-tiktoken": "^1.0.21",
     "supports-color": "^10.2.2"
@@ -49,8 +51,15 @@
     "ns-bridge-core": "workspace:*",
     "ns-core-utils": "workspace:*",
     "ns-devin-core": "workspace:*",
+    "ns-dsh-llm-arnict": "workspace:*",
+    "ns-dsh-llm-devin": "workspace:*",
+    "ns-dsh-llm-grok": "workspace:*",
+    "ns-dsh-llm-kiro": "workspace:*",
+    "ns-dsh-llm-qoder": "workspace:*",
     "ns-grok-core": "workspace:*",
     "ns-kiro-core": "workspace:*",
+    "ns-omp-provider": "workspace:*",
+    "ns-qoder-core": "workspace:*",
     "typescript": "^5.9.2"
   }
 }

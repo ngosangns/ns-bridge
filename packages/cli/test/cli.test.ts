@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { CatalogPaths } from "../src/catalog.js";
 import { type Runner, run } from "../src/cli.js";
+import type { HostPaths } from "../src/hosts.js";
 import type { KiroProfileListing, KiroProfileOps } from "../src/kiro-profile.js";
 import type { ModelRefresh } from "../src/refresh.js";
 
@@ -28,6 +29,32 @@ function pathsIn(dir: string): CatalogPaths {
   };
 }
 
+/** A temp CLI tree with the prebuilt host bundles in place. */
+function hostTree() {
+  const root = mkdtempSync(join(tmpdir(), "ns-bridge-hosts-"));
+  const hosts: Array<[string, string]> = [
+    ["pi", join(root, "dist", "hosts", "pi")],
+    ["omp", join(root, "dist", "hosts", "omp")],
+    ...["kiro", "devin", "grok", "arnict", "qoder"].map((vendor): [string, string] => [
+      `dsh-${vendor}`,
+      join(root, "dist", "hosts", "dsh", vendor),
+    ]),
+  ];
+  for (const [, dir] of hosts) {
+    mkdirSync(join(dir, "dist"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), "{}");
+    writeFileSync(join(dir, "dist", "index.js"), "");
+  }
+  const paths: HostPaths = { cliRoot: root, home: join(root, "home"), env: {} };
+  return {
+    root,
+    paths,
+    pi: join(root, "dist", "hosts", "pi"),
+    omp: join(root, "dist", "hosts", "omp"),
+    dsh: (vendor: string) => join(root, "dist", "hosts", "dsh", vendor),
+  };
+}
+
 describe("ns-bridge", () => {
   it("prints help and does not spawn", async () => {
     const io = capture();
@@ -35,7 +62,7 @@ describe("ns-bridge", () => {
     const code = await run([], { ...io, runner });
     expect(code).toBe(0);
     expect(io.stdout.join("\n")).toContain("ns-bridge models refresh");
-    expect(io.stdout.join("\n")).toContain("omp plugin upgrade");
+    expect(io.stdout.join("\n")).toContain("dist/hosts/omp");
     expect(io.stdout.join("\n")).toContain("--dry-run");
     expect(runner).not.toHaveBeenCalled();
   });
@@ -43,30 +70,56 @@ describe("ns-bridge", () => {
   it("previews pi and omp install and skips dsh without a profile", async () => {
     const io = capture();
     const runner = vi.fn<Runner>(async () => ({ code: 0, stdout: "", stderr: "" }));
-    const code = await run(["install", "--dry-run"], { ...io, runner });
+    const tree = hostTree();
+    const code = await run(["install", "--dry-run"], { ...io, runner, hostPaths: tree.paths });
     expect(code).toBe(0);
     expect(io.stdout).toEqual([
       "# dry-run (run without --dry-run to apply)",
-      "pi install npm:@ngosangns/ns-pi-provider",
-      "omp plugin install ns-omp-provider-kiro",
+      "pi uninstall npm:@ngosangns/ns-pi-provider",
+      `pi install ${tree.pi}`,
+      `prune stale local entries in ${join(tree.paths.home, ".pi", "agent", "settings.json")}`,
+      "omp plugin uninstall ns-omp-provider-kiro",
+      `omp plugin install ${tree.omp}`,
       "# dsh skipped: pass --profile <name>",
     ]);
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it("previews omp upgrade and a dsh update for a named profile", async () => {
+  it("previews an install for all three hosts for a named profile", async () => {
     const io = capture();
-    const code = await run(["update", "all", "--profile", "headless", "--dry-run"], io);
+    const tree = hostTree();
+    const code = await run(["install", "all", "--profile", "headless", "--dry-run"], { ...io, hostPaths: tree.paths });
     expect(code).toBe(0);
-    expect(io.stdout).toContain("omp plugin upgrade ns-omp-provider-kiro");
-    expect(io.stdout).toContain(
-      "dsh plugin --profile headless update ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok ns-dsh-llm-qoder",
+    const out = io.stdout.join("\n");
+    expect(out).toContain(`omp plugin install ${tree.omp}`);
+    expect(out).toContain(
+      [
+        "dsh plugin --profile headless add",
+        `link:${tree.dsh("kiro")}`,
+        `link:${tree.dsh("devin")}`,
+        `link:${tree.dsh("grok")}`,
+        `link:${tree.dsh("arnict")}`,
+        `link:${tree.dsh("qoder")}`,
+      ].join(" "),
     );
+    expect(out).toContain(
+      `ensure provider blocks in ${join(tree.paths.home, ".dsh", "profiles", "headless", "cordis.patch.yml")}`,
+    );
+  });
+
+  it("updates a host with the same plan as install", async () => {
+    const install = capture();
+    const update = capture();
+    const tree = hostTree();
+    expect(await run(["install", "omp", "--dry-run"], { ...install, hostPaths: tree.paths })).toBe(0);
+    expect(await run(["update", "omp", "--dry-run"], { ...update, hostPaths: tree.paths })).toBe(0);
+    expect(update.stdout).toEqual(install.stdout);
   });
 
   it("uninstalls the old ns-omp-provider along with the kiro plugin, but never installs or upgrades it", async () => {
     const io = capture();
-    expect(await run(["uninstall", "omp", "--dry-run"], io)).toBe(0);
+    const tree = hostTree();
+    expect(await run(["uninstall", "omp", "--dry-run"], { ...io, hostPaths: tree.paths })).toBe(0);
     expect(io.stdout).toContain("omp plugin uninstall ns-omp-provider-kiro ns-omp-provider");
     expect(io.stdout.join("\n")).not.toMatch(/(install|upgrade) ns-omp-provider( |$)/);
     const help = capture();
@@ -77,14 +130,37 @@ describe("ns-bridge", () => {
   it("runs host commands by default", async () => {
     const io = capture();
     const calls: string[][] = [];
+    const tree = hostTree();
     const runner: Runner = async (argv) => {
       calls.push(argv);
       return { code: 0, stdout: "installed", stderr: "" };
     };
-    const code = await run(["install", "pi"], { ...io, runner });
+    const code = await run(["install", "pi"], { ...io, runner, hostPaths: tree.paths });
     expect(code).toBe(0);
-    expect(calls).toEqual([["pi", "install", "npm:@ngosangns/ns-pi-provider"]]);
+    expect(calls).toEqual([
+      ["pi", "uninstall", "npm:@ngosangns/ns-pi-provider"],
+      ["pi", "install", tree.pi],
+    ]);
     expect(io.stdout).toContain("installed");
+  });
+
+  it("continues past a tolerated migration command and reports the ones it ignored", async () => {
+    const io = capture();
+    const calls: string[][] = [];
+    const tree = hostTree();
+    const runner: Runner = async (argv) => {
+      calls.push(argv);
+      return argv[2] === "uninstall"
+        ? { code: 1, stdout: "", stderr: "not installed" }
+        : { code: 0, stdout: "", stderr: "" };
+    };
+    expect(await run(["install", "omp"], { ...io, runner, hostPaths: tree.paths })).toBe(0);
+    expect(calls).toEqual([
+      ["omp", "plugin", "uninstall", "ns-omp-provider-kiro"],
+      ["omp", "plugin", "install", tree.omp],
+    ]);
+    expect(io.stdout.join("\n")).toContain("# ignored: omp plugin uninstall ns-omp-provider-kiro exited 1");
+    expect(io.stderr).toEqual([]);
   });
 
   it("rejects the removed --apply flag", async () => {
@@ -99,13 +175,17 @@ describe("ns-bridge", () => {
   it("returns 2 when a host command fails and does not continue", async () => {
     const io = capture();
     const calls: string[][] = [];
+    const tree = hostTree();
     const runner: Runner = async (argv) => {
       calls.push(argv);
       return { code: 1, stdout: "", stderr: "nope" };
     };
-    const code = await run(["install"], { ...io, runner });
+    const code = await run(["install"], { ...io, runner, hostPaths: tree.paths });
     expect(code).toBe(2);
-    expect(calls).toEqual([["pi", "install", "npm:@ngosangns/ns-pi-provider"]]);
+    expect(calls).toEqual([
+      ["pi", "uninstall", "npm:@ngosangns/ns-pi-provider"],
+      ["pi", "install", tree.pi],
+    ]);
     expect(io.stderr.join("\n")).toContain("exited 1");
   });
 
@@ -242,6 +322,20 @@ describe("ns-bridge", () => {
     const out = io.stdout.join("\n");
     expect(out).not.toContain("compact at");
     expect(out).toContain("swe-1-6");
+  });
+
+  it("reports host bundles a moved or removed CLI left behind", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const io = capture();
+    const code = await run(["status"], {
+      ...io,
+      paths: pathsIn(dir),
+      hostPaths: { cliRoot: join(dir, "missing-cli"), home: dir, env: {} },
+    });
+    expect(code).toBe(0);
+    expect(io.stdout.join("\n")).toContain(
+      "# host bundles missing (pi, omp, dsh/kiro, dsh/devin, dsh/grok, dsh/arnict, dsh/qoder); re-run ns-bridge install",
+    );
   });
 
   it("reports an unreadable catalog", async () => {

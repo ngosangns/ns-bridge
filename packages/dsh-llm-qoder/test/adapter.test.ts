@@ -5,7 +5,7 @@ vi.mock("ns-qoder-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ns-qoder-core")>();
   return {
     ...actual,
-    requireQoderAuth: () => ({ mode: "pat", options: actual.resolveQoderAuth()!.options }),
+    requireQoderAuth: () => ({ mode: "pat", options: { type: "accessToken", accessToken: "token" } }),
     streamQoder: vi.fn(async function* () {
       yield { type: "start" };
       yield { type: "text_start", index: 0 };

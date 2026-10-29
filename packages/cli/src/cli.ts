@@ -10,7 +10,16 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { type ArnictIo, runArnict } from "./arnict.js";
 import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatalogs, type Vendor } from "./catalog.js";
-import { formatCommand, type HostAction, parseHosts, planHostCommands } from "./hosts.js";
+import {
+  defaultHostPaths,
+  formatCommand,
+  type HostAction,
+  type HostPaths,
+  type HostPlan,
+  missingHostBundles,
+  parseHosts,
+  planHostCommands,
+} from "./hosts.js";
 import { defaultKiroProfiles, findKiroProfile, formatKiroProfiles, type KiroProfileOps } from "./kiro-profile.js";
 import { formatProviderPlan, type ProviderPaths, planProviders, providerPaths } from "./providers.js";
 import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.js";
@@ -55,6 +64,8 @@ export interface RunOptions {
   platform?: NodeJS.Platform;
   /** Installed CLI version. Tests pass this so they do not read package.json. */
   version?: string;
+  /** Where host bundles, Pi settings, and DSH profiles live. Tests pass a temp tree. */
+  hostPaths?: HostPaths;
 }
 
 const HELP = `ns-bridge — install, update, and refresh providers outside Pi, OMP, and DSH.
@@ -67,12 +78,12 @@ Usage:
   ns-bridge update [--dry-run]
   ns-bridge update <pi|omp|dsh|all> [--dry-run] [--profile <name>]
   ns-bridge uninstall [pi|omp|dsh|all] [--dry-run] [--profile <name>]
-  ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok|arnict] [--profile <name>]
-  ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok|arnict> [--dry-run] [--profile <name>]
-  ns-bridge usage [--vendor <kiro|devin|grok|arnict>] [--day YYYY-MM-DD] [--days <n>] [--json]
+  ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok|arnict|qoder] [--profile <name>]
+  ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok|arnict|qoder> [--dry-run] [--profile <name>]
+  ns-bridge usage [--vendor <kiro|devin|grok|arnict|qoder>] [--day YYYY-MM-DD] [--days <n>] [--json]
   ns-bridge usage --session <id> [--vendor <name>] [--json]
-  ns-bridge models list [kiro|devin|grok|arnict|all]
-  ns-bridge models refresh [kiro|devin|grok|arnict|all] [--dry-run]
+  ns-bridge models list [kiro|devin|grok|arnict|qoder|all]
+  ns-bridge models refresh [kiro|devin|grok|arnict|qoder|all] [--dry-run]
   ns-bridge kiro profile [list]
   ns-bridge kiro profile use <name|region|arn> [--dry-run]
   ns-bridge kiro profile reset [--dry-run]
@@ -88,26 +99,24 @@ Usage:
   ns-bridge help
 
 Hosts:
-  pi   pi install npm:@ngosangns/ns-pi-provider
-       pi update --extension npm:@ngosangns/ns-pi-provider
-       pi uninstall npm:@ngosangns/ns-pi-provider
-  omp  omp plugin install ns-omp-provider-kiro
-       omp plugin upgrade ns-omp-provider-kiro
-       omp plugin uninstall ns-omp-provider-kiro ns-omp-provider
-       OMP has its own devin, xai, and xai-oauth providers (/login devin, /login xai-oauth),
-       so only kiro comes from here. Remove the old plugin with: omp plugin uninstall ns-omp-provider
-  dsh  dsh plugin --profile <name> add ns-dsh-llm-kiro ns-dsh-llm-devin ns-dsh-llm-grok
-       dsh plugin --profile <name> update …
-       dsh plugin --profile <name> remove …
+  The CLI ships prebuilt extensions under its own dist/hosts and registers
+  those directories in place; no provider package is fetched from npm.
+  pi   pi install <ns-bridge>/dist/hosts/pi
+       removes npm:@ngosangns/ns-pi-provider and stale local copies first
+  omp  omp plugin install <ns-bridge>/dist/hosts/omp
+       removes ns-omp-provider-kiro first and replaces an npm ns-omp-provider.
+       OMP has its own devin, xai, and xai-oauth providers (/login devin, /login xai-oauth)
+  dsh  dsh plugin --profile <name> add link:<ns-bridge>/dist/hosts/dsh/<vendor> …
+       then keeps one insert per provider in the profile's cordis.patch.yml
 
 providers enable/disable writes the host's own switch:
   pi        ~/.ns-bridge/providers.json (the extension reads it at launch)
-  omp       the same file, kiro and arnict; devin and grok are OMP's own, so they are not offered
+  omp       the same file, kiro, arnict, and qoder; devin and grok are OMP's own, so they are not offered
   dsh       disabled: true on the plugin id in the profile's cordis.patch.yml
 
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
 install/update <host> without --profile skips DSH and still handles Pi and OMP.
-These commands install the npm packages. A local Pi path stays until that install runs.
+Install and update are the same command; re-running repairs a moved CLI.
 
 usage reads the ledger the plugins write under ~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl.
 It never calls the network. Hit is cacheRead over prompt tokens, summed, not an average of
@@ -207,7 +216,12 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
       err(`status takes no arguments (got ${target})`);
       return 1;
     }
-    return printCatalogs(log, options, ["kiro", "devin", "grok", "arnict"], "status");
+    const code = printCatalogs(log, options, ["kiro", "devin", "grok", "arnict", "qoder"], "status");
+    const missing = missingHostBundles(options.hostPaths ?? defaultHostPaths());
+    if (missing.length > 0) {
+      log(`# host bundles missing (${missing.join(", ")}); re-run ns-bridge install`);
+    }
+    return code;
   }
   if (command === "models") {
     if (target !== "list" && target !== "refresh") {
@@ -315,8 +329,8 @@ function runUsage(
   err: (line: string) => void,
   options: RunOptions,
 ): number {
-  if (parsed.vendor && !["kiro", "devin", "grok", "arnict"].includes(parsed.vendor)) {
-    err(`unknown vendor ${parsed.vendor} (kiro, devin, grok, arnict)`);
+  if (parsed.vendor && !["kiro", "devin", "grok", "arnict", "qoder"].includes(parsed.vendor)) {
+    err(`unknown vendor ${parsed.vendor} (kiro, devin, grok, arnict, qoder)`);
     return 1;
   }
   if (parsed.day && !/^\d{4}-\d{2}-\d{2}$/.test(parsed.day)) {
@@ -439,30 +453,48 @@ async function runHost(
     err(hosts.error);
     return 1;
   }
-  const plan = planHostCommands(action, hosts, parsed.profile);
+  const plan = planHostCommands(action, hosts, parsed.profile, options.hostPaths ?? defaultHostPaths());
   if (plan.error) {
     err(plan.error);
     return 1;
   }
   if (!parsed.apply) {
     log("# dry-run (run without --dry-run to apply)");
-    for (const argv of plan.commands) log(formatCommand(argv));
-    if (plan.skipDsh) log("# dsh skipped: pass --profile <name>");
+    for (const line of planLines(plan)) log(line);
     return 0;
   }
   const runner = options.runner ?? spawnRunner();
-  for (const argv of plan.commands) {
-    log(formatCommand(argv));
-    const result = await runner(argv);
+  for (const step of plan.steps) {
+    if (!step.argv) continue;
+    log(formatCommand(step.argv));
+    const result = await runner(step.argv);
     if (result.stdout.trim()) log(result.stdout.trimEnd());
-    if (result.code !== 0) {
-      if (result.stderr.trim()) err(result.stderr.trimEnd());
-      err(`${formatCommand(argv)} exited ${result.code}`);
-      return 2;
+    if (result.code === 0) continue;
+    if (step.tolerate) {
+      log(`# ignored: ${formatCommand(step.argv)} exited ${result.code}`);
+      continue;
     }
+    if (result.stderr.trim()) err(result.stderr.trimEnd());
+    err(`${formatCommand(step.argv)} exited ${result.code}`);
+    return 2;
+  }
+  for (const step of plan.steps) {
+    if (!step.apply) continue;
+    const result = step.apply();
+    if (typeof result !== "string") {
+      err(result.error);
+      return 1;
+    }
+    log(result);
   }
   if (plan.skipDsh) log("# dsh skipped: pass --profile <name>");
   return 0;
+}
+
+function planLines(plan: HostPlan): string[] {
+  const lines = plan.steps.map((step) => (step.argv ? formatCommand(step.argv) : (step.label ?? step.host)));
+  if (plan.skipDsh) lines.push("# dsh skipped: pass --profile <name>");
+  return lines;
 }
 
 async function runKiroProfile(

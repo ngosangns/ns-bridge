@@ -21,6 +21,9 @@
  *    `session_info_changed`.
  */
 
+import type { BridgeEffort } from "ns-bridge-core";
+import { toOmpThinking } from "ns-bridge-core/pi";
+
 export type AnyRecord = Record<string, unknown>;
 
 export interface OmpLikeContext {
@@ -103,11 +106,13 @@ export function ompWindowForThreshold(threshold: number): number {
   return window;
 }
 
-/** The only provider whose model rows are remapped onto OMP's compaction rule. */
 export const ARNICT_PROVIDER_ID = "arnict";
 
+/** Providers whose Pi model rows need OMP's compaction window and effort shape. */
+const OMP_REMAPPED_PROVIDERS: ReadonlySet<string> = new Set([ARNICT_PROVIDER_ID, "qoder"]);
+
 /**
- * Remap arnict model rows so OMP compacts where Pi compacts.
+ * Remap provider model rows so OMP compacts where Pi compacts.
  *
  * The rows carry the Pi compaction threshold (an explicit
  * `compaction.thresholdTokens`, else Pi's own `contextWindow - 16384`), but OMP
@@ -117,8 +122,13 @@ export const ARNICT_PROVIDER_ID = "arnict";
  * at the smallest window whose OMP default threshold reaches the Pi threshold,
  * capped at the row's native window; `maxContextWindow` is kept so OMP can
  * still widen to it.
+ *
+ * Qoder also exposes an effort ladder. Pi keeps it in `thinkingLevelMap`;
+ * OMP wants `thinking: { mode: "effort", efforts }`, so the raw ladder is
+ * carried on the row and projected here.
  */
-export function mapArnictModelsForOmp(models: readonly unknown[]): unknown[] {
+export function mapModelsForOmp(models: readonly unknown[], provider: string): unknown[] {
+  if (!OMP_REMAPPED_PROVIDERS.has(provider)) return [...models];
   return models.map((model) => {
     if (!model || typeof model !== "object") return model;
     const row = model as AnyRecord;
@@ -126,8 +136,20 @@ export function mapArnictModelsForOmp(models: readonly unknown[]): unknown[] {
     const compaction = row.compaction as { thresholdTokens?: number } | undefined;
     const threshold = compaction?.thresholdTokens ?? row.contextWindow - 16_384;
     const native = (row.maxContextWindow as number | undefined) ?? row.contextWindow;
-    return { ...row, contextWindow: Math.min(ompWindowForThreshold(threshold), native) };
+    const next: AnyRecord = { ...row, contextWindow: Math.min(ompWindowForThreshold(threshold), native) };
+    if (provider === "qoder") {
+      delete next.thinkingLevelMap;
+      const thinking = toOmpThinking(row.efforts as BridgeEffort[] | undefined);
+      if (thinking) next.thinking = thinking;
+      delete next.efforts;
+    }
+    return next;
   });
+}
+
+/** Arnict is the only legacy caller; kept for the existing export. */
+export function mapArnictModelsForOmp(models: readonly unknown[]): unknown[] {
+  return mapModelsForOmp(models, ARNICT_PROVIDER_ID);
 }
 
 type PiRefreshModels = (args: {
@@ -166,9 +188,9 @@ export function toFetchDynamicModels(
 
 /**
  * Adapt one Pi `registerProvider` config to OMP's `ProviderConfig`.
- * `providerName` is the id the config registers under; only "arnict" gets its
- * model rows remapped onto OMP's compaction rule (see
- * {@link mapArnictModelsForOmp}) — kiro rows already carry OMP-shaped windows.
+ * `providerName` is the id the config registers under; arnict and qoder rows are
+ * remapped onto OMP's compaction rule (see {@link mapModelsForOmp}) — kiro rows
+ * already carry OMP-shaped windows.
  */
 export function adaptProviderConfig(
   config: AnyRecord,
@@ -178,7 +200,7 @@ export function adaptProviderConfig(
   if (!config || typeof config !== "object") return config;
   const { refreshModels, ...rest } = config as AnyRecord & { refreshModels?: PiRefreshModels };
   const next: AnyRecord = { ...rest };
-  const isArnict = providerName === ARNICT_PROVIDER_ID;
+  const remapProvider = providerName && OMP_REMAPPED_PROVIDERS.has(providerName) ? providerName : undefined;
 
   if ("apiKey" in next) {
     const apiKey = toOmpApiKey(next.apiKey, env);
@@ -193,21 +215,23 @@ export function adaptProviderConfig(
   }
 
   if (typeof next.fetchDynamicModels === "function") {
-    if (isArnict) {
+    if (remapProvider) {
       const fetchDynamicModels = next.fetchDynamicModels as (apiKey: string | undefined) => Promise<unknown>;
       next.fetchDynamicModels = async (apiKey: string | undefined) => {
         const models = await fetchDynamicModels(apiKey);
-        return Array.isArray(models) ? mapArnictModelsForOmp(models) : models;
+        return Array.isArray(models) ? mapModelsForOmp(models, remapProvider) : models;
       };
     }
   } else if (typeof refreshModels === "function") {
-    next.fetchDynamicModels = isArnict
-      ? toFetchDynamicModels(refreshModels, DYNAMIC_MODELS_TIMEOUT_MS, mapArnictModelsForOmp)
+    next.fetchDynamicModels = remapProvider
+      ? toFetchDynamicModels(refreshModels, DYNAMIC_MODELS_TIMEOUT_MS, (models) =>
+          mapModelsForOmp(models, remapProvider),
+        )
       : toFetchDynamicModels(refreshModels);
   }
 
-  if (isArnict && Array.isArray(next.models)) {
-    next.models = mapArnictModelsForOmp(next.models);
+  if (remapProvider && Array.isArray(next.models)) {
+    next.models = mapModelsForOmp(next.models, remapProvider);
   }
 
   return next;

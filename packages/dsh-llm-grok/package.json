@@ -1,7 +1,8 @@
 {
   "name": "ns-dsh-llm-grok",
   "version": "0.1.1",
-  "description": "No longer developed. DeepSeek Harness adapter for Grok. Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,10 +14,6 @@
     "./package.json": "./package.json"
   },
   "license": "MIT",
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ngosangns/ns-bridge.git",

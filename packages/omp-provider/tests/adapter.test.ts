@@ -216,6 +216,43 @@ describe("arnict model rows", () => {
   });
 });
 
+describe("qoder model rows", () => {
+  const qoderRow = {
+    id: "qmodel",
+    name: "Qmodel",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 16_384,
+    compaction: { thresholdTokens: 150_000 },
+    efforts: ["low", "high", "xhigh"],
+    thinkingLevelMap: { low: "low", high: "high", xhigh: "xhigh" },
+  };
+
+  it("projects the effort ladder onto OMP thinking and drops the Pi-only fields", () => {
+    const adapted = adaptProviderConfig({ models: [{ ...qoderRow }] }, {}, "qoder");
+    const row = firstModel(adapted);
+    expect(row.thinking).toEqual({ mode: "effort", efforts: ["low", "high", "xhigh"] });
+    expect("thinkingLevelMap" in row).toBe(false);
+    expect("efforts" in row).toBe(false);
+  });
+
+  it("registers the row at the window whose OMP threshold reaches compaction.thresholdTokens", () => {
+    const adapted = adaptProviderConfig({ models: [{ ...qoderRow }] }, {}, "qoder");
+    const window = windowOf(firstModel(adapted));
+    expect(ompCompactThreshold(window)).toBe(150_000);
+    expect(ompCompactThreshold(window - 1)).toBeLessThan(150_000);
+    expect(window).toBeLessThanOrEqual(200_000);
+  });
+
+  it("adds no thinking block when the model exposes no efforts", () => {
+    const { efforts: _efforts, ...noEfforts } = qoderRow;
+    const adapted = adaptProviderConfig({ models: [noEfforts] }, {}, "qoder");
+    expect("thinking" in firstModel(adapted)).toBe(false);
+  });
+});
+
 describe("wrapExtensionApi", () => {
   class FakeApi {
     providers = new Map<string, Record<string, unknown>>();

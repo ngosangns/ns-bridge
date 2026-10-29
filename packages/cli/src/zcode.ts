@@ -626,8 +626,8 @@ export function parseDefaultModel(value: string): { vendor: Vendor; modelId: str
  * setup re-reads the same two sources. The value itself never reaches a log.
  */
 export function arnictKeyPresent(home: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env["ARNICT_API_KEY"]?.trim()) return true;
-  const override = env["NS_BRIDGE_ARNICT_CONFIG"]?.trim();
+  if (env.ARNICT_API_KEY?.trim()) return true;
+  const override = env.NS_BRIDGE_ARNICT_CONFIG?.trim();
   const path = override || join(home, ".ns-bridge", "arnict.json");
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as { apiKey?: unknown };

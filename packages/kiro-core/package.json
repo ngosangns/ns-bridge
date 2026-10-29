@@ -1,7 +1,8 @@
 {
   "name": "ns-kiro-core",
   "version": "0.5.3",
-  "description": "No longer developed. Shared Kiro protocol core. Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

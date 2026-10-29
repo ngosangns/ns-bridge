@@ -55,6 +55,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@qoder-ai/qoder-agent-sdk':
+        specifier: ^1.0.56
+        version: 1.0.56(supports-color@10.2.2)(zod@4.5.4)
       '@smithy/core':
         specifier: ^3.34.1
         version: 3.35.1
@@ -86,12 +89,33 @@ importers:
       ns-devin-core:
         specifier: workspace:*
         version: link:../devin-core
+      ns-dsh-llm-arnict:
+        specifier: workspace:*
+        version: link:../dsh-llm-arnict
+      ns-dsh-llm-devin:
+        specifier: workspace:*
+        version: link:../dsh-llm-devin
+      ns-dsh-llm-grok:
+        specifier: workspace:*
+        version: link:../dsh-llm-grok
+      ns-dsh-llm-kiro:
+        specifier: workspace:*
+        version: link:../dsh-llm-kiro
+      ns-dsh-llm-qoder:
+        specifier: workspace:*
+        version: link:../dsh-llm-qoder
       ns-grok-core:
         specifier: workspace:*
         version: link:../grok-core
       ns-kiro-core:
         specifier: workspace:*
         version: link:../kiro-core
+      ns-omp-provider:
+        specifier: workspace:*
+        version: link:../omp-provider
+      ns-qoder-core:
+        specifier: workspace:*
+        version: link:../qoder-core
       typescript:
         specifier: ^5.9.2
         version: 5.9.3

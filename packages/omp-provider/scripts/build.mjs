@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 /**
  * Bundle src/index.ts (+ the @ngosangns/ns-pi-provider sources it imports, and
- * through them ns-kiro-core, ns-arnict-core, ns-devin-core, ns-grok-core and
- * ns-bridge-core) into dist/index.js for OMP.
+ * through them ns-kiro-core, ns-arnict-core, ns-qoder-core and ns-bridge-core)
+ * into dist/index.js for OMP.
  *
- * - `@earendil-works/pi-ai` and `/compat`  → src/compat/pi-ai.ts
- * - `@earendil-works/pi-ai/oauth`           → src/compat/pi-ai-oauth.ts
- * - `@earendil-works/pi-coding-agent`       → src/compat/pi-coding-agent.ts (types only)
- * - `@oh-my-pi/*` stays external: OMP's loader serves its in-process modules.
- *
- * Any other Pi specifier is a hard build error, so an ns-pi-provider upgrade
- * that needs a new shim fails here rather than at OMP load time.
+ * Pi specifiers are redirected to src/compat by scripts/pi-compat-plugin.mjs
+ * (shared with the CLI's prebuilt OMP host bundle). `@oh-my-pi/*` stays
+ * external: OMP's loader serves its in-process modules.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
@@ -18,28 +14,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
+import { createPiCompatPlugin } from "./pi-compat-plugin.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const compat = (file) => resolve(root, "src/compat", file);
-
-const PI_ALIASES = new Map([
-  ["@earendil-works/pi-ai", compat("pi-ai.ts")],
-  ["@earendil-works/pi-ai/compat", compat("pi-ai.ts")],
-  ["@earendil-works/pi-ai/oauth", compat("pi-ai-oauth.ts")],
-  ["@earendil-works/pi-coding-agent", compat("pi-coding-agent.ts")],
-]);
-
-const piCompatPlugin = {
-  name: "pi-to-omp-compat",
-  setup(b) {
-    b.onResolve({ filter: /^@(earendil-works|mariozechner)\/pi-/ }, (args) => {
-      const target = PI_ALIASES.get(args.path.replace(/^@mariozechner\//, "@earendil-works/"));
-      if (target) return { path: target };
-      return {
-        errors: [{ text: `no OMP compat shim for "${args.path}" (imported from ${args.importer}); add one in src/compat and scripts/build.mjs` }],
-      };
-    });
-  },
-};
+const piCompatPlugin = createPiCompatPlugin(root);
 
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const upstream = JSON.parse(

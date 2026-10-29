@@ -1,7 +1,8 @@
 {
   "name": "ns-bridge-core",
   "version": "0.3.2",
-  "description": "No longer developed. Host-neutral vocabulary and host bridges shared by the ns-bridge providers. Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

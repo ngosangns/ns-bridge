@@ -1,7 +1,8 @@
 {
   "name": "ns-omp-provider",
   "version": "0.6.3",
-  "description": "No longer developed. OMP plugin for Kiro (OMP has native Devin and Grok). Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "license": "MIT",
   "author": "ngosangns",
@@ -74,9 +75,5 @@
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
     "ns-bridge-core": "workspace:*"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
   }
 }

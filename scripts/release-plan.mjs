@@ -23,14 +23,24 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const packagesDir = join(root, "packages");
 
-const packages = readdirSync(packagesDir, { withFileTypes: true })
+const all = readdirSync(packagesDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => {
     const dir = join("packages", entry.name);
     const manifest = JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8"));
     return { dir, manifest };
-  })
-  .filter(({ manifest }) => manifest.name === "@ngosangns/ns-bridge" && !manifest.private);
+  });
+
+// The CLI ships every host extension; the source packages are build inputs.
+const strays = all.filter(({ manifest }) => manifest.name !== "@ngosangns/ns-bridge" && !manifest.private);
+if (strays.length > 0) {
+  console.error(
+    `::error::only @ngosangns/ns-bridge may publish; set "private": true in ${strays.map(({ dir }) => dir).join(", ")}`,
+  );
+  process.exit(1);
+}
+
+const packages = all.filter(({ manifest }) => manifest.name === "@ngosangns/ns-bridge");
 
 const byName = new Map(packages.map((pkg) => [pkg.manifest.name, pkg]));
 

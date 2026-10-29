@@ -1,7 +1,8 @@
 {
   "name": "ns-omp-provider-kiro",
   "version": "0.5.3",
-  "description": "No longer developed. OMP plugin for Kiro. Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

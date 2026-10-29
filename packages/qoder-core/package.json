@@ -1,7 +1,7 @@
 {
   "name": "ns-qoder-core",
   "version": "0.1.0",
-  "description": "Host-neutral Qoder client via qodercli and @qoder-ai/qoder-agent-sdk. Not published.",
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

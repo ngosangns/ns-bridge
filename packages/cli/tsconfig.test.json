@@ -6,5 +6,5 @@
     "types": ["node", "vitest/globals"]
   },
   "include": ["src", "test"],
-  "exclude": ["src/refresh-entry.ts", "src/serve-entry.ts"]
+  "exclude": ["src/refresh-entry.ts", "src/serve-entry.ts", "src/host-entry"]
 }

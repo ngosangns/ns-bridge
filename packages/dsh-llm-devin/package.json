@@ -1,7 +1,8 @@
 {
   "name": "ns-dsh-llm-devin",
   "version": "0.4.3",
-  "description": "No longer developed. DeepSeek Harness adapter for Devin. Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

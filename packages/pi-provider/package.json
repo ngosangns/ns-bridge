@@ -1,7 +1,8 @@
 {
   "name": "@ngosangns/ns-pi-provider",
   "version": "0.5.3",
-  "description": "No longer developed. Pi providers for Kiro, Devin, and Grok. Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "license": "MIT",
   "author": "ngosangns",
@@ -81,10 +82,6 @@
     "@types/node": "^22.18.6",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "ns-arnict-core": "workspace:*",

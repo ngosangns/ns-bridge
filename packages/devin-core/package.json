@@ -1,7 +1,8 @@
 {
   "name": "ns-devin-core",
   "version": "0.4.2",
-  "description": "No longer developed. Shared Devin protocol core. Use @ngosangns/ns-bridge.",
+  "private": true,
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

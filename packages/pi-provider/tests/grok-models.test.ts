@@ -62,7 +62,7 @@ describe("grok models + cache", () => {
         },
         mkdirSync: () => undefined,
         renameSync: (a, b) => {
-          memFs.set(String(b), memFs.get(String(a))!);
+          memFs.set(String(b), memFs.get(String(a)) ?? "");
           memFs.delete(String(a));
         },
       },

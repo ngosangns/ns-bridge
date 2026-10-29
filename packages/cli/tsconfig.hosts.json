@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "lib": ["ES2024", "DOM"],
+    "verbatimModuleSyntax": false,
+    "paths": {
+      "@ngosangns/ns-pi-provider/kiro": ["../omp-provider/src/types/ns-pi-provider-kiro.d.ts"],
+      "@ngosangns/ns-pi-provider/arnict": ["../omp-provider/src/types/ns-pi-provider-arnict.d.ts"],
+      "@ngosangns/ns-pi-provider/qoder": ["../omp-provider/src/types/ns-pi-provider-qoder.d.ts"]
+    }
+  },
+  "include": ["src/host-entry"]
+}

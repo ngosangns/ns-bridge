@@ -8,7 +8,9 @@ describe("devin catalog (devin-core) for Pi", () => {
   });
 
   it("projects catalog entries onto Pi models with cache costs and thinking levels", () => {
-    const spec = { ...devinModels[0]!, efforts: ["low", "high"] as const };
+    const [first] = devinModels;
+    if (!first) throw new Error("no devin models");
+    const spec = { ...first, efforts: ["low", "high"] as const };
     const model = toPiDevinModel(spec as never) as unknown as Record<string, unknown>;
     expect(model).toMatchObject({ id: spec.id, api: "devin-cloud", provider: "devin" });
     expect((model.cost as Record<string, number>).cacheRead).toBeDefined();
@@ -111,9 +113,9 @@ describe("devin CLI credentials.toml auth", () => {
       await registerDevinProvider(api as never);
       const cfg = providers.get("devin");
       expect(cfg).toBeTruthy();
-      expect(cfg!.apiKey).toBe("xdg-token");
-      expect(cfg!.oauth).toBeTruthy();
-      expect(Array.isArray(cfg!.models) && cfg!.models.length).toBeGreaterThan(0);
+      expect(cfg?.apiKey).toBe("xdg-token");
+      expect(cfg?.oauth).toBeTruthy();
+      expect(Array.isArray(cfg?.models) && cfg.models.length).toBeGreaterThan(0);
     } finally {
       if (prev === undefined) delete process.env.XDG_DATA_HOME;
       else process.env.XDG_DATA_HOME = prev;

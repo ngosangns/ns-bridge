@@ -2,8 +2,8 @@
  * Loads the built dist/index.js (ns-pi-provider's Kiro and Arnict registrations
  * bundled + OMP shims) against a fake OMP ExtensionAPI. Hermetic: temp HOME, no
  * provider credentials — so no network and no CLI spawns. OMP ships devin and
- * xai itself, so kiro and arnict are the only providers it may ever register;
- * without an Arnict key, arnict only adds the /arnict command.
+ * xai itself, so kiro, arnict, and qoder are the only providers it may ever
+ * register; without an Arnict key, arnict only adds the /arnict command.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -61,11 +61,11 @@ beforeAll(async () => {
 });
 
 describe("dist/index.js on a fake OMP API", () => {
-  it("registers only kiro, in OMP shape, with the arnict command but no provider", async () => {
+  it("registers kiro and qoder in OMP shape, with the arnict command but no provider", async () => {
     const pi = new FakeOmpApi();
     await extension(pi);
 
-    expect([...pi.providers.keys()]).toEqual(["kiro"]);
+    expect([...pi.providers.keys()]).toEqual(["kiro", "qoder"]);
     const kiro = pi.providers.get("kiro");
     if (kiro === undefined) throw new Error("kiro provider was not registered");
     expect(kiro).not.toHaveProperty("refreshModels");
@@ -80,6 +80,7 @@ describe("dist/index.js on a fake OMP API", () => {
     expect(pi.events).toEqual(expect.arrayContaining(["session_start", "session_switch", "session_branch"]));
     // No Arnict key → registration stops at the signpost command.
     expect(pi.commands).toContain("arnict");
+    expect(pi.commands).toContain("qoder");
     expect(pi.commands).not.toContain("grok");
     expect(pi.commands).not.toContain("devin-status");
   });
@@ -128,7 +129,7 @@ describe("dist/index.js on a fake OMP API", () => {
       const pi = new FakeOmpApi();
       await extension(pi);
 
-      expect([...pi.providers.keys()]).toEqual(["arnict"]);
+      expect([...pi.providers.keys()]).toEqual(["arnict", "qoder"]);
       const arnict = pi.providers.get("arnict");
       if (arnict === undefined) throw new Error("arnict provider was not registered");
       expect(arnict.api).toBe("arnict-chat");
@@ -169,12 +170,20 @@ describe("dist/index.js on a fake OMP API", () => {
     }
   });
 
-  it("honours NS_OMP_PROVIDER_DISABLE=kiro and ignores devin or grok in it", async () => {
+  it("honours NS_OMP_PROVIDER_DISABLE and ignores devin or grok in it", async () => {
     process.env.NS_OMP_PROVIDER_DISABLE = "devin,grok";
     try {
       const pi = new FakeOmpApi();
       await extension(pi);
-      expect([...pi.providers.keys()]).toEqual(["kiro"]);
+      expect([...pi.providers.keys()]).toEqual(["kiro", "qoder"]);
+    } finally {
+      delete process.env.NS_OMP_PROVIDER_DISABLE;
+    }
+    process.env.NS_OMP_PROVIDER_DISABLE = "kiro,qoder";
+    try {
+      const pi = new FakeOmpApi();
+      await extension(pi);
+      expect(pi.providers.size).toBe(0);
     } finally {
       delete process.env.NS_OMP_PROVIDER_DISABLE;
     }
@@ -182,7 +191,7 @@ describe("dist/index.js on a fake OMP API", () => {
     try {
       const pi = new FakeOmpApi();
       await extension(pi);
-      expect(pi.providers.size).toBe(0);
+      expect([...pi.providers.keys()]).toEqual(["qoder"]);
     } finally {
       delete process.env.NS_OMP_PROVIDER_DISABLE;
     }
@@ -192,6 +201,7 @@ describe("dist/index.js on a fake OMP API", () => {
     const bundle = readFileSync(dist, "utf8");
     expect(bundle).not.toMatch(/registerDevinProvider|registerGrokProvider|cli-chat-proxy\.grok\.com/);
     expect(bundle).toContain("Arnict provider:");
+    expect(bundle).toContain("Qoder provider:");
     expect(bundle).toContain("ns-bridge arnict login");
   });
 });

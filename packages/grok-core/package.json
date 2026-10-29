@@ -1,7 +1,7 @@
 {
   "name": "ns-grok-core",
   "version": "0.1.0",
-  "description": "Host-neutral Grok Responses client. Uses the Grok CLI login session. Not published.",
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

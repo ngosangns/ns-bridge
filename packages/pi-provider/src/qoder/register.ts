@@ -6,6 +6,8 @@
  */
 
 import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { BridgeEffort } from "ns-bridge-core";
+import { toPiThinkingLevelMap } from "ns-bridge-core/pi";
 import {
   fetchQoderModels,
   QODER_DEFAULT_CONTEXT_WINDOW,
@@ -37,16 +39,30 @@ function specsToCatalog(specs: readonly QoderModelSpec[]): CatalogModel[] {
   }));
 }
 
+/** Pi ignores `efforts` and `compaction`; the OMP wrapper reads them. */
+type QoderProviderModel = ProviderModelConfig & {
+  efforts?: readonly string[];
+  compaction?: { thresholdTokens?: number };
+};
+
 function catalogToProviderModels(models: CatalogModel[]): ProviderModelConfig[] {
-  return models.map((m) => ({
-    id: m.id,
-    name: m.name,
-    reasoning: m.reasoning ?? false,
-    input: [...m.input],
-    cost: ensureCacheCost(m.cost),
-    contextWindow: m.contextWindow,
-    maxTokens: m.maxTokens,
-  }));
+  return models.map((m) => {
+    const efforts = m.efforts as readonly string[] | undefined;
+    const compaction = m.compaction as { thresholdTokens?: number } | undefined;
+    const thinkingLevelMap = toPiThinkingLevelMap(efforts as BridgeEffort[] | undefined);
+    return {
+      id: m.id,
+      name: m.name,
+      reasoning: m.reasoning ?? false,
+      input: [...m.input],
+      cost: ensureCacheCost(m.cost),
+      contextWindow: m.contextWindow,
+      maxTokens: m.maxTokens,
+      ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+      ...(compaction ? { compaction } : {}),
+      ...(efforts?.length ? { efforts: [...efforts] } : {}),
+    } as QoderProviderModel;
+  });
 }
 
 function bootstrapFallback(): { models: ProviderModelConfig[]; fromCache: false; source: "fallback" } {

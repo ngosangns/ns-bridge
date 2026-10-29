@@ -1,7 +1,7 @@
 {
   "name": "ns-arnict-core",
   "version": "0.1.0",
-  "description": "Host-neutral Arnict chat-completions client. Uses an Arnict API key. Not published.",
+  "description": "Source-only build input for @ngosangns/ns-bridge. Not published.",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
