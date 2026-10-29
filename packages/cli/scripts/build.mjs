@@ -6,19 +6,22 @@
  * manifest plus one esbuild bundle. `ns-bridge install <host>` registers those
  * directories with Pi, OMP, and DSH by path; nothing is fetched from npm.
  *
- * Bundled here at build time: every ns-*-core, ns-bridge-core, and the host
- * adapters. Left external because the host or the CLI provides them:
+ * Bundled here at build time: every ns-*-core, ns-bridge-core, the host
+ * adapters, and — into the host bundles only — Smithy and js-tiktoken. Those
+ * two cannot stay external: kiro-core loads them through a createRequire
+ * shadow, a compiled-bun host (OMP) cannot resolve bare specifiers at runtime,
+ * and the Kiro stream then dies on its first response (issue #18). Left
+ * external:
  *   - `@earendil-works/*` (Pi serves them in-process)
  *   - `@oh-my-pi/*` (OMP serves them in-process; Pi specifiers go to compat)
  *   - `@deepseek-ai/{cordis,dsh-*}` (DSH routes its own peers)
- *   - `@qoder-ai/*`, `@smithy/*`, `js-tiktoken` (CLI runtime deps: the Qoder
- *     SDK owns a postinstall download, the other two load lazily on Kiro calls)
+ *   - `@qoder-ai/*` (the SDK owns a postinstall download and locates its
+ *     worker runtime relative to its own package directory)
  *
- * Smithy and js-tiktoken also stay external in the refresh/serve bundles so
- * they load on the first Kiro call, not when the process starts. The Qoder SDK
- * is external there for the same reason it is external in every host bundle:
- * the SDK locates its downloaded worker runtime relative to its own package
- * directory, which a bundled copy would point at `dist/`.
+ * The refresh/serve bundles run under plain Node, so they keep Smithy and
+ * js-tiktoken external and lazy: they load on the first Kiro call. The Qoder
+ * SDK is external there for the same reason it is external in every host
+ * bundle.
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { builtinModules } from "node:module";
@@ -37,10 +40,38 @@ const piPkg = workspacePkg("pi-provider");
 const ompPkg = workspacePkg("omp-provider");
 
 /** Externals every host bundle may leave unresolved, and the CLI runtime provides. */
-const COMMON_EXTERNALS = ["@qoder-ai/*", "@smithy/*", "js-tiktoken", "js-tiktoken/*"];
+const COMMON_EXTERNALS = ["@qoder-ai/*"];
 /** Transitive optionals some bundled deps probe for; absent is fine. */
 const OPTIONAL_RUNTIME = ["supports-color", "bufferutil", "utf-8-validate"];
 const DSH_PEERS = ["@deepseek-ai/dsh-llm", "@deepseek-ai/cordis", "@deepseek-ai/dsh-attachment", "@deepseek-ai/dsh-credentials"];
+
+/**
+ * kiro-core defers Smithy and js-tiktoken behind a `require` shadow created
+ * with createRequire, so plain-Node consumers pay nothing at import time. That
+ * shape defeats esbuild's static analysis — the require calls survive into the
+ * bundle as runtime code, and a compiled-bun host (OMP) cannot resolve bare
+ * specifiers for dynamically loaded code, so the Kiro stream dies on its first
+ * response (issue #18). Host builds strip the shadow from these two files so
+ * esbuild inlines the requires as lazy, memoized module loads. The shadow
+ * stays in the source and the tsc output: unbundled consumers (vitest, node)
+ * still need it. Hosts import the cores through their package entry, so the
+ * emitted dist/*.js is what actually flows into these builds.
+ */
+const inlineKiroLazyRequires = {
+  name: "ns-bridge:inline-kiro-lazy-requires",
+  setup(build) {
+    build.onLoad(
+      { filter: /kiro-core[/\\](src|dist)[/\\](response-stream|tokenizer)\.(ts|js)$/ },
+      (args) => ({
+        contents: readFileSync(args.path, "utf8")
+          .replace(/^import \{ createRequire \} from "node:module";\r?\n/m, "")
+          .replace(/^const require = createRequire\(import\.meta\.url\);\r?\n?/m, ""),
+        loader: args.path.endsWith(".ts") ? "ts" : "js",
+        resolveDir: dirname(args.path),
+      }),
+    );
+  },
+};
 
 const dshVendors = ["kiro", "devin", "grok", "arnict", "qoder"];
 const dshSpecs = dshVendors.map((vendor) => {
@@ -121,8 +152,9 @@ const cliResult = await build({
   target: "node22",
   sourcemap: false,
   legalComments: "eof",
-  // The Qoder SDK stays external: it resolves its downloaded worker runtime
-  // (`dist/_worker`, ~59 MB, per platform) from its own package directory.
+  // These run under plain Node: the Qoder SDK resolves its downloaded worker
+  // runtime (`dist/_worker`, ~59 MB, per platform) from its own package
+  // directory, and Smithy/js-tiktoken may keep loading lazily on Kiro calls.
   external: ["@qoder-ai/*", "@smithy/*", "js-tiktoken", "js-tiktoken/*"],
   banner: {
     js: [
@@ -159,7 +191,7 @@ for (const host of hosts) {
     sourcemap: false,
     legalComments: "eof",
     external: host.external,
-    plugins: host.plugins,
+    plugins: [...(host.plugins ?? []), inlineKiroLazyRequires],
     banner: { js: banner },
     metafile: true,
     logLevel: "warning",
@@ -173,12 +205,28 @@ for (const host of hosts) {
   if (host.kind === "omp" && externalsOf(result).some((path) => path.startsWith("@earendil-works/"))) {
     fail("the OMP bundle still imports @earendil-works (the compat shim missed an import)");
   }
+  const text = readFileSync(outfile, "utf8");
+  // A runtime require of anything but the SDK or a builtin means the lazy
+  // sites were not inlined (e.g. the createRequire shadow made it through) —
+  // compiled-bun hosts cannot resolve those (issue #18).
+  const bareRequires = [
+    ...new Set(
+      [...text.matchAll(/(?<![\w$.])require\d*\("([^"]+)"\)/g)]
+        .map((match) => match[1])
+        .filter((spec) => !builtins.has(spec) && !spec.startsWith("@qoder-ai/")),
+    ),
+  ];
+  if (bareRequires.length) {
+    fail(
+      `runtime bare requires left in the ${host.kind}${host.vendor ? `/${host.vendor}` : ""} bundle`,
+      bareRequires,
+    );
+  }
   if (host.kind === "dsh") {
     const exports = output.exports ?? [];
     for (const name of ["name", "apply"]) {
       if (!exports.includes(name)) fail(`the DSH ${host.vendor} bundle does not export ${name}`);
     }
-    const text = readFileSync(outfile, "utf8");
     if (!text.includes(`"llm-${host.vendor}"`)) {
       fail(`the DSH ${host.vendor} bundle does not register llm-${host.vendor}`);
     }

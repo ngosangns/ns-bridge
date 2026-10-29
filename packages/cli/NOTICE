@@ -13,6 +13,15 @@ The bundled sources include:
 - `packages/devin-core`, ported from oh-my-pi
   (https://github.com/can1357/oh-my-pi), MIT.
 
+The host bundles in `dist/hosts/**` additionally embed two npm dependencies,
+bundled so that compiled-bun hosts can resolve them (see issue #18):
+
+- `@smithy/core` (submodule `event-streams`) —
+  https://github.com/smithy-lang/smithy-typescript, Apache License 2.0,
+  Copyright Amazon.com, Inc. or its affiliates.
+- `js-tiktoken` (ranks `cl100k_base` + `lite`) —
+  https://github.com/dqbd/tiktoken, MIT.
+
 `packages/pi-provider` carries its own NOTICE for the upstream projects it
 adapts:
 
