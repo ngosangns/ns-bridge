@@ -208,12 +208,14 @@ for (const host of hosts) {
   const text = readFileSync(outfile, "utf8");
   // A runtime require of anything but the SDK or a builtin means the lazy
   // sites were not inlined (e.g. the createRequire shadow made it through) —
-  // compiled-bun hosts cannot resolve those (issue #18).
+  // compiled-bun hosts cannot resolve those (issue #18). A `node:` specifier
+  // is a builtin by definition; the bare-name check uses the building node's
+  // builtinModules, which lags behind newer builtins.
   const bareRequires = [
     ...new Set(
       [...text.matchAll(/(?<![\w$.])require\d*\("([^"]+)"\)/g)]
         .map((match) => match[1])
-        .filter((spec) => !builtins.has(spec) && !spec.startsWith("@qoder-ai/")),
+        .filter((spec) => !spec.startsWith("node:") && !builtins.has(spec) && !spec.startsWith("@qoder-ai/")),
     ),
   ];
   if (bareRequires.length) {
