@@ -2,8 +2,8 @@
  * Kiro provider for Pi — a thin host adapter over ns-kiro-core.
  *
  * Protocol (AWS event-stream, history repair, tool-call recovery, retries,
- * credentials, catalog) lives in ns-kiro-core and is shared with
- * ns-omp-provider-kiro and ns-dsh-llm-kiro. Message projection and stream
+ * credentials, catalog) lives in ns-kiro-core and is shared with the OMP and
+ * DSH Kiro adapters. Message projection and stream
  * assembly are the shared Pi-family bridge in ns-bridge-core/pi. What remains
  * here is Pi's registration surface.
  *

@@ -412,10 +412,7 @@ mkdirSync(dir, { recursive: true });
 
 const piBin = "/opt/homebrew/bin/pi";
 const ompBin = join(homedir(), ".bun/bin/omp");
-const pluginDirs = [
-  join(homedir(), ".omp/plugins/node_modules/ns-omp-provider"),
-  join(homedir(), ".omp/plugins/node_modules/ns-omp-provider-kiro"),
-].map(countPluginFiles);
+const pluginDirs = [join(homedir(), ".omp/plugins/node_modules/ns-omp-provider")].map(countPluginFiles);
 writeFileSync(join(dir, "plugin-files.json"), JSON.stringify(pluginDirs, null, 2));
 
 const piEnv = { PI_TIMING: "1", PI_STARTUP_BENCHMARK: "1" };

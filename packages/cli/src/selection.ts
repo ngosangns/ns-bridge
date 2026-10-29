@@ -84,8 +84,8 @@ export function resolveSelection(file: Partial<ProviderSelection>, env: Selectio
 /**
  * Write one provider. Other keys already in the file stay, and defaults are not
  * written: a key in the file is a choice someone made, and readers act on that
- * (ns-omp-provider used to register `kiro` next to ns-omp-provider-kiro because
- * a disable of devin had written `kiro: true`). Returns the resolved selection.
+ * (an early OMP plugin registered `kiro` from a default it had written itself:
+ * disabling devin landed `kiro: true` in the file). Returns the resolved selection.
  */
 export function writeProvider(path: string, provider: ProviderName, enabled: boolean): ProviderSelection {
   const next: Partial<ProviderSelection> = { ...readSelectionFile(path), [provider]: enabled };

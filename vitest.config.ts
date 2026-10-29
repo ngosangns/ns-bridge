@@ -23,7 +23,7 @@ export default defineConfig({
       {
         test: {
           name: "kiro",
-          include: ["packages/{kiro-core,omp-provider-kiro,dsh-llm-kiro}/test/**/*.test.ts"],
+          include: ["packages/{kiro-core,dsh-llm-kiro}/test/**/*.test.ts"],
           setupFiles: ["./packages/kiro-core/test/setup.ts"],
           // The first cl100k_base rank load builds the BPE table and can
           // exceed the default 5s timeout while other files load it too.

@@ -92,11 +92,10 @@ export function toOmpApiKey(value: unknown, env: NodeJS.ProcessEnv = process.env
  * The smallest window whose OMP default compaction threshold reaches
  * `threshold`.
  *
- * Copied from packages/omp-provider-kiro/src/models.ts (`ompWindowForThreshold`)
- * — this plugin must not import the dedicated kiro plugin. Mirrors OMP's
- * default compaction rule (oh-my-pi `pi-agent-core` `compaction.ts`,
- * `effectiveReserveTokens` / `resolveThresholdTokens`): OMP holds back
- * `max(floor(0.15·W), 16384)` of a window `W` and compacts at the remainder.
+ * Mirrors OMP's default compaction rule (oh-my-pi `pi-agent-core`
+ * `compaction.ts`, `effectiveReserveTokens` / `resolveThresholdTokens`): OMP
+ * holds back `max(floor(0.15·W), 16384)` of a window `W` and compacts at the
+ * remainder.
  */
 export function ompWindowForThreshold(threshold: number): number {
   const reaches = (window: number) => window - Math.max(Math.floor(window * 0.15), 16_384) >= threshold;
@@ -145,11 +144,6 @@ export function mapModelsForOmp(models: readonly unknown[], provider: string): u
     }
     return next;
   });
-}
-
-/** Arnict is the only legacy caller; kept for the existing export. */
-export function mapArnictModelsForOmp(models: readonly unknown[]): unknown[] {
-  return mapModelsForOmp(models, ARNICT_PROVIDER_ID);
 }
 
 type PiRefreshModels = (args: {

@@ -9,7 +9,7 @@ This package is the Kiro vendor core of
 needs that is not specific to one coding agent.
 
 The last npm release is `ns-kiro-core@0.5.3`. npm marks it deprecated. The Kiro
-host adapters — `@ngosangns/ns-pi-provider`, `ns-omp-provider-kiro`,
+host adapters — `@ngosangns/ns-pi-provider` (Pi and, bundled, OMP) and
 `ns-dsh-llm-kiro` — depend on it. It is not meant to be installed on its own.
 
 - **Endpoints** — SSO region to management/runtime host resolution.

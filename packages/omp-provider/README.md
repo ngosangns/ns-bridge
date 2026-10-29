@@ -1,15 +1,17 @@
 # ns-omp-provider
 
-> Development of this package has stopped. The maintained package is [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+> Source-only build input for [@ngosangns/ns-bridge](https://www.npmjs.com/package/@ngosangns/ns-bridge).
+> `ns-bridge install omp` ships this package prebuilt as the CLI's `dist/hosts/omp` bundle;
+> it is no longer published on its own.
 
-[OMP](https://omp.sh) (oh-my-pi) plugin that exposes the **Kiro** provider from
-[`@ngosangns/ns-pi-provider`](../pi-provider), part of
-[ns-bridge](https://github.com/ngosangns/ns-bridge).
+[OMP](https://omp.sh) (oh-my-pi) plugin that exposes the **Kiro**, **Arnict**,
+and **Qoder** providers from [`@ngosangns/ns-pi-provider`](../pi-provider), part
+of [ns-bridge](https://github.com/ngosangns/ns-bridge).
 
 `ns-pi-provider` targets Pi 1.0. OMP is a Pi fork whose extension API is close
 but not identical — this package is the adapter. It does **not** modify
-`ns-pi-provider`; the workspace's Pi Kiro registration (and `ns-kiro-core` under
-it) is bundled at build time with a small compat layer.
+`ns-pi-provider`; the workspace's Pi registrations (and the vendor cores under
+them) are bundled at build time with a small compat layer.
 
 ## Devin and Grok are OMP's own
 
@@ -28,23 +30,25 @@ fallbacks) names `devin/…` or `grok/…`:
    `omp models devin` for the ids it offers.
 2. `grok/<model>` has no native twin by that name. Pick one from `omp models xai-oauth`
    (or `omp models xai`) and use `xai-oauth/<model>`.
-3. Remove the old plugin if you do not want it: `omp plugin uninstall ns-omp-provider`.
-   Keep `ns-omp-provider-kiro` for Kiro.
+3. `ns-bridge install omp` removes the old plugins (`ns-omp-provider-kiro`,
+   `ns-omp-provider`) and installs the bundled one in their place.
 
 Pi still gets `devin` and `grok` from `@ngosangns/ns-pi-provider`.
 
 | Provider | Auth | Notes |
 |----------|------|-------|
-| `kiro` | kiro-cli / Kiro IDE session (`/login kiro`) + `KIRO_API_KEY` | Skipped while [`ns-omp-provider-kiro`](https://www.npmjs.com/package/ns-omp-provider-kiro) is installed; see below |
+| `kiro` | kiro-cli / Kiro IDE session (`/login kiro`) + `KIRO_API_KEY` | |
+| `arnict` | `ARNICT_API_KEY` or `~/.ns-bridge/arnict.json` | registers only `/arnict` until a key is present |
+| `qoder` | `qodercli login` session or `QODER_PERSONAL_ACCESS_TOKEN` | |
 
 ## Install
 
 ```bash
-# maintained installer (installs ns-omp-provider-kiro, the Kiro plugin for OMP)
+# maintained installer (registers the prebuilt dist/hosts/omp bundle with OMP)
 ns-bridge install omp
 
-# local link (a clone of ns-bridge, after `pnpm -r build`)
-omp plugin link ~/Github/ngosangns/ns-bridge/packages/omp-provider
+# local build (a clone of ns-bridge, after `pnpm -r build`)
+omp plugin install ~/Github/ngosangns/ns-bridge/packages/cli/dist/hosts/omp
 
 # one-shot without installing
 omp -e ./dist/index.js ...
@@ -55,9 +59,8 @@ Then `/login kiro` as needed.
 
 ### Choosing providers
 
-`kiro` is the only provider here. While `ns-omp-provider-kiro` is installed it owns
-the `kiro` id and this package never registers it, whatever `~/.ns-bridge/providers.json`
-or an env list says. Without it, these decide:
+This package registers `kiro`, `arnict`, and `qoder`. `~/.ns-bridge/providers.json`
+and the env lists decide which:
 
 ```bash
 export NS_OMP_PROVIDER_ENABLE=kiro       # register kiro from this package
@@ -66,8 +69,7 @@ export NS_OMP_PROVIDER_DISABLE=kiro      # deny-list, applied last
 ```
 
 `devin` and `grok` in those lists, or as keys in `providers.json`, are accepted and
-ignored (the Pi adapter reads the same file and still uses them). Both plugins run the
-same `ns-kiro-core`, so deferring to the dedicated plugin loses nothing.
+ignored (the Pi adapter reads the same file and still uses them).
 
 ## How the wrapper works
 
@@ -94,8 +96,6 @@ same `ns-kiro-core`, so deferring to the dedicated plugin loses nothing.
 
 - **`session_info_changed`** — OMP has no equivalent; it is a documented no-op
   (name changes do not re-key the agent pool).
-- **No duplicate `kiro`** — while `ns-omp-provider-kiro` is installed this package does
-  not register `kiro` at all.
 - **No `/ns-pi` or `/grok` commands** — they went with the Devin and Grok registration.
   `ns-bridge models list` and `ns-bridge providers status omp` cover the status.
 - **Catalog files** — the models OMP shows are the ones already on disk.
@@ -105,9 +105,9 @@ same `ns-kiro-core`, so deferring to the dedicated plugin loses nothing.
 - **Kiro catalog** — with no saved catalog snapshot, `kiro`
   registers zero models.
 - **Bundled Pi adapter** — the build bundles the workspace's
-  `@ngosangns/ns-pi-provider` (`workspace:*`). The last published tarball is
-  `0.6.3`, which still registers `devin` and `grok`; this source change reaches
-  OMP only through a new release.
+  `@ngosangns/ns-pi-provider` (`workspace:*`). Nothing of this package is
+  published; OMP receives it through `ns-bridge install omp`, which registers
+  the prebuilt bundle inside the CLI package.
 
 ## Development
 
@@ -124,6 +124,8 @@ The smoke script needs `omp` on `PATH` and does not touch your real `~/.omp`.
 
 ## Publish
 
-The last npm release is `0.6.3`. npm marks it deprecated. This repo publishes
+Nothing here is published. npm publishes only
 [`@ngosangns/ns-bridge`](https://www.npmjs.com/package/@ngosangns/ns-bridge)
-from tag `ns-bridge@<version>`. See [DEVELOPER.md](../../DEVELOPER.md#releasing).
+from tag `ns-bridge@<version>`; the last `ns-omp-provider` release on npm
+(`0.6.3`) is deprecated and kept for rollback. See
+[DEVELOPER.md](../../DEVELOPER.md#releasing).

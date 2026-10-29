@@ -338,8 +338,8 @@ describe("zcodeModelWindow", () => {
 // tsc-emitted dist cannot import the cores at runtime (see zcode.ts "window
 // math"). These tests fail when the copy drifts from ns-kiro-core. OMP's
 // default reserve — max(floor(0.15·W), 16384) of a window W — is restated here
-// because ns-omp-provider-kiro is not a cli dependency; it mirrors
-// omp-provider-kiro models.ts `ompWindowForThreshold`.
+// because ns-omp-provider is not a cli dependency; it mirrors the OMP
+// adapter's `ompWindowForThreshold`.
 
 describe("kiro compaction policy drift", () => {
   const OMP_RESERVE_FLOOR = 16384;

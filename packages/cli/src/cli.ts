@@ -68,7 +68,7 @@ export interface RunOptions {
   hostPaths?: HostPaths;
 }
 
-const HELP = `ns-bridge — install, update, and refresh providers outside Pi, OMP, and DSH.
+const HELP = `ns-bridge — install ns-bridge providers into Pi, OMP, and DSH from prebuilt local bundles.
 
 Mutating commands apply by default. Pass --dry-run to preview them without
 spawning.

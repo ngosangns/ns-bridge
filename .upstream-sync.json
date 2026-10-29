@@ -35,12 +35,9 @@
     "src/truncation.ts": "packages/kiro-core/src/truncation.ts",
     "src/usage.ts": "packages/kiro-core/src/usage.ts",
     "src/usage-tracking.ts": "packages/kiro-core/src/usage-tracking.ts",
-    "src/login.ts": "packages/omp-provider-kiro/src/auth.ts",
     "test/*.test.ts": "packages/kiro-core/test/*.test.ts",
     "test/helpers/*": "packages/kiro-core/test/helpers/*",
     "test/setup.ts": "packages/kiro-core/test/setup.ts",
-    "test/packaging.test.ts": "packages/omp-provider-kiro/test/packaging.test.ts",
-    "test/registration.test.ts": "packages/omp-provider-kiro/test/packaging.test.ts",
     "src/tool-use-parser.ts": "packages/kiro-core/src/tool-use-parser.ts",
     "src/tool-name-aliases.ts": "packages/bridge-core/src/tool-names.ts"
   },
@@ -74,8 +71,12 @@
       "reason": "Không port 1:1. packages/kiro-core/test/stream.test.ts là bộ test độc lập viết theo vocabulary neutral, phủ cùng module nhưng không cùng cấu trúc (upstream ~4400 dòng, bám vào Context/AssistantMessageEvent của pi, và dùng event 'error' trong khi bản port throw). Khi upstream đụng src/stream.ts: đọc test upstream để lấy ý định, rồi thêm case tương ứng vào bộ local thay vì copy."
     },
     {
+      "path": "src/login.ts",
+      "reason": "Upstream login module. Bản port từng có bản đối ứng trong packages/omp-provider-kiro/src/auth.ts; gói đó đã bị xóa khi mọi host chuyển sang bundle cục bộ. Login giờ đi qua kiro-core host-auth (session kiro-cli / Kiro IDE + API key), không chạy PKCE — xem notPorted src/login-ui.ts."
+    },
+    {
       "path": "test/login.test.ts",
-      "reason": "Bám vào PKCE flow của upstream, không áp dụng cho packages/omp-provider-kiro/src/auth.ts."
+      "reason": "Bám vào PKCE flow của upstream, không áp dụng cho login qua kiro-core host-auth của repo này."
     },
     {
       "path": "test/login-ui.test.ts",
@@ -123,7 +124,7 @@
     },
     {
       "path": "src/stream.ts (credentialAccessor, KiroCredentialAccessor/KiroCredentialLike/KiroStreamOptions, [auth-refresh] trace), test/credential-accessor.test.ts",
-      "reason": "Upstream #168 sửa việc pi seed mỗi call từ options.apiKey tĩnh nên token refresh giữa call bị vứt và mọi turn sau đó trả thêm một 403. Cả hai host ở đây không có vấn đề đó: omp-provider-kiro gọi resolveRequestCredentials() và dsh-llm-kiro gọi credentials() ở MỖI call, đọc lại store kiro-cli/IDE — chính store mà refreshViaKiroCli() ghi vào — nên call sau đã bắt đầu từ token mới. Dòng [auth-refresh] chỉ bật khi có accessor nên cũng không có giá trị khi không port accessor."
+      "reason": "Upstream #168 sửa việc pi seed mỗi call từ options.apiKey tĩnh nên token refresh giữa call bị vứt và mọi turn sau đó trả thêm một 403. Cả hai host ở đây không có vấn đề đó: adapter OMP gọi resolveRequestCredentials() và dsh-llm-kiro gọi credentials() ở MỖI call, đọc lại store kiro-cli/IDE — chính store mà refreshViaKiroCli() ghi vào — nên call sau đã bắt đầu từ token mới. Dòng [auth-refresh] chỉ bật khi có accessor nên cũng không có giá trị khi không port accessor."
     },
     {
       "path": "test/protocol-regressions.test.ts",
@@ -134,7 +135,6 @@
     "packages/kiro-core/src/types.ts",
     "packages/kiro-core/src/blocks.ts",
     "packages/kiro-core/src/cost.ts",
-    "packages/omp-provider-kiro/src/**",
     "packages/dsh-llm-kiro/src/**"
   ],
   "divergences": [
@@ -203,7 +203,7 @@
       "risk": "Không có thay đổi hành vi. Nếu Kiro ngừng gửi contextUsage, response.done đã log receivedContextUsage để phát hiện."
     },
     {
-      "path": "packages/kiro-core/src/kiro-cli.ts, models.ts, types.ts; packages/omp-provider-kiro/src/models.ts",
+      "path": "packages/kiro-core/src/kiro-cli.ts, models.ts, types.ts",
       "upstreamPath": "src/kiro-cli.ts, src/models.ts",
       "since": "2026-09-06",
       "what": "getKiroCliModelRates() đọc `kiro-cli chat --list-models --format json` lấy rate_multiplier/rate_unit; mapKiroCatalogModels nhận thêm param `rates` (vẫn pure) và gắn vào KiroModelSpec.rateMultiplier/rateUnit; updateKiroModelsCache truyền rates vào.",
@@ -219,7 +219,7 @@
       "risk": "Không đổi path khi port thay đổi models.ts của upstream. Nếu upstream đổi schema cache, đối chiếu KIRO_MANAGEMENT_CACHE_VERSION."
     },
     {
-      "path": "packages/kiro-core/src/types.ts (KiroStreamEvent done.errorMessage), packages/omp-provider-kiro/src/stream.ts, packages/dsh-llm-kiro/src/adapter.ts",
+      "path": "packages/kiro-core/src/types.ts (KiroStreamEvent done.errorMessage), packages/omp-provider/src/adapter.ts, packages/dsh-llm-kiro/src/adapter.ts",
       "upstreamPath": "src/stream.ts (AssistantMessage diagnostics)",
       "since": "2026-09-23",
       "what": "Diagnostic terminal (retry cạn cho empty/echo, tool call bị drop do args không parse) đi qua field `errorMessage` trên event `done` thay vì channel `AssistantMessage.diagnostics` của pi-ai. OMP map thẳng sang output.errorMessage; dsh nhét vào finish.replayState.response vì FinishReason không có field message cho reason thành công. KiroApiError throw trực tiếp từ generator (upstream encode vào stream event).",

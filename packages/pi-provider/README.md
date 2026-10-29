@@ -35,7 +35,7 @@ needed — an existing CLI session is used without any `/login`. Grok uses the l
 This package is the Pi host adapter of [ns-bridge](https://github.com/ngosangns/ns-bridge).
 Kiro and Devin are thin registrations over the shared vendor cores; the
 Pi-specific translation (context in, `AssistantMessageEventStream` out) is
-`ns-bridge-core/pi`, the same bridge `ns-omp-provider-kiro` uses.
+`ns-bridge-core/pi`, the same bridge the bundled OMP adapter uses.
 
 | Provider | Protocol + auth | Model list | Stream |
 |----------|-----------------|------------|--------|

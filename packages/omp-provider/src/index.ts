@@ -1,10 +1,10 @@
 /**
- * ns-omp-provider — OMP (oh-my-pi) extension exposing the Kiro and Arnict
- * providers from @ngosangns/ns-pi-provider.
+ * ns-omp-provider — OMP (oh-my-pi) extension exposing the Kiro, Arnict, and
+ * Qoder providers from @ngosangns/ns-pi-provider.
  *
- * OMP ships `devin`, `xai`, and `xai-oauth` itself, so this plugin no longer
- * registers `devin` or `grok` (`/login devin`, `/login xai-oauth`). The Kiro
- * and Arnict registrations are bundled into dist/index.js at build time, with
+ * OMP ships `devin`, `xai`, and `xai-oauth` itself, so this plugin does not
+ * register `devin` or `grok` (`/login devin`, `/login xai-oauth`). The
+ * registrations are bundled into dist/index.js at build time, with
  * their `@earendil-works/pi-ai*` imports redirected to ./compat (OMP's pi-ai +
  * Pi 1.0 transcript helpers). At runtime the OMP ExtensionAPI is wrapped so
  * Pi-shaped provider configs, contexts, and events map onto OMP's. Arnict
@@ -17,29 +17,23 @@ import { registerQoderProvider } from "@ngosangns/ns-pi-provider/qoder";
 import { setUsageHost } from "ns-bridge-core";
 
 import { wrapExtensionApi } from "./adapter.js";
-import { resolveProviderSelection, shouldRegisterKiro } from "./config.js";
+import { resolveProviderSelection } from "./config.js";
 
 export {
   ARNICT_PROVIDER_ID,
   adaptProviderConfig,
-  mapArnictModelsForOmp,
+  mapModelsForOmp,
   ompWindowForThreshold,
   toFetchDynamicModels,
   toOmpApiKey,
   toPiContext,
   wrapExtensionApi,
 } from "./adapter.js";
-export {
-  dedicatedKiroInstalled,
-  OMP_NATIVE_PROVIDERS,
-  resolveProviderSelection,
-  shouldRegisterKiro,
-} from "./config.js";
+export { OMP_NATIVE_PROVIDERS, resolveProviderSelection } from "./config.js";
 
 export default async function nsOmpProvider(pi: object): Promise<void> {
   setUsageHost("omp");
-  // ns-omp-provider-kiro owns the kiro id while it is installed.
-  if (shouldRegisterKiro()) {
+  if (resolveProviderSelection().kiro) {
     try {
       await registerKiroProvider(wrapExtensionApi(pi));
     } catch (err) {

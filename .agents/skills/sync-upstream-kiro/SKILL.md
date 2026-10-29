@@ -117,7 +117,7 @@ tự sửa cùng vấn đề theo cách khác, chọn một cách rồi cập nh
 | --- | --- | --- |
 | **Neutral** | `bracket-tool-parser` `debug` `endpoints` `event-parser` `history` `history-validator` `invoke-tool-parser` `kiro-cli` `kiro-ide` `management` `retry` `token-type` `tokenizer` | Không import `pi-ai`. Thường áp diff gần như nguyên văn vào `packages/kiro-core/src/<tên>.ts` |
 | **Pi-coupled** | `effort` `models` `oauth` `stream` `thinking-parser` `transform` `truncation` `usage` `index` | Có import `@earendil-works/pi-ai`. Phải dịch vocabulary — xem bảng dưới |
-| **Ngoài phạm vi** | `login-ui` và phần PKCE của `login` | Bỏ qua, trừ khi chạm tới primitive trong `oauth.ts`. Login của repo này nằm ở `packages/omp-provider-kiro/src/auth.ts` |
+| **Ngoài phạm vi** | `login-ui` và phần PKCE của `login` | Bỏ qua, trừ khi chạm tới primitive trong `oauth.ts`. Login của repo này đi qua kiro-core host-auth (session kiro-cli / Kiro IDE + API key) |
 
 Kiểm tra nhanh một file upstream có coupled hay không:
 
@@ -153,15 +153,16 @@ Sau khi sửa `packages/kiro-core`, xem thay đổi có chạm export surface kh
 
 ```bash
 git diff packages/kiro-core/src/index.ts
-rg -n "<symbol vừa đổi>" packages/pi-provider/src packages/omp-provider-kiro/src packages/dsh-llm-kiro/src
+rg -n "<symbol vừa đổi>" packages/pi-provider/src packages/omp-provider/src packages/dsh-llm-kiro/src
 ```
 
 Đổi contract nội bộ là được phép (xem workflow `execution` trong `~/.Codex/AGENTS.md`),
 nhưng phải cập nhật cả hai adapter trong cùng lần thay đổi, không để lệch.
 
 Lưu ý: OMP local dùng `@oh-my-pi/pi-ai`, upstream đã đổi sang `@earendil-works/pi-ai`.
-Đây là hai tên của cùng một package sau khi pi đổi tên — đừng port cái rename này
-vào `packages/omp-provider-kiro` trừ khi OMP 18.x thật sự đã chuyển.
+Đây là hai tên của cùng một package sau khi pi đổi tên — OMP bundle chuyển tên qua
+compat shim trong `packages/omp-provider/src/compat`, đừng port cái rename này vào
+kho đó trừ khi OMP 18.x thật sự đã chuyển.
 
 ### 6. Port test
 
@@ -175,8 +176,9 @@ Test upstream ánh xạ 1:1 sang `packages/kiro-core/test/`, trừ các mục tr
   upstream để lấy *ý định*, rồi thêm case tương ứng vào bộ local. Chạy
   `npx vitest run packages/kiro-core/test/stream.test.ts` sau mỗi lần port.
 - `test/registration.test.ts` và `test/packaging.test.ts` của upstream kiểm tra
-  đăng ký extension của pi; phần tương đương nằm ở `packages/omp-provider-kiro/test/packaging.test.ts`
-  và `packages/dsh-llm-kiro/test/packaging.test.ts`, hình dạng đã khác.
+  đăng ký extension của pi; phần tương đương nằm ở test packaging/registration
+  của `packages/pi-provider`, `packages/omp-provider`, và
+  `packages/dsh-llm-kiro`, hình dạng đã khác.
 
 ### 7. Verify
 

@@ -114,7 +114,7 @@ export function arnictGlm53Id(id: string): boolean {
  * no threshold. Kiro: a Claude model with a window past 200K compacts at the
  * 150K target; everything else compacts where the OMP provider's default rule
  * lands on the model's standard-price window — OMP holds back
- * max(floor(0.15·W), 16384) of a window W (omp-provider-kiro models.ts
+ * max(floor(0.15·W), 16384) of a window W (the OMP adapter's
  * `ompWindowForThreshold`) — so ZCode compacts where OMP does: 170000 at 200K,
  * 231200 at the 272K GPT-5.6 tier. The other vendors' cores record the window
  * minus its 16384 reservation (ns-core-utils `compactionBudget`).

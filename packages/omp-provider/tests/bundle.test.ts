@@ -6,7 +6,7 @@
  * register; without an Arnict key, arnict only adds the /arnict command.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -109,36 +109,6 @@ describe("dist/index.js on a fake OMP API", () => {
       expect(flash?.maxContextWindow).toBe(1_048_576);
     } finally {
       delete process.env.ARNICT_API_KEY;
-    }
-  });
-
-  it("registers arnict and not kiro when the dedicated ns-omp-provider-kiro plugin is installed", async () => {
-    const previous: Record<string, string | undefined> = {
-      HOME: process.env.HOME,
-      USERPROFILE: process.env.USERPROFILE,
-      ARNICT_API_KEY: process.env.ARNICT_API_KEY,
-    };
-    // A temp HOME carrying the dedicated plugin makes dedicatedKiroInstalled() true,
-    // so the kiro id belongs to ns-omp-provider-kiro; arnict still registers on a key.
-    const dedicatedHome = mkdtempSync(join(tmpdir(), "ns-omp-dedicated-"));
-    mkdirSync(join(dedicatedHome, ".omp", "plugins", "node_modules", "ns-omp-provider-kiro"), { recursive: true });
-    process.env.HOME = dedicatedHome;
-    process.env.USERPROFILE = dedicatedHome;
-    process.env.ARNICT_API_KEY = "arnict-bundle-test-key";
-    try {
-      const pi = new FakeOmpApi();
-      await extension(pi);
-
-      expect([...pi.providers.keys()]).toEqual(["arnict", "qoder"]);
-      const arnict = pi.providers.get("arnict");
-      if (arnict === undefined) throw new Error("arnict provider was not registered");
-      expect(arnict.api).toBe("arnict-chat");
-    } finally {
-      for (const [key, value] of Object.entries(previous)) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-      rmSync(dedicatedHome, { recursive: true, force: true });
     }
   });
 

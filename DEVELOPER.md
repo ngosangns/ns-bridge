@@ -20,7 +20,6 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | vendor core | [`ns-qoder-core`](packages/qoder-core) | Qoder via `@qoder-ai/qoder-agent-sdk` and qodercli: one query per host turn, host tool schemas on an in-process MCP mirror, catalog and auth |
 | host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, `grok`, `arnict`, and `qoder` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter's Kiro, Arnict, and Qoder registrations behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
-| host adapter | [`ns-omp-provider-kiro`](packages/omp-provider-kiro) | OMP: `kiro` over `ns-kiro-core` via `ns-bridge-core/pi` |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok), [`ns-dsh-llm-arnict`](packages/dsh-llm-arnict), [`ns-dsh-llm-qoder`](packages/dsh-llm-qoder) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
 | cli | [`@ngosangns/ns-bridge`](packages/cli) | `ns-bridge`: the only package this repo publishes. Builds the host extensions into `dist/hosts/**`, registers them with Pi, OMP, and DSH, and refreshes model catalogs outside the host process |
 
@@ -181,15 +180,12 @@ discovery. The Kiro catalog cache (`~/.ns-kiro-provider-models-cache.json`) keep
 
 ### The `kiro` provider id in OMP
 
-The bundled `ns-omp-provider` owns `kiro` in OMP. Until `ns-bridge install omp`
-or `update omp` runs, an older machine may still have the separate
-`ns-omp-provider-kiro` plugin: while it sits in the active plugin dir,
-`ns-omp-provider` skips `kiro` (`shouldRegisterKiro`,
-`omp-provider/src/config.ts`), whatever `~/.ns-bridge/providers.json` or the
-env lists say, because two registrations of one id leave the winner to plugin
-load order. Install/update remove that plugin first. Without it the file and
-env lists decide. `ns-bridge providers` writes only the key it changes, never
-the defaults. Both plugins run `ns-kiro-core`.
+The bundled `ns-omp-provider` owns `kiro` in OMP. `ns-bridge install omp` and
+`update omp` remove the old plugins (`ns-omp-provider-kiro`, the npm
+`ns-omp-provider`) before registering the bundle, so only one plugin ever
+provides the id. Which providers the bundle registers is decided by
+`~/.ns-bridge/providers.json` and the env lists (`omp-provider/src/config.ts`).
+`ns-bridge providers` writes only the key it changes, never the defaults.
 
 ### Compaction thresholds for Kiro models
 
@@ -334,7 +330,7 @@ Hermetic tests never touch the network. With real sessions on the machine:
 pi --no-extensions -e ./packages/pi-provider/index.ts --list-models
 pi --no-extensions -e ./packages/pi-provider/index.ts --model kiro/claude-haiku-4-5 -p "hi"
 pi --no-extensions -e ./packages/cli/dist/hosts/pi --model kiro/claude-haiku-4-5 -p "hi"   # what install registers
-omp --no-extensions -e ./packages/omp-provider-kiro/dist/index.js --model kiro/claude-haiku-4-5 -p "hi"
+omp --no-extensions -e ./packages/cli/dist/hosts/omp --model kiro/claude-haiku-4-5 -p "hi"
 NS_PI_LIVE=1 pnpm --filter @ngosangns/ns-pi-provider test:live
 NS_QODER_LIVE=1 pnpm vitest run --project qoder packages/qoder-core/test/live/smoke.test.ts
 ```

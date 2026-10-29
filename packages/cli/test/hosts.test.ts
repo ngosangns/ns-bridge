@@ -254,9 +254,9 @@ describe("isPiBundleSource", () => {
     expect(isPiBundleSource("file:/opt/cli/dist/hosts/pi", base)).toBe(true);
     expect(isPiBundleSource("../cli/dist/hosts/pi", base)).toBe(true);
     expect(isPiBundleSource("./cli/dist/hosts/pi", base)).toBe(true);
+    expect(isPiBundleSource("dist/hosts/pi", base)).toBe(true);
     expect(isPiBundleSource("npm:@ngosangns/ns-pi-provider", base)).toBe(false);
     expect(isPiBundleSource("git:github.com/x/y", base)).toBe(false);
-    expect(isPiBundleSource("dist/hosts/pi", base)).toBe(false);
     expect(isPiBundleSource("/opt/cli/dist/hosts/pi-other", base)).toBe(false);
   });
 });

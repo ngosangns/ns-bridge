@@ -268,10 +268,7 @@ function piEntrySource(entry: unknown): string | undefined {
 function resolvePiSource(source: string, baseDir: string): string | undefined {
   if (source.startsWith("file:")) return resolve(baseDir, source.slice("file:".length));
   if (/^[a-z][a-z0-9+.-]*:/i.test(source) && !/^[A-Za-z]:[\\/]/.test(source)) return undefined;
-  if (source.startsWith("/") || source.startsWith("./") || source.startsWith("../") || /^[A-Za-z]:[\\/]/.test(source)) {
-    return resolve(baseDir, source);
-  }
-  return undefined;
+  return resolve(baseDir, source);
 }
 
 function isPiBundlePath(path: string): boolean {

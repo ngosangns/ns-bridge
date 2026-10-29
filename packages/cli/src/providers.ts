@@ -179,7 +179,7 @@ function piPackageInstalled(settingsPath: string): boolean {
   const base = dirname(settingsPath);
   return packages.some((entry) => {
     const source = typeof entry === "string" ? entry : sourceOf(entry);
-    return source === PI_SOURCE || source.endsWith("/pi-provider") || isPiBundleSource(source, base);
+    return source === PI_SOURCE || isPiBundleSource(source, base);
   });
 }
 
