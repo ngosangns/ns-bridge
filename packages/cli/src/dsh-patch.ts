@@ -4,11 +4,10 @@
  * The file is the user's patch layer: a top-level YAML array of loader patch
  * entries. ns-bridge owns one `- insert:` item per provider, and nothing else
  * in the file. These helpers are text-preserving: they append a missing item,
- * remove only the item they own, and toggle the item's `disabled:` key without
- * reparsing or reformatting the rest of the file.
+ * remove only the item they own, and toggle enablement without reparsing or
+ * reformatting the rest of the file.
  *
- * Shape they read and write (four-space entries, `disabled:` as a key of the
- * insert item):
+ * Insert shape (four-space entries):
  *
  * ```yaml
  * - insert:
@@ -16,6 +15,16 @@
  *       name: 'ns-dsh-llm-kiro'
  *       config:
  *         provider: kiro
+ * ```
+ *
+ * Disable shape is a separate override entry, appended after the inserts —
+ * the composer applies non-insert patches by id and skips every other key on
+ * an insert patch, so `disabled:` beside `- insert:` is silently dropped and
+ * the plugin would still load:
+ *
+ * ```yaml
+ * - id: llm-kiro
+ *   disabled: true
  * ```
  */
 
@@ -42,18 +51,17 @@ const HEADER = ["# ns-bridge provider routes. `ns-bridge install dsh --profile <
 
 export type DshPluginState = "missing" | "on" | "off";
 
-/** The insert item for this provider: from `- insert:` through its indented body. */
-interface InsertItem {
-  start: number;
-  end: number;
-  /** False while nothing is under `- insert:` except the provider's own row. */
-  disabled: boolean;
-}
-
 /** The provider's `- id:` row, without the enclosing insert item. */
 interface Entry {
   start: number;
   end: number;
+}
+
+/** The override entry `- id: llm-<p>` with its body; carries the disable flag. */
+interface Override {
+  start: number;
+  end: number;
+  disabled: boolean;
 }
 
 /** The insert snippet for one provider, no trailing newline. */
@@ -71,8 +79,10 @@ export function dshPluginState(raw: string, provider: ProviderName): DshPluginSt
   const lines = split(raw);
   const entry = findEntry(lines, provider);
   if (!entry) return "missing";
-  const item = findInsert(lines, entry.start);
-  return item?.disabled ? "off" : "on";
+  // A `disabled: true` beside `- insert:` predates the override form; the
+  // composer ignores it, but reading it as off keeps old files honest.
+  if (findInsert(lines, entry.start)?.disabled) return "off";
+  return findOverride(lines, provider)?.disabled ? "off" : "on";
 }
 
 /**
@@ -101,17 +111,21 @@ export function ensureDshPlugin(raw: string, provider: ProviderName): string {
  */
 export function removeDshPlugin(raw: string, provider: ProviderName): string {
   const lines = split(raw);
+  if (!findOverride(lines, provider) && !findEntry(lines, provider)) return raw;
+  const override = findOverride(lines, provider);
+  if (override) lines.splice(override.start, override.end - override.start);
   const entry = findEntry(lines, provider);
-  if (!entry) return raw;
-  const item = findInsert(lines, entry.start);
-  if (item && countEntries(lines, item) === 1) {
-    // Drop trailing blank lines with the item so removing the last one does
-    // not leave a growing gap.
-    let end = item.end;
-    while (end < lines.length && lines[end].trim() === "") end += 1;
-    lines.splice(item.start, end - item.start);
-  } else {
-    lines.splice(entry.start, entry.end - entry.start);
+  if (entry) {
+    const item = findInsert(lines, entry.start);
+    if (item && countEntries(lines, item) === 1) {
+      // Drop trailing blank lines with the item so removing the last one does
+      // not leave a growing gap.
+      let end = item.end;
+      while (end < lines.length && lines[end].trim() === "") end += 1;
+      lines.splice(item.start, end - item.start);
+    } else {
+      lines.splice(entry.start, entry.end - entry.start);
+    }
   }
   const text = lines.join("\n").replace(/\s+$/, "");
   if (hasRootEntry(lines)) return `${text}\n`;
@@ -120,20 +134,40 @@ export function removeDshPlugin(raw: string, provider: ProviderName): string {
   return `${text ? `${text}\n` : ""}[]\n`;
 }
 
-/** Adds or removes the insert item's `disabled: true` key. */
+/**
+ * Writes enablement as the composer reads it: a separate `- id:` override
+ * entry, appended after the inserts. Disabling also strips a legacy
+ * `disabled: true` beside `- insert:` (the composer ignores it there), so
+ * files converge on the override form. Enabling removes the override.
+ */
 export function setDshPluginEnabled(raw: string, provider: ProviderName, enabled: boolean): string {
   const lines = split(raw);
   const entry = findEntry(lines, provider);
   if (!entry) return raw;
+  let changed = false;
+
   const item = findInsert(lines, entry.start);
-  if (!item) return raw;
-  if (enabled === !item.disabled) return raw;
-  if (enabled) {
-    const disabledAt = lines.findIndex((line, index) => index >= item.start && index < item.end && isDisabled(line));
-    if (disabledAt >= 0) lines.splice(disabledAt, 1);
-  } else {
-    lines.splice(item.end, 0, "  disabled: true");
+  if (item) {
+    for (let index = item.end - 1; index >= item.start; index -= 1) {
+      if (isDisabled(lines[index] ?? "")) {
+        lines.splice(index, 1);
+        changed = true;
+      }
+    }
   }
+
+  const override = findOverride(lines, provider);
+  if (enabled) {
+    if (override) {
+      lines.splice(override.start, override.end - override.start);
+      changed = true;
+    }
+  } else if (!override || !override.disabled) {
+    if (override) lines.splice(override.start, override.end - override.start);
+    const body = lines.join("\n").replace(/\s+$/, "");
+    return `${body}\n\n${[`- id: ${DSH_ID[provider]}`, "  disabled: true"].join("\n")}\n`;
+  }
+  if (!changed) return raw;
   return `${lines.join("\n").replace(/\s+$/, "")}\n`;
 }
 
@@ -160,7 +194,7 @@ function findEntry(lines: readonly string[], provider: ProviderName): Entry | un
 }
 
 /** The nearest `- insert:` item above the entry, unless another list item intervenes. */
-function findInsert(lines: readonly string[], entryStart: number): InsertItem | undefined {
+function findInsert(lines: readonly string[], entryStart: number): { start: number; end: number; disabled: boolean } | undefined {
   let start = -1;
   for (let index = entryStart - 1; index >= 0; index -= 1) {
     const line = lines[index] ?? "";
@@ -181,7 +215,18 @@ function findInsert(lines: readonly string[], entryStart: number): InsertItem | 
   return { start, end, disabled };
 }
 
-function countEntries(lines: readonly string[], item: InsertItem): number {
+/** The top-level `- id: llm-<p>` override entry, which is what toggles the plugin. */
+function findOverride(lines: readonly string[], provider: ProviderName): Override | undefined {
+  const start = lines.findIndex((line) => /^- id: /.test(line) && line.slice(6).trim() === DSH_ID[provider]);
+  if (start < 0) return undefined;
+  let end = start + 1;
+  while (end < lines.length && (lines[end].trim() === "" || indentOf(lines[end]) > 0)) end += 1;
+  while (end > start + 1 && lines[end - 1]?.trim() === "") end -= 1;
+  const disabled = lines.slice(start + 1, end).some(isDisabled);
+  return { start, end, disabled };
+}
+
+function countEntries(lines: readonly string[], item: { start: number; end: number }): number {
   let count = 0;
   for (let index = item.start + 1; index < item.end; index += 1) {
     if (/^\s*- id: /.test(lines[index] ?? "")) count += 1;

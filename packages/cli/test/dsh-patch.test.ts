@@ -92,6 +92,12 @@ describe("dshPluginState", () => {
     expect(dshPluginState(raw, "kiro")).toBe("off");
   });
 
+  it("reads a separate override entry as disabled", () => {
+    const raw = [KIRO, "", "- id: llm-kiro", "  disabled: true"].join("\n");
+    expect(dshPluginState(raw, "kiro")).toBe("off");
+    expect(dshPluginState([KIRO, "", "- id: llm-kiro", "  disabled: false"].join("\n"), "kiro")).toBe("on");
+  });
+
   it("does not mistake an adjacent insert item for the entry's parent", () => {
     const raw = ["- insert:", "    - id: user-plugin", "", "- insert:", "    - id: llm-kiro", "      name: x"].join(
       "\n",
@@ -101,12 +107,27 @@ describe("dshPluginState", () => {
 });
 
 describe("setDshPluginEnabled", () => {
-  it("adds and removes the two-space disabled sibling key", () => {
+  it("appends a separate override entry to disable, and removes it to enable", () => {
     const raw = `${KIRO}\n`;
     const off = setDshPluginEnabled(raw, "kiro", false);
-    expect(off).toBe(`${KIRO}\n  disabled: true\n`);
+    expect(off).toBe(`${KIRO}\n\n- id: llm-kiro\n  disabled: true\n`);
     expect(dshPluginState(off, "kiro")).toBe("off");
     expect(setDshPluginEnabled(off, "kiro", true)).toBe(raw);
+  });
+
+  it("is idempotent in both directions", () => {
+    const raw = `${KIRO}\n`;
+    const off = setDshPluginEnabled(raw, "kiro", false);
+    expect(setDshPluginEnabled(off, "kiro", false)).toBe(off);
+    expect(setDshPluginEnabled(raw, "kiro", true)).toBe(raw);
+  });
+
+  it("migrates a legacy disabled key beside the insert into the override form", () => {
+    const raw = `${KIRO}\n`;
+    const legacy = `${KIRO}\n  disabled: true\n`;
+    expect(dshPluginState(legacy, "kiro")).toBe("off");
+    expect(setDshPluginEnabled(legacy, "kiro", false)).toBe(`${KIRO}\n\n- id: llm-kiro\n  disabled: true\n`);
+    expect(setDshPluginEnabled(legacy, "kiro", true)).toBe(raw);
   });
 
   it("only touches the block that owns the id", () => {
@@ -115,6 +136,9 @@ describe("setDshPluginEnabled", () => {
     expect(off).toContain(KIRO);
     expect(dshPluginState(off, "kiro")).toBe("on");
     expect(dshPluginState(off, "grok")).toBe("off");
+    const both = setDshPluginEnabled(off, "kiro", false);
+    expect(dshPluginState(both, "grok")).toBe("off");
+    expect(dshPluginState(both, "kiro")).toBe("off");
   });
 
   it("is a no-op for a provider that is not in the file", () => {
@@ -126,6 +150,11 @@ describe("setDshPluginEnabled", () => {
 describe("removeDshPlugin", () => {
   it("removes the entry and the insert item when it was alone", () => {
     expect(removeDshPlugin(`# header\n\n${KIRO}\n`, "kiro")).toBe("# header\n[]\n");
+  });
+
+  it("removes the override entry with the provider", () => {
+    const off = setDshPluginEnabled(`${KIRO}\n`, "kiro", false);
+    expect(removeDshPlugin(off, "kiro")).toBe("[]\n");
   });
 
   it("keeps the insert item when other providers share it", () => {

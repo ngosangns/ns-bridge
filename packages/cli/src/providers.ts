@@ -3,7 +3,8 @@
  *
  * Pi and OMP register from one file, `~/.ns-bridge/providers.json`. The
  * extensions read it at launch; this command writes it. DSH has no such
- * file: the profile patch carries `disabled: true` on the plugin id.
+ * file: the profile patch carries a `- id: llm-<vendor>` entry with
+ * `disabled: true` (a key beside `- insert:` is dropped by the composer).
  *
  * OMP ships `devin`, `xai`, and `xai-oauth` itself and takes `kiro`, `arnict`,
  * and `qoder` from this project, so devin and grok are not a choice for `omp`.

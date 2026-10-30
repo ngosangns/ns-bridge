@@ -112,7 +112,7 @@ Hosts:
 providers enable/disable writes the host's own switch:
   pi        ~/.ns-bridge/providers.json (the extension reads it at launch)
   omp       the same file, kiro, arnict, and qoder; devin and grok are OMP's own, so they are not offered
-  dsh       disabled: true on the plugin id in the profile's cordis.patch.yml
+  dsh       a "- id: llm-<vendor>" entry with "disabled: true" in the profile's cordis.patch.yml
 
 DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
 install/update <host> without --profile skips DSH and still handles Pi and OMP.
