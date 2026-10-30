@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   QODER_DEFAULT_CONTEXT_WINDOW,
   QODER_DEFAULT_MAX_TOKENS,
+  QODER_WIRE_CONTEXT_WINDOW,
   qoderBootstrapModels,
   qoderModelFromInfo,
+  qoderModelInfosFromVendorCatalog,
   qoderModelsFromModelInfos,
 } from "../src/catalog.js";
 
@@ -35,11 +37,20 @@ describe("qoderModelFromInfo", () => {
 
   it("uses the default context tier, not the largest input the model accepts", () => {
     // A request gets the tier. Sizing the window on the 1M ceiling would compact far too late.
-    expect(qoderModelFromInfo(ultimate).contextWindow).toBe(200_000);
+    expect(qoderModelFromInfo({ ...ultimate, maxInputTokens: 50_000 }).contextWindow).toBe(50_000);
   });
 
   it("never lets the tier exceed the input the model accepts", () => {
-    expect(qoderModelFromInfo({ ...ultimate, maxInputTokens: 180_000 }).contextWindow).toBe(180_000);
+    expect(
+      qoderModelFromInfo({ ...ultimate, defaultContextWindow: 400_000, maxInputTokens: 180_000 }).contextWindow,
+    ).toBe(QODER_WIRE_CONTEXT_WINDOW);
+    expect(qoderModelFromInfo({ ...ultimate, defaultContextWindow: 30_000 }).contextWindow).toBe(30_000);
+  });
+
+  it("caps the window at what the direct wire can carry", () => {
+    // The model server rejects any body over 256 KiB, so a 200K tier never fits.
+    expect(QODER_WIRE_CONTEXT_WINDOW).toBe(65_536);
+    expect(qoderModelFromInfo(ultimate).contextWindow).toBe(QODER_WIRE_CONTEXT_WINDOW);
   });
 
   it("marks a model text-only and non-reasoning when the server says neither", () => {
@@ -66,7 +77,7 @@ describe("qoderModelFromInfo", () => {
   it("ignores a zero or negative limit instead of publishing it", () => {
     // The server reports `maxInputTokens: 0` for kmodel. A zero window would break compaction.
     const kimi = qoderModelFromInfo({ value: "kmodel", maxInputTokens: 0, defaultContextWindow: 200_000 });
-    expect(kimi.contextWindow).toBe(200_000);
+    expect(kimi.contextWindow).toBe(QODER_WIRE_CONTEXT_WINDOW);
   });
 });
 
@@ -81,6 +92,79 @@ describe("qoderModelsFromModelInfos", () => {
 
   it("keeps the bootstrap list when the server enables nothing", () => {
     expect(qoderModelsFromModelInfos([{ value: "off", isEnabled: false }])).toEqual(qoderBootstrapModels());
+  });
+});
+
+describe("qoderModelInfosFromVendorCatalog", () => {
+  // Trimmed shape of `~/.qoder/.models/<uid>/catalog-v7` (2026-10-30).
+  const catalog = JSON.stringify({
+    assistant: [
+      {
+        key: "auto",
+        enable: true,
+        display_name: "Auto",
+        is_vl: true,
+        is_reasoning: false,
+        max_input_tokens: 200_000,
+        context_config: {
+          "1M": { token_count: 1_000_000 },
+          "200K": { token_count: 200_000, is_default: true },
+          "400K": { token_count: 400_000 },
+        },
+      },
+      {
+        key: "dfmodel",
+        enable: true,
+        display_name: "DeepSeek-Flash",
+        is_vl: true,
+        is_reasoning: true,
+        max_input_tokens: 1_000_000,
+        context_config: { "200K": { token_count: 200_000, is_default: true } },
+        thinking_config: { enabled: { efforts: { high: { is_default: true }, low: {}, max: {} } } },
+      },
+      { enable: false, display_name: "no key" },
+    ],
+    chat: [{ key: "chat-only", enable: true }],
+  });
+
+  it("takes the scene the CLI serves, not whichever list is first", () => {
+    expect(qoderModelInfosFromVendorCatalog(catalog, "chat").map((info) => info.value)).toEqual(["chat-only"]);
+    expect(qoderModelInfosFromVendorCatalog(catalog).map((info) => info.value)).toEqual(["auto", "dfmodel"]);
+  });
+
+  it("maps the vendor fields onto the catalog entry", () => {
+    const [auto, flash] = qoderModelInfosFromVendorCatalog(catalog);
+    expect(auto).toMatchObject({
+      value: "auto",
+      displayName: "Auto",
+      isEnabled: true,
+      isVl: true,
+      isReasoning: false,
+      maxInputTokens: 200_000,
+      defaultContextWindow: 200_000,
+    });
+    expect(flash).toMatchObject({
+      value: "dfmodel",
+      displayName: "DeepSeek-Flash",
+      isReasoning: true,
+      defaultContextWindow: 200_000,
+      efforts: ["high", "low", "max"],
+    });
+  });
+
+  it("ignores entries without a key and unknown shapes", () => {
+    expect(qoderModelInfosFromVendorCatalog(catalog).map((info) => info.value)).not.toContain(undefined);
+    expect(qoderModelInfosFromVendorCatalog("[]")).toEqual([]);
+    expect(qoderModelInfosFromVendorCatalog("{}")).toEqual([]);
+  });
+
+  it("yields wire-sized windows through the spec mapping", () => {
+    const models = qoderModelsFromModelInfos(qoderModelInfosFromVendorCatalog(catalog));
+    expect(models.find((model) => model.id === "dfmodel")).toMatchObject({
+      contextWindow: QODER_WIRE_CONTEXT_WINDOW,
+      input: ["text", "image"],
+      efforts: ["low", "high", "max"],
+    });
   });
 });
 

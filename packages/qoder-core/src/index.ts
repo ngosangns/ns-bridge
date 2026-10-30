@@ -16,18 +16,21 @@ export {
   QODER_DEFAULT_CONTEXT_WINDOW,
   QODER_DEFAULT_MAX_TOKENS,
   QODER_DEFAULT_MODEL_ID,
+  QODER_WIRE_BODY_LIMIT_BYTES,
+  QODER_WIRE_CONTEXT_WINDOW,
   type QoderCatalogSnapshot,
   type QoderModelInfoFields,
   type QoderModelSpec,
   qoderBootstrapModels,
   qoderCatalogPath,
   qoderModelFromInfo,
+  qoderModelInfosFromVendorCatalog,
   qoderModelsFromCatalogJson,
   qoderModelsFromModelInfos,
   readQoderCatalog,
 } from "./catalog.js";
 export { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js";
-export { fetchQoderModels } from "./models-api.js";
+export { fetchQoderModels, type QoderVendorCatalogTarget, qoderVendorCatalogFile } from "./models-api.js";
 export type {
   QoderWireAssistantMessage,
   QoderWireContentPart,

@@ -10,8 +10,18 @@ export const QODER_CATALOG_FILE = `${QODER_CATALOG_PROVIDER_ID}.models.json`;
 export const QODER_CATALOG_CACHE_DIR_ENV = "NS_QODER_CATALOG_CACHE_DIR";
 
 export const QODER_DEFAULT_MODEL_ID = "auto";
-export const QODER_DEFAULT_CONTEXT_WINDOW = 200_000;
 export const QODER_DEFAULT_MAX_TOKENS = 16_384;
+
+/**
+ * The model-server shim answers HTTP 500 for any request body above 256 KiB,
+ * whatever the model's tier. The vendor catalog advertises 200K/400K/1M
+ * windows, but a 200K-token prompt serializes to ~800 KiB, so those tiers
+ * cannot cross this wire. Advertise the window a request can actually fill
+ * (~4 bytes/token) so hosts compact before the 500.
+ */
+export const QODER_WIRE_BODY_LIMIT_BYTES = 262_144;
+export const QODER_WIRE_CONTEXT_WINDOW = QODER_WIRE_BODY_LIMIT_BYTES / 4;
+export const QODER_DEFAULT_CONTEXT_WINDOW = QODER_WIRE_CONTEXT_WINDOW;
 
 export interface QoderModelSpec {
   id: string;
@@ -56,14 +66,14 @@ const QODER_MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   smodel: "Sonus",
   cmodel: "Cantus",
   qmodel: "Qwen3.7-Plus",
-  "qmodel_38max": "Qwen3.8-Max",
-  "qmodel_latest": "Qwen3.7-Max",
-  "qmodel_preview": "Qwen3.8-Max-Preview",
+  qmodel_38max: "Qwen3.8-Max",
+  qmodel_latest: "Qwen3.7-Max",
+  qmodel_preview: "Qwen3.8-Max-Preview",
   q35model: "Qwen3.5-Plus",
   q35model_preview: "Qwen3.7-Max-DogFooding",
   qfmodel: "Qwen3.8-Flash",
   kmodel: "Kimi-K2.8-Preview",
-  "kmodel_latest": "Kimi-K3.1-Pro",
+  kmodel_latest: "Kimi-K3.1-Pro",
   gmodel: "GLM-5.3",
   gfmodel: "GLM-5.3-Flash",
   gm51model: "GLM-5.2",
@@ -130,9 +140,10 @@ function positive(value: unknown): value is number {
 
 /**
  * One server entry as a spec. Every field comes from the entry: Qoder serves a
- * default window tier next to the largest input it accepts, and a request gets the tier,
- * so the window is the smaller of the two. A field the server leaves out falls
- * back to the shared default.
+ * default window tier next to the largest input it accepts, so the window is
+ * the smaller of the two, capped at what our wire can carry (see
+ * QODER_WIRE_BODY_LIMIT_BYTES). A field the server leaves out falls back to the
+ * shared default.
  */
 export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
   const efforts = (Array.isArray(info.efforts) ? info.efforts : [])
@@ -146,15 +157,16 @@ export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
     });
   const tier = positive(info.defaultContextWindow) ? info.defaultContextWindow : undefined;
   const maxInput = positive(info.maxInputTokens) ? info.maxInputTokens : undefined;
+  const declared =
+    tier !== undefined && maxInput !== undefined
+      ? Math.min(tier, maxInput)
+      : (tier ?? maxInput ?? QODER_DEFAULT_CONTEXT_WINDOW);
   const base: QoderModelSpec = {
     id: info.value,
     name: info.displayName ?? QODER_MODEL_DISPLAY_NAMES[info.value] ?? info.value,
     reasoning: info.isReasoning === true || efforts.length > 0,
     input: info.isVl === true ? ["text", "image"] : ["text"],
-    contextWindow:
-      tier !== undefined && maxInput !== undefined
-        ? Math.min(tier, maxInput)
-        : (tier ?? maxInput ?? QODER_DEFAULT_CONTEXT_WINDOW),
+    contextWindow: Math.min(declared, QODER_WIRE_CONTEXT_WINDOW),
     maxTokens: positive(info.maxOutputTokens) ? info.maxOutputTokens : QODER_DEFAULT_MAX_TOKENS,
     ...(efforts.length > 0 ? { efforts } : {}),
   };
@@ -166,4 +178,67 @@ export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
 export function qoderModelsFromModelInfos(models: readonly QoderModelInfoFields[]): QoderModelSpec[] {
   const out = models.filter((model) => model.isEnabled).map(qoderModelFromInfo);
   return out.length > 0 ? out : qoderBootstrapModels();
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** The default tier's token count, or undefined when the catalog lists no default. */
+function defaultTierTokens(contextConfig: unknown): number | undefined {
+  const tiers = asRecord(contextConfig);
+  if (!tiers) return undefined;
+  for (const tier of Object.values(tiers)) {
+    const record = asRecord(tier);
+    if (record?.is_default === true && positive(record.token_count)) return record.token_count;
+  }
+  return undefined;
+}
+
+function effortNames(thinkingConfig: unknown): string[] {
+  const efforts = asRecord(asRecord(asRecord(thinkingConfig)?.enabled)?.efforts);
+  return efforts ? Object.keys(efforts) : [];
+}
+
+function infoFromVendorEntry(entry: unknown): QoderModelInfoFields | undefined {
+  const record = asRecord(entry);
+  const value = nonEmptyString(record?.key);
+  if (!record || !value) return undefined;
+  const maxInput = positive(record.max_input_tokens) ? record.max_input_tokens : undefined;
+  const tier = defaultTierTokens(record.context_config);
+  const efforts = effortNames(record.thinking_config);
+  const displayName = nonEmptyString(record.display_name);
+  return {
+    value,
+    ...(displayName ? { displayName } : {}),
+    // Missing `enable` is treated as on: an entry the catalog bothered to list is served.
+    isEnabled: record.enable !== false,
+    isReasoning: record.is_reasoning === true,
+    isVl: record.is_vl === true,
+    ...(maxInput !== undefined ? { maxInputTokens: maxInput } : {}),
+    ...(tier !== undefined ? { defaultContextWindow: tier } : {}),
+    ...(efforts.length > 0 ? { efforts } : {}),
+  };
+}
+
+/**
+ * Parse the decrypted qodercli model cache. The cache is a scene → entry list
+ * map (`assistant`, `chat`, …); the scene in the caller's `default` pointer is
+ * the one the CLI serves, so prefer it and fall back to the usual pair.
+ */
+export function qoderModelInfosFromVendorCatalog(raw: string, scene?: string): QoderModelInfoFields[] {
+  const root = asRecord(JSON.parse(raw));
+  if (!root) return [];
+  const chosen = [scene, "assistant", "chat"].find(
+    (name): name is string => typeof name === "string" && Array.isArray(root[name]),
+  );
+  const entries = chosen ? (root[chosen] as unknown[]) : [];
+  return entries.flatMap((entry) => {
+    const info = infoFromVendorEntry(entry);
+    return info ? [info] : [];
+  });
 }

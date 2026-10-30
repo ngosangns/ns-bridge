@@ -1,7 +1,7 @@
 /**
  * Qoder provider registration for Pi (provider id: "qoder").
  * Auth: `qodercli login` or QODER_PERSONAL_ACCESS_TOKEN.
- * Models: SDK model list with TTL disk cache + bootstrap fallback.
+ * Models: qodercli's model cache with TTL disk cache + bootstrap fallback.
  * Streaming: one agent-sdk query per host turn; the host runs the tools.
  */
 

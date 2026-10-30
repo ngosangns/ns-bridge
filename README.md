@@ -73,10 +73,14 @@ vendored wasm) or `QODER_PERSONAL_ACCESS_TOKEN`.
 ns-bridge models refresh qoder
 ```
 
-The refresh writes `~/.pi/agent/cache/ns-pi-provider/qoder.models.json`, with
-the bootstrap catalog (the ids the qoder CLI offers — the server has no list
-endpoint). Pi shows the effort ladder as `thinkingLevelMap`; OMP shows it as
-per-model effort levels and compacts on the catalog's threshold.
+The refresh writes `~/.pi/agent/cache/ns-pi-provider/qoder.models.json` from
+the model cache qodercli keeps at `~/.qoder/.models/` (display names, image
+input, reasoning efforts and the default context tier), falling back to the
+bootstrap list when the CLI never ran. The direct wire rejects request bodies
+over 256 KiB, so the catalog advertises a 65,536-token window and hosts compact
+around 49,152; the vendor's 200K/1M tiers never fit on this wire. Pi shows the
+effort ladder as `thinkingLevelMap`; OMP shows it as per-model effort levels and
+compacts on the catalog's threshold.
 
 ## Pi
 
