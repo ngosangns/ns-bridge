@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "servers": {
+    "github": {
+      "command": "./.claude/mcp/github-readonly.sh",
+      "type": "stdio"
+    }
+  }
+}

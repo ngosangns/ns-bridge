@@ -19,3 +19,6 @@ id_rsa
 id_ed25519
 .lavish/
 .ns-explain/
+
+# MCP configs are derived from mcp-catalog.json (synca mcp import --scope project)
+/.mcp.json
