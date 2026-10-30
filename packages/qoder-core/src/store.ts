@@ -24,6 +24,7 @@ interface QoderAuthExports {
   memory: WasmMemory;
   credential_storage_decrypt: RetptrFn;
   credential_storage_encrypt: RetptrFn;
+  model_cache_decrypt: RetptrFn;
   __wbindgen_export2: (size: number, align: number) => number;
   __wbindgen_export3: (ptr: number, oldLen: number, newLen: number, align: number) => number;
   __wbindgen_add_to_stack_pointer: (delta: number) => number;
@@ -186,6 +187,7 @@ function loadExports(): QoderAuthExports {
     "memory",
     "credential_storage_decrypt",
     "credential_storage_encrypt",
+    "model_cache_decrypt",
     "__wbindgen_export2",
     "__wbindgen_export3",
     "__wbindgen_add_to_stack_pointer",
@@ -238,6 +240,11 @@ export function decryptQoderStore(encrypted: string, key: string): string {
 
 export function encryptQoderStore(plain: string, key: string): string {
   return callStringString(loadExports(), loadExports().credential_storage_encrypt, plain, key);
+}
+
+/** Decrypt `<configDir>/.models/<uid>/catalog-v*`, which qodercli keys by uid. */
+export function decryptQoderModelCache(encrypted: string, uid: string): string {
+  return callStringString(loadExports(), loadExports().model_cache_decrypt, encrypted, uid);
 }
 
 export interface QoderStoredCredentials {
