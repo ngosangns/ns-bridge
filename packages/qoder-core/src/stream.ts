@@ -168,6 +168,16 @@ async function responseError(response: Response): Promise<Error> {
 }
 
 /**
+ * Control characters the model server injects into frames when it wraps a long
+ * payload. A wrap can land inside a JSON string (`"dfmodel"` → `"d\nfmodel"`),
+ * which is invalid JSON and used to make the whole frame get dropped, losing
+ * model text and tool-call fragments. Inside a string a raw control character
+ * is never legal, and between tokens it is only whitespace, so removing them
+ * from the wire text repairs the frame without changing what it means.
+ */
+const RAW_CONTROL_CHARS = /\p{Cc}/gu;
+
+/**
  * JSON payloads from the SSE stream, one per `data:` prefix. The server
  * sometimes emits a raw newline inside a JSON value, so frames cannot be
  * split on line endings: each payload is scanned as one balanced JSON value
@@ -184,7 +194,7 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string
   let escaped = false;
 
   for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true });
+    buffer += decoder.decode(chunk, { stream: true }).replace(RAW_CONTROL_CHARS, "");
     while (pos < buffer.length) {
       if (!collecting) {
         const index = buffer.indexOf("data:", pos);
