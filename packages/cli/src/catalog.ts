@@ -20,6 +20,8 @@ export interface CatalogPaths {
 /** One listed model, with the compaction budget the catalog wrote for it. */
 export interface CatalogEntry {
   id: string;
+  /** The display name the vendor reports, when the cache file carried one. */
+  name?: string;
   contextWindow?: number;
   /**
    * The larger window the vendor actually serves, when the catalog recorded
@@ -154,6 +156,7 @@ function entriesFrom(models: unknown[]): CatalogEntry[] {
     const maxWindow = positive(entry.maxContextWindow) ?? positive(entry.nativeContextWindow);
     entries.push({
       id: entry.id,
+      ...(typeof entry.name === "string" && entry.name.length > 0 ? { name: entry.name } : {}),
       ...(positive(entry.contextWindow) !== undefined ? { contextWindow: positive(entry.contextWindow) } : {}),
       ...(maxWindow !== undefined ? { maxContextWindow: maxWindow } : {}),
       ...(positive(entry.maxTokens) !== undefined ? { maxTokens: positive(entry.maxTokens) } : {}),
@@ -202,7 +205,11 @@ export function formatCatalog(report: CatalogReport, mode: "list" | "status", no
     }
     for (const entry of group.entries) {
       const indent = report.vendor === "kiro" ? "    " : "  ";
-      lines.push(`${indent}${entry.id}  ${budgetOf(entry)}`);
+      // Case-insensitive so a name that only recaps the id ("Auto" for "auto")
+      // does not become noise; Qoder's ids are opaque (cmodel) and need it most.
+      const label =
+        entry.name && entry.name.toLowerCase() !== entry.id.toLowerCase() ? `${entry.id} (${entry.name})` : entry.id;
+      lines.push(`${indent}${label}  ${budgetOf(entry)}`);
     }
   }
   return lines;

@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildQoderPrompt, collectQoderImages, qoderImageData } from "../src/prompt.js";
+import { toQoderWireMessages } from "../src/prompt.js";
 
-describe("buildQoderPrompt", () => {
-  it("includes system, user, assistant tool call, and tool result", () => {
-    const prompt = buildQoderPrompt(
+describe("toQoderWireMessages", () => {
+  it("maps system, user, assistant tool call, and tool result", () => {
+    const messages = toQoderWireMessages(
       [
         { role: "user", content: [{ type: "text", text: "Run read" }] },
         {
           role: "assistant",
-          content: [{ type: "toolCall", id: "c1", name: "read", arguments: { path: "x" } }],
+          content: [
+            { type: "thinking", thinking: "hmm" },
+            { type: "toolCall", id: "c1", name: "read", arguments: { path: "x" } },
+          ],
         },
         {
           role: "toolResult",
@@ -20,25 +23,44 @@ describe("buildQoderPrompt", () => {
       ],
       "You are helpful",
     );
-    expect(prompt).toContain("<system>");
-    expect(prompt).toContain("You are helpful");
-    expect(prompt).toContain("tool_call read");
-    expect(prompt).toContain("file body");
+    expect(messages).toEqual([
+      { role: "system", content: [{ type: "text", text: "You are helpful" }] },
+      { role: "user", content: "Run read" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "c1", type: "function", function: { name: "read", arguments: '{"path":"x"}' } }],
+      },
+      { role: "tool", tool_call_id: "c1", content: "file body" },
+    ]);
   });
 
-  it("keeps image bytes beside the text prompt", () => {
-    const messages = [
+  it("sends images beside text as parts, reusing data URLs", () => {
+    const messages = toQoderWireMessages([
       {
-        role: "user" as const,
+        role: "user",
         content: [
-          { type: "text" as const, text: "Look" },
-          { type: "image" as const, mimeType: "image/png", data: "data:image/png;base64,aGVsbG8=" },
+          { type: "text", text: "Look" },
+          { type: "image", mimeType: "image/png", data: "aGVsbG8=" },
         ],
       },
-    ];
-    expect(buildQoderPrompt(messages)).toContain("[image attached]");
-    expect(buildQoderPrompt(messages)).not.toContain("aGVsbG8=");
-    expect(collectQoderImages(messages)).toEqual([{ mimeType: "image/png", data: "data:image/png;base64,aGVsbG8=" }]);
-    expect(qoderImageData("data:image/png;base64,aGVsbG8=")).toBe("aGVsbG8=");
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Look" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } },
+      ],
+    });
+  });
+
+  it("keeps assistant text as content and skips empty messages", () => {
+    const messages = toQoderWireMessages([
+      { role: "assistant", content: [{ type: "text", text: "Done" }] },
+      { role: "assistant", content: [{ type: "thinking", thinking: "only thoughts" }] },
+      { role: "user", content: [{ type: "text", text: "" }] },
+    ]);
+    expect(messages).toEqual([{ role: "assistant", content: "Done" }]);
   });
 });

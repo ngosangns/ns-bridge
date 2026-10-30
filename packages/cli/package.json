@@ -38,7 +38,6 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
-    "@qoder-ai/qoder-agent-sdk": "^1.0.56",
     "@smithy/core": "^3.34.1",
     "js-tiktoken": "^1.0.21",
     "supports-color": "^10.2.2"

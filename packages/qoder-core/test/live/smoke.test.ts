@@ -1,6 +1,6 @@
 /**
  * Optional live smoke — gated on NS_QODER_LIVE=1 and qodercli / PAT auth.
- * Requires `@qoder-ai/qoder-agent-sdk` postinstall (worker runtime download).
+ * Hits the real model server; never runs in CI.
  */
 
 import { existsSync } from "node:fs";
@@ -17,17 +17,13 @@ function authLikelyPresent(): boolean {
 }
 
 describe.runIf(LIVE)("qoder live smoke", () => {
-  it("lists models through the SDK", async () => {
-    if (!authLikelyPresent()) {
-      console.info("[live] qoder: skip (no auth)");
-      return;
-    }
+  it("returns the bootstrap model catalog", async () => {
     const auth = resolveQoderAuth();
     expect(auth).toBeDefined();
     const ids = await fetchQoderModels({ auth });
     expect(ids.length).toBeGreaterThan(0);
     console.info(`[live] qoder: ${ids.length} model id(s)`);
-  }, 120_000);
+  });
 
   it("streams a one-line reply", async () => {
     if (!authLikelyPresent()) {
@@ -35,16 +31,20 @@ describe.runIf(LIVE)("qoder live smoke", () => {
       return;
     }
     const auth = resolveQoderAuth();
-    const model = process.env.NS_QODER_LIVE_MODEL?.trim() || "fast";
+    // `auto` is the only id the server accepts without extra negotiation.
+    const model = process.env.NS_QODER_LIVE_MODEL?.trim() || "auto";
     let text = "";
+    let sawDone = false;
     for await (const event of streamQoder({
       model,
       auth,
       messages: [{ role: "user", content: [{ type: "text", text: "Reply with exactly: pong" }] }],
     })) {
       if (event.type === "text_delta") text += event.delta;
+      if (event.type === "done") sawDone = true;
     }
     expect(text.trim().length).toBeGreaterThan(0);
+    expect(sawDone).toBe(true);
     console.info(`[live] qoder stream (${model}): ${text.trim().slice(0, 40)}`);
   }, 180_000);
 });

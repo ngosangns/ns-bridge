@@ -5,7 +5,6 @@ packages:
 # marks them external — so their native transitive builds are dead weight.
 allowBuilds:
   "@google/genai": false
-  '@qoder-ai/qoder-agent-sdk': true
   esbuild: true
   onnxruntime-node: false
   protobufjs: false

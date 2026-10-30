@@ -17,7 +17,7 @@ This repository was assembled from `ns-kiro-provider` (renamed to this one), `ns
 | vendor core | [`ns-devin-core`](packages/devin-core) | The Devin protocol in this process: Cascade over Connect/protobuf, PKCE login, credentials files, the model catalog cache, usage, error vocabulary, and request/result conversion |
 | vendor core | [`ns-grok-core`](packages/grok-core) | The Grok Responses API in this process: request building, SSE parsing, stream assembly, usage, the CLI login session and its refresh, error vocabulary, the model catalog contract, and — under `./cli` — locating the Grok CLI and reading its model list |
 | vendor core | [`ns-arnict-core`](packages/arnict-core) | The Arnict protocol in this process: OpenAI chat completions over SSE, API key auth (env or key file), the model catalog with published rates, and USD cost in the usage ledger as credits with `creditUnit` "USD" |
-| vendor core | [`ns-qoder-core`](packages/qoder-core) | Qoder via `@qoder-ai/qoder-agent-sdk` and qodercli: one query per host turn, host tool schemas on an in-process MCP mirror, catalog and auth |
+| vendor core | [`ns-qoder-core`](packages/qoder-core) | Qoder's model-server wire (OpenAI-style SSE) in this process: request building with the `business` metadata gate, tolerant SSE framing, stream reduction, usage, the qodercli credential store decrypted with a vendored wasm, and the bootstrap model catalog |
 | host adapter | [`@ngosangns/ns-pi-provider`](packages/pi-provider) | Pi: `kiro`, `devin`, `grok`, `arnict`, and `qoder` over the cores via `ns-bridge-core/pi`. Grok streams through the Responses API; the CLI is only consulted for its model list |
 | host adapter | [`ns-omp-provider`](packages/omp-provider) | OMP: bundles the Pi adapter's Kiro, Arnict, and Qoder registrations behind an OMP-compat layer; no `devin` or `grok` (OMP has native `devin`, `xai`, `xai-oauth`) |
 | host adapter | [`ns-dsh-llm-kiro`](packages/dsh-llm-kiro), [`ns-dsh-llm-devin`](packages/dsh-llm-devin), [`ns-dsh-llm-grok`](packages/dsh-llm-grok), [`ns-dsh-llm-arnict`](packages/dsh-llm-arnict), [`ns-dsh-llm-qoder`](packages/dsh-llm-qoder) | Harness `LlmAdapter`s over the cores via `ns-bridge-core/dsh`. Each is a vendor spec plus its error vocabulary; the adapter skeleton is `createDshLlmAdapter` |
@@ -38,11 +38,12 @@ and serve entries, then one prebuilt extension per host under `dist/hosts/`:
 
 The generated `package.json` beside each bundle carries the host's discovery
 key (`pi.extensions` / `omp.extensions`), the peer ranges DSH needs, and no
-dependencies. `@qoder-ai/qoder-agent-sdk`, `@smithy/*`, and `js-tiktoken`
-stay external everywhere: the SDK's own postinstall downloads its worker
-runtime and native deps, and the Smithy/tiktoken stack loads lazily on Kiro
+dependencies. `@smithy/*` and `js-tiktoken`
+stay external everywhere: the Smithy/tiktoken stack loads lazily on Kiro
 requests. They are runtime dependencies of the CLI package, so they resolve
-from beside the bundle.
+from beside the bundle. qoder-core's auth wasm is not bundled — the build
+copies `vendor/qoder-auth.wasm` next to every bundle, where `store.ts`
+resolves it (`../vendor/`).
 
 Build guards fail the build rather than the host: an external outside the
 allow-list, a Pi module left in the OMP bundle, or a DSH bundle without its
@@ -335,15 +336,18 @@ NS_PI_LIVE=1 pnpm --filter @ngosangns/ns-pi-provider test:live
 NS_QODER_LIVE=1 pnpm vitest run --project qoder packages/qoder-core/test/live/smoke.test.ts
 ```
 
-`@qoder-ai/qoder-agent-sdk` downloads a **worker runtime** on postinstall. `pnpm-workspace.yaml` sets `allowBuilds` for that package to `true`. `ns-qoder-core` also runs `scripts/ensure-sdk-runtime.cjs` after install. If you still see `Qoder worker runtime not found`, run `pnpm install` from the repo root or `node packages/qoder-core/scripts/ensure-sdk-runtime.cjs`. Auth: `qodercli login` or `QODER_PERSONAL_ACCESS_TOKEN`.
-
-The SDK's default transport is a worker thread, and Bun's `worker_threads`
-silently gives it no stdout/stderr channel — a query there ends with an empty
-turn. OMP runs on Bun, so `ns-qoder-core` selects the SDK's `ProcessTransport`
-(which drives `qodercli`) whenever `process.versions.bun` is set; Qoder under
-OMP therefore needs the qoder CLI on `PATH`. Session ids are also normalized to
-a UUID (`qoderSessionId`), because the SDK rejects host ids such as the
-Harness's `session-<uuid>`.
+`ns-qoder-core` calls the Qoder model server directly over its OpenAI-style
+SSE wire (`POST /model/v1/chat/completions` on `api2-v2.qoder.sh`) — no SDK,
+no daemon, no worker runtime. The bearer token comes from
+`QODER_PERSONAL_ACCESS_TOKEN` or the qodercli credential store
+(`~/.qoder/.auth/user`), which is AES-256-GCM under the machine id;
+`store.ts` decrypts it with `vendor/qoder-auth.wasm`, the same cipher module
+qodercli embeds. The request body needs the CLI-shaped `metadata.business`
+object or the server rejects every model id except `auto`, and its SSE frames
+sometimes carry a raw newline inside the JSON, so `stream.ts` scans each
+`data:` payload as one balanced JSON value instead of splitting on lines.
+Session ids are normalized to a UUID (`qoderSessionId`) and sent as
+`X-Session-ID`. Auth: `qodercli login` or `QODER_PERSONAL_ACCESS_TOKEN`.
 
 A DSH profile can point at a local build with
 `dsh plugin --profile <name> add link:<path>/packages/dsh-llm-kiro`.

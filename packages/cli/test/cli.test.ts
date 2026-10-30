@@ -311,6 +311,28 @@ describe("ns-bridge", () => {
     expect(out).toContain("claude-opus-5  window 200000  max 8192  compact at 191808");
   });
 
+  it("shows the vendor display name when it says more than the id", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
+    const paths = pathsIn(dir);
+    writeFileSync(
+      paths.qoder,
+      JSON.stringify({
+        fetchedAt: 9_000,
+        models: [
+          { id: "cmodel", name: "Cantus", contextWindow: 180_000, maxTokens: 32_000 },
+          { id: "auto", name: "Auto", contextWindow: 200_000, maxTokens: 32_000 },
+          { id: "fast", contextWindow: 200_000, maxTokens: 32_000 },
+        ],
+      }),
+    );
+    const io = capture();
+    expect(await run(["models", "list", "qoder"], { ...io, paths, now: 10_000 })).toBe(0);
+    const out = io.stdout.join("\n");
+    expect(out).toContain("cmodel (Cantus)  window 180000  max 32000  compact at —");
+    expect(out).toContain("auto  window 200000  max 32000  compact at —");
+    expect(out).toContain("fast  window 200000  max 32000  compact at —");
+  });
+
   it("keeps status to one summary line per vendor", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ns-bridge-cli-"));
     const paths = pathsIn(dir);

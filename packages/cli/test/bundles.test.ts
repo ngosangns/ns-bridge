@@ -20,7 +20,7 @@ const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const hostsRoot = join(cliRoot, "dist", "hosts");
 const HOST_DIRS = ["pi", "omp", ...PROVIDERS.map((provider) => join("dsh", provider))];
 
-const SAFE_COMMON = [/^@qoder-ai\//, /^@smithy\//, /^js-tiktoken(\/.*)?$/];
+const SAFE_COMMON = [/^@smithy\//, /^js-tiktoken(\/.*)?$/];
 const ALLOWED: Record<string, RegExp[]> = {
   pi: [/^@earendil-works\//, ...SAFE_COMMON],
   omp: [/^@oh-my-pi\//, ...SAFE_COMMON],
@@ -255,7 +255,7 @@ describe("bundle imports", () => {
   it("ships every bundle in the CLI tarball and nothing outside dist", () => {
     for (const dir of HOST_DIRS) {
       const files = readdirSync(join(hostsRoot, dir));
-      expect(files.sort()).toEqual(["dist", "package.json"]);
+      expect(files.sort()).toEqual(["dist", "package.json", "vendor"]);
     }
   });
 });

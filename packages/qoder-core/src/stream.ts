@@ -1,24 +1,15 @@
-// ABOUTME: One Qoder agent-sdk query per host turn. The host owns the tool loop.
+// ABOUTME: Direct client for the Qoder model server's OpenAI-style SSE wire.
+// The host owns the tool loop: this process only streams and reports tool calls.
 
-import {
-  type Options,
-  ProcessTransport,
-  type Query,
-  query,
-  type SDKMessage,
-  type SDKUserMessage,
-} from "@qoder-ai/qoder-agent-sdk";
+import { randomUUID } from "node:crypto";
 import { recordUsage } from "ns-core-utils";
 import { type ResolvedQoderAuth, requireQoderAuth } from "./auth.js";
-import { QODER_DEFAULT_CONTEXT_WINDOW, qoderBootstrapModels } from "./catalog.js";
-import { QoderApiError } from "./errors.js";
-import { buildQoderPrompt, collectQoderImages, qoderImageData } from "./prompt.js";
-import { createSdkReduceState, finishSdkReduce, reduceSdkMessage } from "./sdk-reduce.js";
+import { QODER_DEFAULT_CONTEXT_WINDOW, QODER_DEFAULT_MAX_TOKENS, qoderBootstrapModels } from "./catalog.js";
+import { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js";
+import { toQoderWireMessages } from "./prompt.js";
+import { createWireReduceState, finishWireReduce, reduceWireChunk } from "./reduce.js";
 import { qoderSessionId } from "./session.js";
-import { createHostToolMcpServer, hostToolName } from "./tools.js";
 import type { QoderEffort, QoderMessage, QoderStreamEvent, QoderTool } from "./types.js";
-
-export type QueryFactory = (params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }) => Query;
 
 export interface StreamQoderOptions {
   model: string;
@@ -30,29 +21,23 @@ export interface StreamQoderOptions {
   signal?: AbortSignal;
   cwd?: string;
   auth?: ResolvedQoderAuth;
-  queryFactory?: QueryFactory;
+  fetchImpl?: typeof fetch;
+  endpoint?: string;
 }
 
-const BRIDGE_NOTE =
-  "You are bridged through ns-bridge into Pi/OMP/DSH. Built-in qodercli tools are disabled. Call only the host tools listed for this turn. Do not run them yourself. Stop after the tool call. The host executes it and sends the result on the next turn.";
+/** Version string the model server's metadata gate expects from the CLI. */
+const QODER_WIRE_VERSION = "1.1.81";
+const QODER_WIRE_URL = "https://api2-v2.qoder.sh/model/v1/chat/completions";
+const RETRY_DELAYS_MS = [200, 500];
 
-const BUILTIN_TOOLS = [
-  "Bash",
-  "Read",
-  "Write",
-  "Edit",
-  "MultiEdit",
-  "Grep",
-  "Glob",
-  "LS",
-  "WebSearch",
-  "WebFetch",
-  "Task",
-  "Skill",
-  "NotebookEdit",
-  "TodoWrite",
-  "TodoRead",
-];
+/** CLI's own override for the model server host (`https://<host>/model/v1/...`). */
+export function qoderWireUrl(host: string | undefined, endpoint?: string): string {
+  const direct = endpoint?.trim();
+  if (direct) return direct;
+  const override = host?.trim();
+  if (override) return `https://${override}/model/v1/chat/completions`;
+  return QODER_WIRE_URL;
+}
 
 function aborted(): Error {
   const error = new Error("This operation was aborted");
@@ -60,179 +45,242 @@ function aborted(): Error {
   return error;
 }
 
-/** OMP runs its extensions on Bun. */
-function runsOnBun(): boolean {
-  return (process.versions as Record<string, string | undefined>).bun !== undefined;
-}
-
-function sdkEffort(effort: QoderEffort): string {
+/** `minimal`/`xhigh` are bridge spellings; the server only knows `low`..`max`. */
+function wireEffort(effort: QoderEffort): string {
   if (effort === "minimal") return "low";
   if (effort === "xhigh") return "max";
   return effort;
 }
 
-function promptFor(options: StreamQoderOptions): string | AsyncIterable<SDKUserMessage> {
-  const text = buildQoderPrompt(options.messages, options.systemPrompt);
-  const images = collectQoderImages(options.messages);
-  if (images.length === 0) return text;
-  async function* once(): AsyncGenerator<SDKUserMessage> {
-    yield {
-      type: "user",
-      parent_tool_use_id: null,
-      message: {
-        role: "user",
-        content: [
-          { type: "text", text },
-          ...images.map((image) => ({
-            type: "image" as const,
-            source: {
-              type: "base64" as const,
-              media_type: image.mimeType,
-              data: qoderImageData(image.data),
-            },
-          })),
-        ],
-      },
-    };
-  }
-  return once();
+function machineOs(): string {
+  const arch = process.arch === "arm64" ? "aarch64" : process.arch;
+  return `${arch}_${process.platform}`;
 }
 
-function renameToolEvent(event: QoderStreamEvent, known: ReadonlySet<string>): QoderStreamEvent {
-  if (event.type === "tool_call_start" || event.type === "tool_call_end") {
-    return { ...event, name: hostToolName(event.name, known) };
+function toWireTool(tool: QoderTool): Record<string, unknown> {
+  return {
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description || tool.name,
+      parameters: tool.parameters,
+      ...(tool.strict === true ? { strict: true } : {}),
+    },
+  };
+}
+
+interface QoderRequestBody {
+  payload: Record<string, unknown>;
+  requestId: string;
+}
+
+function buildRequestBody(options: StreamQoderOptions, sessionId: string | undefined): QoderRequestBody {
+  const requestId = randomUUID();
+  const spec = qoderBootstrapModels().find((model) => model.id === options.model);
+  const payload: Record<string, unknown> = {
+    model: options.model,
+    messages: toQoderWireMessages(options.messages, options.systemPrompt),
+    stream: true,
+    stream_options: { include_usage: true },
+    metadata: {
+      context: {
+        request_id: requestId,
+        request_set_id: randomUUID(),
+        session_id: sessionId,
+        task_id: "common",
+        client_type: "5",
+      },
+      // `business` is the gate: without `product: "cli"` the server rejects
+      // every model id except `auto`.
+      business: {
+        product: "cli",
+        version: QODER_WIRE_VERSION,
+        type: "agent",
+        model_key: options.model,
+      },
+    },
+    max_tokens: spec?.maxTokens ?? QODER_DEFAULT_MAX_TOKENS,
+    ...(options.tools?.length ? { tools: options.tools.map(toWireTool) } : {}),
+    ...(options.effort ? { enable_thinking: true, reasoning_effort: wireEffort(options.effort) } : {}),
+  };
+  return { payload, requestId };
+}
+
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      cleanup();
+      reject(aborted());
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function postWithRetry(
+  fetchImpl: typeof fetch,
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchImpl(url, {
+        method: "POST",
+        headers,
+        body,
+        signal,
+      });
+    } catch (error) {
+      // Retry only the pre-stream window: once a response exists the caller
+      // may already be reading events, and a replay could double-charge.
+      if (signal?.aborted || attempt >= RETRY_DELAYS_MS.length) {
+        if (error instanceof Error && error.name === "AbortError") throw error;
+        throw new QoderApiError(
+          `Qoder model server unreachable: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      await delay(RETRY_DELAYS_MS[attempt], signal);
+    }
   }
-  return event;
+}
+
+async function responseError(response: Response): Promise<Error> {
+  let detail = "";
+  try {
+    detail = (await response.text()).slice(0, 500);
+  } catch {
+    // body already consumed or unreadable — the status line still stands
+  }
+  const suffix = detail ? `: ${detail}` : "";
+  if (response.status === 401 || response.status === 403) {
+    return new QoderAuthError(`${QODER_LOGIN_MESSAGE} (HTTP ${response.status}${suffix})`);
+  }
+  return new QoderApiError(`Qoder model server returned HTTP ${response.status}${suffix}`);
+}
+
+/**
+ * JSON payloads from the SSE stream, one per `data:` prefix. The server
+ * sometimes emits a raw newline inside a JSON value, so frames cannot be
+ * split on line endings: each payload is scanned as one balanced JSON value
+ * and `[DONE]` is passed through as the end sentinel.
+ */
+async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let pos = 0;
+  let collecting = false;
+  let valueStart = 0;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    while (pos < buffer.length) {
+      if (!collecting) {
+        const index = buffer.indexOf("data:", pos);
+        if (index === -1) {
+          // Keep a tail so a prefix split across chunks is still found.
+          buffer = buffer.slice(Math.max(pos, buffer.length - 5));
+          pos = 0;
+          break;
+        }
+        pos = index + 5;
+        if (buffer[pos] === " ") pos += 1;
+        if (buffer.startsWith("[DONE]", pos)) {
+          buffer = buffer.slice(pos + 6);
+          pos = 0;
+          yield "[DONE]";
+          continue;
+        }
+        collecting = true;
+        valueStart = pos;
+        depth = 0;
+        inString = false;
+        escaped = false;
+        continue;
+      }
+      const ch = buffer[pos];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') {
+        inString = true;
+      } else if (ch === "{" || ch === "[") {
+        depth += 1;
+      } else if (ch === "}" || ch === "]") {
+        depth -= 1;
+        if (depth <= 0) {
+          yield buffer.slice(valueStart, pos + 1);
+          buffer = buffer.slice(pos + 1);
+          pos = 0;
+          collecting = false;
+          continue;
+        }
+      }
+      pos += 1;
+    }
+  }
+  if (collecting) {
+    const tail = buffer.slice(valueStart).trim();
+    if (tail) yield tail;
+  }
 }
 
 async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator<QoderStreamEvent> {
   if (options.signal?.aborted) throw aborted();
   const auth = options.auth ?? requireQoderAuth();
-  const prompt = promptFor(options);
-  const text = typeof prompt === "string" ? prompt : buildQoderPrompt(options.messages, options.systemPrompt);
-  if (!text.trim()) throw new QoderApiError("Qoder prompt is empty");
-
-  const known = new Set((options.tools ?? []).map((entry) => entry.name));
-  const mcp = createHostToolMcpServer(options.tools);
-  const pending: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
   const sessionId = qoderSessionId(options.sessionId);
-  // The SDK's own transport errors name the exit but not why; the tail keeps
-  // the worker's last words so the failure reaches the host instead of a bare
-  // "exited with code".
-  let stderrTail = "";
-  const sdkOptions: Options = {
-    auth: auth.options,
-    model: options.model,
-    maxTurns: 1,
-    permissionMode: "default",
-    tools: [],
-    skills: [],
-    disallowedTools: BUILTIN_TOOLS,
-    includePartialMessages: true,
-    persistSession: false,
-    cwd: options.cwd ?? process.cwd(),
-    stderr: (data) => {
-      stderrTail = `${stderrTail}${data}`.slice(-2_000);
-    },
-    systemPrompt: { type: "preset", preset: "qodercli", append: BRIDGE_NOTE },
-    canUseTool: async (toolName, input, permission) => {
-      const name = hostToolName(toolName, known);
-      if (known.has(name)) pending.push({ id: permission.toolUseID, name, input });
-      return {
-        behavior: "deny",
-        interrupt: true,
-        toolUseID: permission.toolUseID,
-        message: known.has(name)
-          ? "The host executes this tool. Stop."
-          : "Built-in tools are disabled. Use a host tool.",
-      };
-    },
-    ...(options.effort
-      ? {
-          resolveModel: () => ({
-            model: options.model,
-            parameters: { reasoningEffort: sdkEffort(options.effort as QoderEffort) },
-          }),
-        }
-      : {}),
-    ...(sessionId ? { sessionId } : {}),
-    ...(mcp ? { mcpServers: { "ns-bridge-host": mcp } } : {}),
-    ...(options.signal ? { abortController: createAbortBridge(options.signal) } : {}),
-    // Bun's worker_threads ignores the stdout/stderr channel options this SDK's
-    // default WorkerTransport relies on, so the worker's messages never arrive.
-    // OMP runs on Bun; there the query drives qodercli over the process
-    // transport instead.
-    ...(runsOnBun() ? { transport: ProcessTransport.default } : {}),
+  const { payload, requestId } = buildRequestBody(options, sessionId);
+  if ((payload.messages as unknown[]).length === 0) throw new QoderApiError("Qoder prompt is empty");
+
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${auth.token}`,
+    "content-type": "application/json",
+    "x-request-id": requestId,
+    "cosy-clienttype": "5",
+    "cosy-machineos": machineOs(),
+    "cosy-version": QODER_WIRE_VERSION,
+    ...(sessionId ? { "x-session-id": sessionId } : {}),
   };
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const url = qoderWireUrl(process.env.QODER_MODEL_SERVER_HOST, options.endpoint);
+  const response = await postWithRetry(fetchImpl, url, headers, JSON.stringify(payload), options.signal);
+  if (!response.ok) throw await responseError(response);
+  if (!response.body) throw new QoderApiError("Qoder model server returned an empty body");
 
-  const runQuery = options.queryFactory ?? query;
-  const q = runQuery({ prompt, options: sdkOptions });
-  const state = createSdkReduceState();
-  let sawSuccessResult = false;
-  const emitted = new Set<string>();
-
+  const state = createWireReduceState();
   try {
-    for await (const message of q as AsyncIterable<SDKMessage>) {
+    for await (const data of sseData(response.body)) {
       if (options.signal?.aborted) throw aborted();
-      let sawTool = false;
-      for (const event of reduceSdkMessage(state, message)) {
-        const renamed = renameToolEvent(event, known);
-        if (renamed.type === "tool_call_end") {
-          emitted.add(renamed.id);
-          sawTool = true;
-        }
-        yield renamed;
-      }
-      if (message.type === "result") {
-        if (message.subtype === "success") sawSuccessResult = true;
-        else if (message.subtype !== "error_max_turns") {
-          const detail = message.subtype === "error_during_execution" ? message.errors?.join("; ") : message.subtype;
-          throw new QoderApiError(detail || "Qoder query failed", message.subtype);
-        }
-      }
-      if (sawTool || pending.length > 0) break;
-    }
-    for (const call of pending) {
-      if (emitted.has(call.id)) continue;
-      state.sawTool = true;
-      const index = state.nextIndex;
-      state.nextIndex += 1;
-      emitted.add(call.id);
-      yield { type: "tool_call_start", index, id: call.id, name: call.name };
-      yield {
-        type: "tool_call_end",
-        index,
-        id: call.id,
-        name: call.name,
-        arguments: call.input,
-        argumentsJson: JSON.stringify(call.input),
-      };
-    }
-    for (const event of finishSdkReduce(state)) yield event;
-  } catch (error) {
-    const detail = stderrTail.trim();
-    if (detail && error instanceof Error && !error.message.includes(detail)) {
-      throw new QoderApiError(`${error.message}: ${detail}`);
-    }
-    throw error;
-  } finally {
-    // After a successful result the SDK has already torn down the transport.
-    // A host tool handoff must still interrupt so qodercli does not run the tool.
-    if (!sawSuccessResult && typeof q.interrupt === "function") {
+      if (data === "[DONE]") break;
+      let chunk: unknown;
       try {
-        await q.interrupt();
+        chunk = JSON.parse(data);
       } catch {
-        // ignore
+        continue;
       }
+      for (const event of reduceWireChunk(state, chunk)) yield event;
+    }
+    for (const event of finishWireReduce(state)) yield event;
+  } finally {
+    // Leaving early (tool handoff, host abort) must not hold the socket.
+    try {
+      await response.body.cancel();
+    } catch {
+      // already closed
     }
   }
-}
-
-function createAbortBridge(signal: AbortSignal): AbortController {
-  const controller = new AbortController();
-  if (signal.aborted) controller.abort();
-  else signal.addEventListener("abort", () => controller.abort(), { once: true });
-  return controller;
 }
 
 export function streamQoder(options: StreamQoderOptions): AsyncGenerator<QoderStreamEvent> {

@@ -1,10 +1,10 @@
-// ABOUTME: Resolves Qoder auth for the agent SDK (qodercli session or PAT).
+// ABOUTME: Resolves the Qoder bearer token from the qodercli store or a PAT.
 
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type AuthOptions, accessTokenFromEnv, qodercliAuth } from "@qoder-ai/qoder-agent-sdk";
 import { QODER_LOGIN_MESSAGE, QoderAuthError } from "./errors.js";
+import { readQoderStore } from "./store.js";
 
 export const QODER_PAT_ENV = "QODER_PERSONAL_ACCESS_TOKEN";
 
@@ -12,7 +12,7 @@ export type QoderAuthMode = "qodercli" | "pat";
 
 export interface ResolvedQoderAuth {
   mode: QoderAuthMode;
-  options: AuthOptions;
+  token: string;
 }
 
 /** Config directory qodercli uses. `QODER_CONFIG_DIR` wins over `~/.qoder`. */
@@ -34,18 +34,24 @@ export function qodercliSessionPresent(env: NodeJS.ProcessEnv = process.env, hom
   }
 }
 
-/** Build SDK auth options from env. PAT wins over the local qodercli session. */
+/** Bearer token for the model server. PAT wins over the local qodercli session. */
 export function resolveQoderAuth(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
 ): ResolvedQoderAuth | undefined {
   const pat = env[QODER_PAT_ENV]?.trim();
-  if (pat) {
-    return { mode: "pat", options: accessTokenFromEnv(QODER_PAT_ENV) };
-  }
+  if (pat) return { mode: "pat", token: pat };
   if (env.QODER_SKIP_QODERCLI_AUTH === "1") return undefined;
   if (!qodercliSessionPresent(env, home)) return undefined;
-  return { mode: "qodercli", options: qodercliAuth() };
+  try {
+    const store = readQoderStore(qoderConfigDir(env, home));
+    const token = store.securityOauthToken ?? store.accessToken;
+    return token ? { mode: "qodercli", token } : undefined;
+  } catch {
+    // A session that cannot be decrypted is as good as absent. Presence
+    // checks stay total; requireQoderAuth turns this into the login error.
+    return undefined;
+  }
 }
 
 export function requireQoderAuth(env: NodeJS.ProcessEnv = process.env, home = homedir()): ResolvedQoderAuth {

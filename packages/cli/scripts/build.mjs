@@ -15,15 +15,13 @@
  *   - `@earendil-works/*` (Pi serves them in-process)
  *   - `@oh-my-pi/*` (OMP serves them in-process; Pi specifiers go to compat)
  *   - `@deepseek-ai/{cordis,dsh-*}` (DSH routes its own peers)
- *   - `@qoder-ai/*` (the SDK owns a postinstall download and locates its
- *     worker runtime relative to its own package directory)
  *
- * The refresh/serve bundles run under plain Node, so they keep Smithy and
- * js-tiktoken external and lazy: they load on the first Kiro call. The Qoder
- * SDK is external there for the same reason it is external in every host
- * bundle.
+ * qoder-core talks to the Qoder model server directly and decrypts the
+ * qodercli credential store with a vendored wasm. The asset ships next to
+ * every bundle: `dist/vendor/qoder-auth.wasm` for the CLI entries and
+ * `<host>/vendor/qoder-auth.wasm` for each host package.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,9 +36,7 @@ const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]
 const workspacePkg = (dir) => JSON.parse(readFileSync(resolve(root, "..", dir, "package.json"), "utf8"));
 const piPkg = workspacePkg("pi-provider");
 const ompPkg = workspacePkg("omp-provider");
-
-/** Externals every host bundle may leave unresolved, and the CLI runtime provides. */
-const COMMON_EXTERNALS = ["@qoder-ai/*"];
+const qoderAuthWasm = resolve(root, "..", "qoder-core", "vendor", "qoder-auth.wasm");
 /** Transitive optionals some bundled deps probe for; absent is fine. */
 const OPTIONAL_RUNTIME = ["supports-color", "bufferutil", "utf-8-validate"];
 const DSH_PEERS = ["@deepseek-ai/dsh-llm", "@deepseek-ai/cordis", "@deepseek-ai/dsh-attachment", "@deepseek-ai/dsh-credentials"];
@@ -81,7 +77,7 @@ const dshSpecs = dshVendors.map((vendor) => {
     vendor,
     entry: `src/host-entry/dsh-${vendor}.ts`,
     dir: `dist/hosts/dsh/${vendor}`,
-    external: [...COMMON_EXTERNALS, ...DSH_PEERS],
+    external: [...DSH_PEERS],
     source,
   };
 });
@@ -91,7 +87,7 @@ const hosts = [
     kind: "pi",
     entry: "src/host-entry/pi.ts",
     dir: "dist/hosts/pi",
-    external: [...COMMON_EXTERNALS, "@earendil-works/*"],
+    external: ["@earendil-works/*"],
     manifest: {
       name: piPkg.name,
       version: pkg.version,
@@ -106,7 +102,7 @@ const hosts = [
     kind: "omp",
     entry: "src/host-entry/omp.ts",
     dir: "dist/hosts/omp",
-    external: [...COMMON_EXTERNALS, "@oh-my-pi/*"],
+    external: ["@oh-my-pi/*"],
     plugins: [createPiCompatPlugin(resolve(root, "..", "omp-provider"))],
     manifest: {
       name: ompPkg.name,
@@ -152,10 +148,9 @@ const cliResult = await build({
   target: "node22",
   sourcemap: false,
   legalComments: "eof",
-  // These run under plain Node: the Qoder SDK resolves its downloaded worker
-  // runtime (`dist/_worker`, ~59 MB, per platform) from its own package
-  // directory, and Smithy/js-tiktoken may keep loading lazily on Kiro calls.
-  external: ["@qoder-ai/*", "@smithy/*", "js-tiktoken", "js-tiktoken/*"],
+  // These run under plain Node: Smithy/js-tiktoken may keep loading lazily
+  // on Kiro calls, so they stay external here.
+  external: ["@smithy/*", "js-tiktoken", "js-tiktoken/*"],
   banner: {
     js: [
       `// ${pkg.name} ${pkg.version} — bundled entries (catalog refresh, serve).`,
@@ -168,7 +163,7 @@ const cliResult = await build({
 });
 
 const cliLeftovers = externalsOf(cliResult).filter(
-  (path) => !isAllowed(path, ["@qoder-ai/*", "@smithy/*", "js-tiktoken", "js-tiktoken/*"]),
+  (path) => !isAllowed(path, ["@smithy/*", "js-tiktoken", "js-tiktoken/*"]),
 );
 if (cliLeftovers.length) {
   fail("unexpected external imports in the CLI bundles", cliLeftovers);
@@ -206,16 +201,16 @@ for (const host of hosts) {
     fail("the OMP bundle still imports @earendil-works (the compat shim missed an import)");
   }
   const text = readFileSync(outfile, "utf8");
-  // A runtime require of anything but the SDK or a builtin means the lazy
-  // sites were not inlined (e.g. the createRequire shadow made it through) —
-  // compiled-bun hosts cannot resolve those (issue #18). A `node:` specifier
-  // is a builtin by definition; the bare-name check uses the building node's
+  // A runtime require of anything but a builtin means the lazy sites were not
+  // inlined (e.g. the createRequire shadow made it through) — compiled-bun
+  // hosts cannot resolve those (issue #18). A `node:` specifier is a builtin
+  // by definition; the bare-name check uses the building node's
   // builtinModules, which lags behind newer builtins.
   const bareRequires = [
     ...new Set(
       [...text.matchAll(/(?<![\w$.])require\d*\("([^"]+)"\)/g)]
         .map((match) => match[1])
-        .filter((spec) => !spec.startsWith("node:") && !builtins.has(spec) && !spec.startsWith("@qoder-ai/")),
+        .filter((spec) => !spec.startsWith("node:") && !builtins.has(spec)),
     ),
   ];
   if (bareRequires.length) {
@@ -236,9 +231,15 @@ for (const host of hosts) {
 
   mkdirSync(resolve(root, host.dir), { recursive: true });
   writeFileSync(resolve(root, host.dir, "package.json"), `${JSON.stringify(host.manifest, null, 2)}\n`, "utf8");
+  // store.ts looks for the wasm at ../vendor/ relative to the bundle.
+  mkdirSync(resolve(root, host.dir, "vendor"), { recursive: true });
+  copyFileSync(qoderAuthWasm, resolve(root, host.dir, "vendor", "qoder-auth.wasm"));
   hostBytes += output.bytes;
   hostFiles += 1;
 }
+
+mkdirSync(resolve(root, "dist/vendor"), { recursive: true });
+copyFileSync(qoderAuthWasm, resolve(root, "dist", "vendor", "qoder-auth.wasm"));
 
 const cliBytes = Object.values(cliResult.metafile.outputs).reduce((sum, output) => sum + output.bytes, 0);
 console.log(

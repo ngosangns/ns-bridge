@@ -1,79 +1,119 @@
-// ABOUTME: Serializes the host transcript into one Qoder user prompt per turn.
+// ABOUTME: Serializes the host transcript into OpenAI-style wire messages for
+// the Qoder model server (shapes mirror a captured qodercli request).
 
-import type { QoderMessage, QoderUserContent } from "./types.js";
+import type { QoderMessage } from "./types.js";
 
-export interface QoderPromptImage {
-  mimeType: string;
-  data: string;
+export interface QoderWireTextPart {
+  type: "text";
+  text: string;
 }
 
-function serializeUser(content: readonly QoderUserContent[]): string {
-  const parts: string[] = [];
+export interface QoderWireImagePart {
+  type: "image_url";
+  image_url: { url: string };
+}
+
+export type QoderWireContentPart = QoderWireTextPart | QoderWireImagePart;
+
+export interface QoderWireToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+export interface QoderWireSystemMessage {
+  role: "system";
+  content: QoderWireContentPart[];
+}
+export interface QoderWireUserMessage {
+  role: "user";
+  content: string | QoderWireContentPart[];
+}
+export interface QoderWireAssistantMessage {
+  role: "assistant";
+  content: string | null;
+  tool_calls?: QoderWireToolCall[];
+}
+export interface QoderWireToolMessage {
+  role: "tool";
+  tool_call_id: string;
+  content: string;
+}
+
+export type QoderWireMessage =
+  | QoderWireSystemMessage
+  | QoderWireUserMessage
+  | QoderWireAssistantMessage
+  | QoderWireToolMessage;
+
+function imageDataUrl(data: string, mimeType: string): string {
+  return data.startsWith("data:") ? data : `data:${mimeType || "image/png"};base64,${data}`;
+}
+
+function userContent(content: readonly { type: string; text?: string; data?: string; mimeType?: string }[]): {
+  text: string;
+  parts: QoderWireContentPart[];
+} {
+  const parts: QoderWireContentPart[] = [];
+  const texts: string[] = [];
   for (const part of content) {
-    if (part.type === "text" && part.text) parts.push(part.text);
-    if (part.type === "image") parts.push("[image attached]");
+    if (part.type === "text" && part.text) {
+      texts.push(part.text);
+      parts.push({ type: "text", text: part.text });
+    } else if (part.type === "image" && part.data) {
+      parts.push({
+        type: "image_url",
+        image_url: { url: imageDataUrl(part.data, part.mimeType || "image/png") },
+      });
+    }
   }
-  return parts.join("\n");
+  return { text: texts.join("\n"), parts };
 }
 
-function serializeMessage(message: QoderMessage): string {
+function toWireMessage(message: QoderMessage): QoderWireMessage | undefined {
   if (message.role === "user") {
-    return `User:\n${serializeUser(message.content)}`;
+    const { text, parts } = userContent(message.content);
+    if (!text && parts.length === 0) return undefined;
+    return { role: "user", content: parts.some((part) => part.type === "image_url") ? parts : text };
   }
   if (message.role === "toolResult") {
-    const body = serializeUser(message.content);
-    const prefix = message.isError ? "Tool error" : "Tool result";
-    return `${prefix} (${message.toolName}, id=${message.toolCallId}):\n${body}`;
+    const { text, parts } = userContent(message.content);
+    const note = parts
+      .filter((part) => part.type === "image_url")
+      .map(() => "[image attached]")
+      .join("\n");
+    const body = [text, note].filter(Boolean).join("\n");
+    if (!body) return undefined;
+    return { role: "tool", tool_call_id: message.toolCallId, content: body };
   }
-  const lines: string[] = ["Assistant:"];
-  for (const part of message.content) {
-    if (part.type === "text" && part.text) lines.push(part.text);
-    if (part.type === "thinking" && part.thinking) lines.push(`[thinking]\n${part.thinking}`);
-    if (part.type === "toolCall") {
-      lines.push(`[tool_call ${part.name} id=${part.id}]\n${JSON.stringify(part.arguments)}`);
-    }
-  }
-  return lines.join("\n");
+  const { text } = userContent(message.content);
+  const toolCalls = message.content.flatMap((part) =>
+    part.type === "toolCall"
+      ? [
+          {
+            id: part.id,
+            type: "function" as const,
+            function: { name: part.name, arguments: JSON.stringify(part.arguments ?? {}) },
+          },
+        ]
+      : [],
+  );
+  if (!text && toolCalls.length === 0) return undefined;
+  return {
+    role: "assistant",
+    content: text || null,
+    ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+  };
 }
 
-/**
- * One string prompt for `query({ prompt })`. The host sends the full transcript
- * on every turn, so each call is stateless on the Qoder side.
- * Image bytes are not inlined here. `collectQoderImages` returns them for the SDK.
- */
-export function buildQoderPrompt(messages: readonly QoderMessage[], systemPrompt?: string): string {
-  const blocks: string[] = [];
-  if (systemPrompt?.trim()) {
-    blocks.push(`<system>\n${systemPrompt.trim()}\n</system>`);
-  }
+/** Full transcript as wire messages. Stateless: the host resends it every turn. */
+export function toQoderWireMessages(messages: readonly QoderMessage[], systemPrompt?: string): QoderWireMessage[] {
+  const wire: QoderWireMessage[] = [];
+  const system = systemPrompt?.trim();
+  if (system) wire.push({ role: "system", content: [{ type: "text", text: system }] });
   for (const message of messages) {
-    const body = serializeMessage(message);
-    if (body.trim()) blocks.push(body);
+    const wireMessage = toWireMessage(message);
+    if (wireMessage) wire.push(wireMessage);
   }
-  const lastUser = [...messages].reverse().find((message) => message.role === "user");
-  if (lastUser && messages[messages.length - 1]?.role !== "user") {
-    blocks.push("User:\n(continue)");
-  }
-  return blocks.join("\n\n");
-}
-
-/** Image parts from the transcript, in order. The stream attaches these as SDK image blocks. */
-export function collectQoderImages(messages: readonly QoderMessage[]): QoderPromptImage[] {
-  const images: QoderPromptImage[] = [];
-  for (const message of messages) {
-    if (message.role === "assistant") continue;
-    for (const part of message.content) {
-      if (part.type !== "image" || !part.data) continue;
-      images.push({ mimeType: part.mimeType || "image/png", data: part.data });
-    }
-  }
-  return images;
-}
-
-/** Strip a data-URL prefix so the SDK receives raw base64. */
-export function qoderImageData(data: string): string {
-  const marker = "base64,";
-  const index = data.indexOf(marker);
-  if (data.startsWith("data:") && index !== -1) return data.slice(index + marker.length);
-  return data;
+  return wire;
 }

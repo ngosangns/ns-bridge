@@ -55,9 +55,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@qoder-ai/qoder-agent-sdk':
-        specifier: ^1.0.56
-        version: 1.0.56(supports-color@10.2.2)(zod@4.5.4)
       '@smithy/core':
         specifier: ^3.34.1
         version: 3.35.1
@@ -381,15 +378,9 @@ importers:
 
   packages/qoder-core:
     dependencies:
-      '@qoder-ai/qoder-agent-sdk':
-        specifier: ^1.0.56
-        version: 1.0.56(supports-color@10.2.2)(zod@4.5.4)
       ns-core-utils:
         specifier: workspace:*
         version: link:../core-utils
-      zod:
-        specifier: ^4.5.4
-        version: 4.5.4
     devDependencies:
       '@types/node':
         specifier: ^22.20.4
@@ -1285,12 +1276,6 @@ packages:
         optional: true
       yauzl:
         optional: true
-
-  '@qoder-ai/qoder-agent-sdk@1.0.56':
-    resolution: {integrity: sha512-kBi0vd0MUHb2VpZFrFHoPfbMduyuSXSN/uzJUY7FRPB5+m+CidHVxZ5nmVRZNAlYu6cPPBNbuMPWPISLtbQhMg==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
 
   '@rollup/rollup-android-arm-eabi@4.63.1':
     resolution: {integrity: sha512-UZ8sUxPTiHWYX9QNdJedb1kDZSpS1t/VPWBWGSgqHNi9w3Cu6IXvu2mzbhiTiPvtrqgTQJ+zqiAq2iPIPilpaQ==}
@@ -3585,14 +3570,6 @@ snapshots:
     dependencies:
       modern-tar: 0.7.7
       yargs: 18.1.0
-
-  '@qoder-ai/qoder-agent-sdk@1.0.56(supports-color@10.2.2)(zod@4.5.4)':
-    dependencies:
-      '@modelcontextprotocol/sdk': 1.32.2(supports-color@10.2.2)(zod@4.5.4)
-      zod: 4.5.4
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - supports-color
 
   '@rollup/rollup-android-arm-eabi@4.63.1':
     optional: true

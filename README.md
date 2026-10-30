@@ -64,19 +64,19 @@ Models (USD per 1M tokens, input/cached/output, arnict.com/docs/pricing):
 
 ## Qoder
 
-Qoder runs through `@qoder-ai/qoder-agent-sdk`: one query per host turn, with
-the host's own tools mirrored to it. Sign in with `qodercli login` or set
-`QODER_PERSONAL_ACCESS_TOKEN`.
+Qoder talks straight to Qoder's model server (OpenAI-style SSE) from the host
+process — no qodercli daemon, no SDK worker runtime. The bearer token comes
+from `qodercli login` (the credential store is decrypted locally with a
+vendored wasm) or `QODER_PERSONAL_ACCESS_TOKEN`.
 
 ```bash
 ns-bridge models refresh qoder
 ```
 
 The refresh writes `~/.pi/agent/cache/ns-pi-provider/qoder.models.json`, with
-the effort ladder Qoder reports. Pi shows it as `thinkingLevelMap`; OMP shows
-it as per-model effort levels and compacts on the catalog's threshold. The SDK
-downloads a worker runtime on install; with `--ignore-scripts` the first Qoder
-call fails until you run its postinstall.
+the bootstrap catalog (the ids the qoder CLI offers — the server has no list
+endpoint). Pi shows the effort ladder as `thinkingLevelMap`; OMP shows it as
+per-model effort levels and compacts on the catalog's threshold.
 
 ## Pi
 

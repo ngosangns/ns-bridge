@@ -1,13 +1,15 @@
-// ABOUTME: Maps Qoder wire usage onto neutral counters and credits.
+// ABOUTME: Maps Qoder model-server usage onto neutral counters.
 
 import type { QoderUsage } from "./types.js";
 
+/** `usage` / `raw_usage.data` fields on the model-server wire (DeepSeek naming). */
 export interface QoderWireUsage {
-  input_tokens?: number | null;
-  output_tokens?: number | null;
-  cache_read_input_tokens?: number | null;
-  cache_creation_input_tokens?: number | null;
-  credits?: number | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  prompt_cache_hit_tokens?: number | null;
+  prompt_cache_miss_tokens?: number | null;
+  prompt_tokens_details?: { cached_tokens?: number | null } | null;
+  completion_tokens_details?: { reasoning_tokens?: number | null } | null;
 }
 
 function nonNegative(value: number | null | undefined): number {
@@ -15,19 +17,17 @@ function nonNegative(value: number | null | undefined): number {
   return value;
 }
 
-export function toQoderUsage(wire: QoderWireUsage, sessionCredits?: number): QoderUsage {
-  const input = nonNegative(wire.input_tokens);
-  const output = nonNegative(wire.output_tokens);
-  const cacheRead = nonNegative(wire.cache_read_input_tokens);
-  const cacheWrite = nonNegative(wire.cache_creation_input_tokens);
-  const credits = nonNegative(wire.credits) || nonNegative(sessionCredits);
+export function toQoderUsage(wire: QoderWireUsage): QoderUsage {
+  const input = nonNegative(wire.prompt_tokens);
+  const output = nonNegative(wire.completion_tokens);
+  const hit = nonNegative(wire.prompt_cache_hit_tokens);
+  const cached = nonNegative(wire.prompt_tokens_details?.cached_tokens);
+  const cacheRead = hit > 0 ? hit : cached;
   return {
     input,
     output,
-    totalTokens: input + output + cacheRead,
-    cacheRead: cacheRead > 0 ? cacheRead : undefined,
-    cacheWrite: cacheWrite > 0 ? cacheWrite : undefined,
-    ...(credits > 0 ? { credits, creditUnit: "credits" } : {}),
+    totalTokens: input + output,
+    ...(cacheRead > 0 ? { cacheRead } : {}),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
   };
 }

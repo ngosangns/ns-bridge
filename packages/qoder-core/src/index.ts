@@ -28,11 +28,21 @@ export {
 } from "./catalog.js";
 export { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js";
 export { fetchQoderModels } from "./models-api.js";
-export { buildQoderPrompt, collectQoderImages, qoderImageData } from "./prompt.js";
-export { createSdkReduceState, finishSdkReduce, reduceSdkMessage, type SdkReduceState } from "./sdk-reduce.js";
+export type {
+  QoderWireAssistantMessage,
+  QoderWireContentPart,
+  QoderWireImagePart,
+  QoderWireMessage,
+  QoderWireSystemMessage,
+  QoderWireTextPart,
+  QoderWireToolCall,
+  QoderWireToolMessage,
+  QoderWireUserMessage,
+} from "./prompt.js";
+export { toQoderWireMessages } from "./prompt.js";
+export { createWireReduceState, finishWireReduce, reduceWireChunk, type WireReduceState } from "./reduce.js";
 export { qoderSessionId } from "./session.js";
-export { type QueryFactory, type StreamQoderOptions, streamQoder } from "./stream.js";
-export { createHostToolMcpServer } from "./tools.js";
+export { qoderWireUrl, type StreamQoderOptions, streamQoder } from "./stream.js";
 export type {
   QoderAssistantContent,
   QoderAssistantMessage,
