@@ -58,6 +58,11 @@ describe("qoderModelFromInfo", () => {
     });
   });
 
+  it("names a known id after the app's label when the server gives none", () => {
+    expect(qoderModelFromInfo({ value: "qmodel_38max" }).name).toBe("Qwen3.8-Max");
+    expect(qoderModelFromInfo({ value: "dfmodel" }).name).toBe("DeepSeek-Flash");
+  });
+
   it("ignores a zero or negative limit instead of publishing it", () => {
     // The server reports `maxInputTokens: 0` for kmodel. A zero window would break compaction.
     const kimi = qoderModelFromInfo({ value: "kmodel", maxInputTokens: 0, defaultContextWindow: 200_000 });

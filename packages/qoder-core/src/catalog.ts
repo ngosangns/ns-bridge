@@ -43,8 +43,38 @@ const BOOTSTRAP_IDS = [
 ] as const;
 
 /**
- * The cold-start list: ids only. Names, windows, image input and efforts are the
- * server's to say, so a host that never refreshed shows plain ids with the shared
+ * The model server serves bare ids with no display name, so pickers would show
+ * "cmodel" and "qmodel_38max". These are the labels the Qoder app itself shows
+ * for each id (its modelSelector texts, en locale, 2026-10-30). An id the table
+ * misses falls back to the raw id.
+ */
+const QODER_MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  auto: "Auto",
+  ultimate: "Ultimate",
+  fast: "Fast",
+  efficient: "Efficient",
+  smodel: "Sonus",
+  cmodel: "Cantus",
+  qmodel: "Qwen3.7-Plus",
+  "qmodel_38max": "Qwen3.8-Max",
+  "qmodel_latest": "Qwen3.7-Max",
+  "qmodel_preview": "Qwen3.8-Max-Preview",
+  q35model: "Qwen3.5-Plus",
+  q35model_preview: "Qwen3.7-Max-DogFooding",
+  qfmodel: "Qwen3.8-Flash",
+  kmodel: "Kimi-K2.8-Preview",
+  "kmodel_latest": "Kimi-K3.1-Pro",
+  gmodel: "GLM-5.3",
+  gfmodel: "GLM-5.3-Flash",
+  gm51model: "GLM-5.2",
+  dmodel: "DeepSeek-V4-Pro",
+  dfmodel: "DeepSeek-Flash",
+  mmodel: "MiniMax-M3.1-Flash",
+};
+
+/**
+ * The cold-start list: ids with the app's display names. Windows, image input and
+ * efforts are the server's to say, so a host that never refreshed shows the shared
  * defaults rather than capabilities nobody checked.
  */
 export function qoderBootstrapModels(): QoderModelSpec[] {
@@ -118,7 +148,7 @@ export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
   const maxInput = positive(info.maxInputTokens) ? info.maxInputTokens : undefined;
   const base: QoderModelSpec = {
     id: info.value,
-    name: info.displayName || info.value,
+    name: info.displayName ?? QODER_MODEL_DISPLAY_NAMES[info.value] ?? info.value,
     reasoning: info.isReasoning === true || efforts.length > 0,
     input: info.isVl === true ? ["text", "image"] : ["text"],
     contextWindow:
