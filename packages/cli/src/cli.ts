@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { type ArnictIo, runArnict } from "./arnict.js";
 import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatalogs, type Vendor } from "./catalog.js";
 import {
+  dshDesktopRunning,
   defaultHostPaths,
   formatCommand,
   type HostAction,
@@ -66,6 +67,8 @@ export interface RunOptions {
   version?: string;
   /** Where host bundles, Pi settings, and DSH profiles live. Tests pass a temp tree. */
   hostPaths?: HostPaths;
+  /** Whether the DSH desktop app is running. Tests inject; production probes pgrep. */
+  desktopRunning?: () => boolean;
 }
 
 const HELP = `ns-bridge — install ns-bridge providers into Pi, OMP, and DSH from prebuilt local bundles.
@@ -106,7 +109,8 @@ Hosts:
   omp  omp plugin install <ns-bridge>/dist/hosts/omp
        removes ns-omp-provider-kiro first and replaces an npm ns-omp-provider.
        OMP has its own devin, xai, and xai-oauth providers (/login devin, /login xai-oauth)
-  dsh  dsh plugin --profile <name> add link:<ns-bridge>/dist/hosts/dsh/<vendor> …
+  dsh  scans every profile under ~/.dsh/profiles (directories with a
+       package.json) and installs into each; --profile <name> targets one.
        then keeps one insert per provider in the profile's cordis.patch.yml
 
 providers enable/disable writes the host's own switch:
@@ -114,8 +118,10 @@ providers enable/disable writes the host's own switch:
   omp       the same file, kiro, arnict, and qoder; devin and grok are OMP's own, so they are not offered
   dsh       a "- id: llm-<vendor>" entry with "disabled: true" in the profile's cordis.patch.yml
 
-DSH requires --profile. Profile "desktop" is refused: the Electron app owns it.
-install/update <host> without --profile skips DSH and still handles Pi and OMP.
+DSH without --profile applies to every profile. The Electron-owned "desktop"
+profile installs through its package.json and pnpm (the app refuses
+"dsh plugin" there) and is skipped while the DeepSeek Harness app runs —
+quit it first, then re-run.
 Install and update are the same command; re-running repairs a moved CLI.
 
 usage reads the ledger the plugins write under ~/.ns-bridge/usage/<day>/<vendor>/<session>.jsonl.
@@ -453,7 +459,9 @@ async function runHost(
     err(hosts.error);
     return 1;
   }
-  const plan = planHostCommands(action, hosts, parsed.profile, options.hostPaths ?? defaultHostPaths());
+  const plan = planHostCommands(action, hosts, parsed.profile, options.hostPaths ?? defaultHostPaths(), () =>
+    options.desktopRunning ? options.desktopRunning() : dshDesktopRunning(),
+  );
   if (plan.error) {
     err(plan.error);
     return 1;
@@ -487,13 +495,13 @@ async function runHost(
     }
     log(result);
   }
-  if (plan.skipDsh) log("# dsh skipped: pass --profile <name>");
+  for (const note of plan.notes) log(note);
   return 0;
 }
 
 function planLines(plan: HostPlan): string[] {
   const lines = plan.steps.map((step) => (step.argv ? formatCommand(step.argv) : (step.label ?? step.host)));
-  if (plan.skipDsh) lines.push("# dsh skipped: pass --profile <name>");
+  lines.push(...plan.notes);
   return lines;
 }
 
@@ -612,7 +620,9 @@ async function runProviders(
     err(`unexpected argument ${parsed.positionals[4]}`);
     return 1;
   }
-  const plan = planProviders(action, host, name, parsed.profile, options.providerPaths ?? providerPaths());
+  const plan = planProviders(action, host, name, parsed.profile, options.providerPaths ?? providerPaths(), () =>
+    options.desktopRunning ? options.desktopRunning() : dshDesktopRunning(),
+  );
   if (plan.error) {
     err(plan.error);
     return 1;
@@ -621,7 +631,9 @@ async function runProviders(
     for (const line of formatProviderPlan(plan, false)) log(line);
     return 0;
   }
-  return applySteps(plan.steps, log, err);
+  const code = applySteps(plan.steps, log, err);
+  for (const note of plan.notes) log(note);
+  return code;
 }
 
 function applySteps(

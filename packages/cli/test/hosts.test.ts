@@ -6,6 +6,7 @@ import {
   DSH_PACKAGES,
   dshBundleDir,
   dshPatchPath,
+  dshProfiles,
   type HostPaths,
   hostBundleDir,
   isPiBundleSource,
@@ -33,6 +34,15 @@ function argvOf(steps: ReturnType<typeof planHostCommands>["steps"]): string[][]
   return steps.flatMap((step) => (step.argv ? [step.argv] : []));
 }
 
+/** A profile directory the sweep would pick up: package.json is the marker. */
+function makeProfile(home: string, name: string, opts: { patch?: boolean } = {}): string {
+  const dir = join(home, ".dsh", "profiles", name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: `dsh-profile-${name}`, private: true }));
+  writeFileSync(join(dir, "cordis.patch.yml"), opts.patch === false ? "[]\n" : "# patch\n[]\n");
+  return dir;
+}
+
 describe("parseHosts", () => {
   it("accepts one host, all, or nothing", () => {
     expect(parseHosts(undefined)).toEqual(["pi", "omp", "dsh"]);
@@ -57,7 +67,7 @@ describe("planHostCommands install", () => {
     expect(plan.steps[1]?.tolerate).toBeUndefined();
     expect(plan.steps[3]?.tolerate).toBe(true);
     expect(plan.steps[4]?.tolerate).toBeUndefined();
-    expect(plan.skipDsh).toBe(false);
+    expect(plan.notes).toEqual([]);
   });
 
   it("removes the npm DSH packages before linking the five provider bundles", () => {
@@ -135,18 +145,81 @@ describe("planHostCommands guards", () => {
     ]);
   });
 
-  it("requires a profile for DSH and refuses desktop", () => {
+  it("notes the missing profiles instead of erroring when none exist", () => {
     const { paths } = tree();
-    expect(planHostCommands("install", ["dsh"], undefined, paths).error).toBe("dsh needs --profile <name>");
-    expect(planHostCommands("install", ["dsh"], "Desktop", paths).error).toContain("managed by the DSH Electron app");
+    const plan = planHostCommands("install", ["dsh"], undefined, paths);
+    expect(plan.error).toBeUndefined();
+    expect(plan.steps).toEqual([]);
+    expect(plan.notes).toEqual([`# dsh skipped: no DSH profiles under ${join(paths.home, ".dsh", "profiles")}`]);
   });
 
-  it("skips DSH when another host shares the plan", () => {
+  it("sweeps every discovered profile without --profile, desktop included via pnpm", () => {
+    const { paths, home } = tree();
+    const alpha = makeProfile(home, "alpha");
+    const desktop = makeProfile(home, "desktop");
+    makeProfile(home, "desktop.bak-20260101"); // backup copies stay untouched
+    mkdirSync(join(home, ".dsh", "profiles", "node_modules"), { recursive: true });
+    mkdirSync(join(home, ".dsh", "profiles", ".hidden"), { recursive: true });
+    writeFileSync(join(home, ".dsh", "profiles", ".hidden", "package.json"), "{}");
+    expect(dshProfiles(join(paths.home, ".dsh"))).toEqual(["alpha", "desktop"]);
+
+    const plan = planHostCommands("install", ["dsh"], undefined, paths, () => false);
+    expect(plan.error).toBeUndefined();
+    expect(plan.notes).toEqual([]);
+    expect(argvOf(plan.steps)).toEqual([
+      ["dsh", "plugin", "--profile", "alpha", "remove", ...DSH_PACKAGES],
+      [
+        "dsh",
+        "plugin",
+        "--profile",
+        "alpha",
+        "add",
+        ...PROVIDERS.map((provider) => `link:${dshBundleDir(paths, provider)}`),
+      ],
+      ["pnpm", "install", "--dir", desktop],
+    ]);
+    const patch = plan.steps.at(-1);
+    expect(patch?.argv).toBeUndefined();
+    expect(patch?.label).toContain(dshPatchPath(paths, "desktop"));
+    expect(plan.steps.find((step) => JSON.stringify(step.argv ?? []).includes("desktop.bak"))).toBeUndefined();
+  });
+
+  it("skips the desktop profile in a sweep while the app runs, and errors when named", () => {
+    const { paths, home } = tree();
+    makeProfile(home, "alpha");
+    makeProfile(home, "desktop");
+    const sweep = planHostCommands("install", ["dsh"], undefined, paths, () => true);
+    expect(sweep.error).toBeUndefined();
+    expect(sweep.notes).toEqual(["# dsh desktop skipped: quit the DeepSeek Harness app to edit it"]);
+    expect(sweep.steps.every((step) => !JSON.stringify(step.argv ?? step.label ?? "").includes("desktop"))).toBe(
+      true,
+    );
+
+    const named = planHostCommands("install", ["dsh"], "desktop", paths, () => true);
+    expect(named.steps).toEqual([]);
+    expect(named.error).toBe('quit the DeepSeek Harness app to edit the "desktop" profile');
+  });
+
+  it("installs the desktop profile through its package.json and pnpm when the app is quit", () => {
+    const { paths, home } = tree();
+    const desktop = makeProfile(home, "desktop");
+    const plan = planHostCommands("install", ["dsh"], "desktop", paths, () => false);
+    expect(plan.error).toBeUndefined();
+    expect(plan.notes).toEqual([]);
+    const [deps, install, patch] = plan.steps;
+    expect(deps?.argv).toBeUndefined();
+    expect(deps?.label).toContain(desktop);
+    expect(argvOf([install ?? {}])).toEqual([["pnpm", "install", "--dir", desktop]]);
+    expect(patch?.label).toContain(dshPatchPath(paths, "desktop"));
+  });
+
+  it("skips DSH when no profiles exist and another host shares the plan", () => {
     const { paths } = tree();
     const plan = planHostCommands("install", ["pi", "dsh"], undefined, paths);
     expect(plan.error).toBeUndefined();
-    expect(plan.skipDsh).toBe(true);
     expect(plan.steps.every((step) => step.host === "pi")).toBe(true);
+    expect(plan.notes).toHaveLength(1);
+    expect(plan.notes[0]).toContain("# dsh skipped: no DSH profiles");
   });
 });
 

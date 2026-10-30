@@ -5,6 +5,8 @@
  * extensions read it at launch; this command writes it. DSH has no such
  * file: the profile patch carries a `- id: llm-<vendor>` entry with
  * `disabled: true` (a key beside `- insert:` is dropped by the composer).
+ * DSH sweeps every profile unless `--profile` names one; the Electron-owned
+ * desktop profile is skipped while the DSH app runs.
  *
  * OMP ships `devin`, `xai`, and `xai-oauth` itself and takes `kiro`, `arnict`,
  * and `qoder` from this project, so devin and grok are not a choice for `omp`.
@@ -15,7 +17,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DSH_ID, DSH_PLUGIN, dshPluginState, setDshPluginEnabled } from "./dsh-patch.js";
-import { type Host, isPiBundleSource, PI_SOURCE, parseHosts } from "./hosts.js";
+import { type Host, dshDesktopRunning, dshProfiles, isPiBundleSource, PI_SOURCE, parseHosts } from "./hosts.js";
 import {
   PROVIDERS,
   type ProviderName,
@@ -44,7 +46,8 @@ export interface ProviderStep {
 
 export interface ProviderPlan {
   steps: ProviderStep[];
-  skipDsh: boolean;
+  /** Skip notes a run prints after its steps: profiles left untouched and why. */
+  notes: string[];
   error?: string;
 }
 
@@ -63,28 +66,34 @@ export function providerPaths(env: NodeJS.ProcessEnv = process.env, home = homed
   };
 }
 
+/**
+ * Every DSH profile is swept when no `--profile` is given. The Electron-owned
+ * `desktop` profile is skipped while the DSH app runs, since it holds the
+ * patch file in memory.
+ */
 export function planProviders(
   action: ProviderAction,
   hostTarget: string | undefined,
   providerTarget: string | undefined,
   profile: string | undefined,
   paths: ProviderPaths,
+  desktopRunning: () => boolean = dshDesktopRunning,
 ): ProviderPlan {
   const hosts = parseHosts(hostTarget);
-  if ("error" in hosts) return { steps: [], skipDsh: false, error: hosts.error };
+  if ("error" in hosts) return { steps: [], notes: [], error: hosts.error };
   if (action !== "status" && hosts.length !== 1) {
-    return { steps: [], skipDsh: false, error: "enable and disable need one host: pi, omp, or dsh" };
+    return { steps: [], notes: [], error: "enable and disable need one host: pi, omp, or dsh" };
   }
 
   let provider: ProviderName | undefined;
   if (providerTarget) {
     const parsed = parseProvider(providerTarget);
-    if (typeof parsed !== "string") return { steps: [], skipDsh: false, error: parsed.error };
+    if (typeof parsed !== "string") return { steps: [], notes: [], error: parsed.error };
     provider = parsed;
   } else if (action !== "status") {
     return {
       steps: [],
-      skipDsh: false,
+      notes: [],
       error: "enable and disable need a provider: kiro, devin, grok, arnict, or qoder",
     };
   }
@@ -92,40 +101,52 @@ export function planProviders(
   if (action === "enable" && provider && hosts.includes("omp") && OMP_NATIVE[provider]) {
     return {
       steps: [],
-      skipDsh: false,
+      notes: [],
       error: `omp does not use ns-bridge for ${provider}: ${OMP_NATIVE[provider]}`,
     };
   }
 
   const wantsDsh = hosts.includes("dsh");
-  if (wantsDsh && profile?.toLowerCase() === "desktop") {
-    return {
-      steps: [],
-      skipDsh: false,
-      error: 'profile "desktop" is managed by the DSH Electron app; pass another profile name',
-    };
+  const profiles = wantsDsh ? (profile ? [profile] : dshProfiles(paths.dshHome)) : [];
+  const notes: string[] = [];
+  if (wantsDsh && profile && isDesktop(profile) && action !== "status" && desktopRunning()) {
+    return { steps: [], notes, error: 'quit the DeepSeek Harness app to edit the "desktop" profile' };
   }
-  if (wantsDsh && !profile && hosts.length === 1 && action !== "status") {
-    return { steps: [], skipDsh: false, error: "dsh needs --profile <name>" };
+  if (wantsDsh && !profile && profiles.length === 0) {
+    return { steps: [], notes: [`# dsh skipped: no DSH profiles under ${join(paths.dshHome, "profiles")}`] };
   }
 
   const steps: ProviderStep[] = [];
   for (const host of hosts) {
-    if (host === "dsh" && !profile) continue;
-    if (action === "status") {
-      steps.push(statusStep(host, provider, profile, paths));
+    if (host !== "dsh") {
+      if (action === "status") steps.push(statusStep(host, provider, undefined, paths));
+      else {
+        const step = mutateStep(action, host, provider as ProviderName, paths);
+        if (step) steps.push(step);
+      }
       continue;
     }
-    const step = mutateStep(action, host, provider as ProviderName, profile, paths);
-    if (step) steps.push(step);
+    for (const name of profiles) {
+      if (action !== "status" && isDesktop(name) && desktopRunning()) {
+        notes.push(`# dsh ${name} skipped: quit the DeepSeek Harness app to edit it`);
+        continue;
+      }
+      if (action === "status") steps.push(dshStatusStep(name, provider, paths));
+      else steps.push(dshMutateStep(action, provider as ProviderName, name, paths));
+    }
   }
-  return { steps, skipDsh: wantsDsh && !profile && action !== "status" };
+  return { steps, notes };
+}
+
+/** The profile the DSH Electron app boots and manages on its own. */
+function isDesktop(profile: string): boolean {
+  return profile.toLowerCase() === "desktop";
 }
 
 function statusStep(
-  host: Host,
+  host: Exclude<Host, "dsh">,
   provider: ProviderName | undefined,
-  profile: string | undefined,
+  _profile: undefined,
   paths: ProviderPaths,
 ): ProviderStep {
   return {
@@ -135,7 +156,7 @@ function statusStep(
       const names = provider ? [provider] : PROVIDERS;
       return names
         .map((name) => {
-          const state = readHostProvider(host, name, profile, paths);
+          const state = readHostProvider(host, name, paths);
           const note = state.note ? ` (${state.note})` : "";
           return `${host} ${name} ${state.on ? "on" : "off"}${note}`;
         })
@@ -144,13 +165,28 @@ function statusStep(
   };
 }
 
+function dshStatusStep(profile: string, provider: ProviderName | undefined, paths: ProviderPaths): ProviderStep {
+  return {
+    host: "dsh",
+    line: `dsh ${profile} providers`,
+    apply: () => {
+      const names = provider ? [provider] : PROVIDERS;
+      return names
+        .map((name) => {
+          const state = readDshProvider(name, profile, paths.dshHome);
+          const note = state.note ? ` (${state.note})` : "";
+          return `dsh ${profile} ${name} ${state.on ? "on" : "off"}${note}`;
+        })
+        .join("\n");
+    },
+  };
+}
+
 function readHostProvider(
-  host: Host,
+  host: Exclude<Host, "dsh">,
   provider: ProviderName,
-  profile: string | undefined,
   paths: ProviderPaths,
 ): { on: boolean; note?: string } {
-  if (host === "dsh") return readDshProvider(provider, profile, paths.dshHome);
   if (host === "omp" && OMP_NATIVE[provider]) return { on: false, note: `not provided: ${OMP_NATIVE[provider]}` };
   if (host === "pi" && !piPackageInstalled(paths.piSettings)) {
     return { on: false, note: "package not installed" };
@@ -191,9 +227,8 @@ function sourceOf(entry: unknown): string {
 
 function mutateStep(
   action: Exclude<ProviderAction, "status">,
-  host: Host,
+  host: Exclude<Host, "dsh">,
   provider: ProviderName,
-  profile: string | undefined,
   paths: ProviderPaths,
 ): ProviderStep | undefined {
   const enabled = action === "enable";
@@ -201,15 +236,6 @@ function mutateStep(
   if (native) {
     const line = `omp ${provider} off (nothing to change: ${native})`;
     return { host, line, apply: () => line };
-  }
-  if (host === "dsh") {
-    if (!profile) return undefined;
-    const patch = join(paths.dshHome, "profiles", profile, "cordis.patch.yml");
-    return {
-      host,
-      line: `dsh ${profile} ${DSH_ID[provider]} ${enabled ? "on" : "off"} (${patch})`,
-      apply: () => writeDshProvider(patch, provider, enabled),
-    };
   }
   if (host === "pi" && !piPackageInstalled(paths.piSettings)) {
     return {
@@ -228,12 +254,26 @@ function mutateStep(
   };
 }
 
+function dshMutateStep(
+  action: Exclude<ProviderAction, "status">,
+  provider: ProviderName,
+  profile: string,
+  paths: ProviderPaths,
+): ProviderStep {
+  const enabled = action === "enable";
+  const patch = join(paths.dshHome, "profiles", profile, "cordis.patch.yml");
+  return {
+    host: "dsh",
+    line: `dsh ${profile} ${DSH_ID[provider]} ${enabled ? "on" : "off"} (${patch})`,
+    apply: () => writeDshProvider(patch, provider, enabled),
+  };
+}
+
 function readDshProvider(
   provider: ProviderName,
-  profile: string | undefined,
+  profile: string,
   dshHome: string,
 ): { on: boolean; note?: string } {
-  if (!profile) return { on: false, note: "needs --profile" };
   const patch = join(dshHome, "profiles", profile, "cordis.patch.yml");
   let raw: string;
   try {
@@ -264,7 +304,7 @@ function writeDshProvider(patch: string, provider: ProviderName, enabled: boolea
 export function formatProviderPlan(plan: ProviderPlan, apply: boolean): string[] {
   const lines = apply ? [] : ["# dry-run (run without --dry-run to apply)"];
   for (const step of plan.steps) lines.push(step.line);
-  if (plan.skipDsh) lines.push("# dsh skipped: pass --profile <name>");
+  lines.push(...plan.notes);
   return lines;
 }
 

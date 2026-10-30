@@ -67,7 +67,7 @@ describe("ns-bridge", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it("previews pi and omp install and skips dsh without a profile", async () => {
+  it("previews pi and omp install and notes that no DSH profiles exist", async () => {
     const io = capture();
     const runner = vi.fn<Runner>(async () => ({ code: 0, stdout: "", stderr: "" }));
     const tree = hostTree();
@@ -80,7 +80,7 @@ describe("ns-bridge", () => {
       `prune stale local entries in ${join(tree.paths.home, ".pi", "agent", "settings.json")}`,
       "omp plugin uninstall ns-omp-provider-kiro ns-omp-provider",
       `omp plugin install ${tree.omp}`,
-      "# dsh skipped: pass --profile <name>",
+      `# dsh skipped: no DSH profiles under ${join(tree.paths.home, ".dsh", "profiles")}`,
     ]);
     expect(runner).not.toHaveBeenCalled();
   });
@@ -201,20 +201,29 @@ describe("ns-bridge", () => {
     expect(io.stderr.join("\n")).toContain("exited 1");
   });
 
-  it("refuses the desktop profile and does not spawn", async () => {
+  it("refuses the desktop profile while the app runs, and does not spawn", async () => {
     const io = capture();
     const runner = vi.fn<Runner>(async () => ({ code: 0, stdout: "", stderr: "" }));
-    const code = await run(["install", "dsh", "--profile", "desktop"], { ...io, runner });
+    const tree = hostTree();
+    mkdirSync(join(tree.paths.home, ".dsh", "profiles", "desktop"), { recursive: true });
+    writeFileSync(join(tree.paths.home, ".dsh", "profiles", "desktop", "package.json"), "{}");
+    const code = await run(["install", "dsh", "--profile", "desktop"], {
+      ...io,
+      runner,
+      hostPaths: tree.paths,
+      desktopRunning: () => true,
+    });
     expect(code).toBe(1);
-    expect(io.stderr.join("\n")).toContain("Electron");
+    expect(io.stderr.join("\n")).toContain("quit the DeepSeek Harness app");
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it("requires a profile when the only host is dsh", async () => {
+  it("notes empty DSH profiles instead of erroring when dsh has no --profile", async () => {
     const io = capture();
-    const code = await run(["uninstall", "dsh"], io);
-    expect(code).toBe(1);
-    expect(io.stderr).toEqual(["dsh needs --profile <name>"]);
+    const tree = hostTree();
+    const code = await run(["uninstall", "dsh"], { ...io, hostPaths: tree.paths });
+    expect(code).toBe(0);
+    expect(io.stdout.join("\n")).toContain("# dsh skipped: no DSH profiles under");
   });
 
   it("lists ids from the catalog files and does not invent a fallback", async () => {

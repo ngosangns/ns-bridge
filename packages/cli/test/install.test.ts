@@ -158,6 +158,30 @@ describe("ns-bridge install/uninstall against fake hosts", () => {
     expect(readFileSync(join(home, ".dsh", "profiles", "test", "cordis.patch.yml"), "utf8")).toBe(before);
   });
 
+  it("sweeps every discovered DSH profile when --profile is omitted", () => {
+    for (const name of ["alpha", "beta"]) {
+      mkdirSync(join(home, ".dsh", "profiles", name), { recursive: true });
+      writeFileSync(join(home, ".dsh", "profiles", name, "package.json"), "{}");
+    }
+    const before = readFileSync(log, "utf8").trim().split("\n").length;
+    const result = nsBridge(["install", "dsh"]);
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    const calls = readFileSync(log, "utf8").trim().split("\n").slice(before);
+    const remove = (profile: string) =>
+      `dsh plugin --profile ${profile} remove ${PROVIDERS.map((p) => `ns-dsh-llm-${p}`).join(" ")}`;
+    const add = (profile: string) =>
+      `dsh plugin --profile ${profile} add ${PROVIDERS.map((p) => `link:${join(cliRoot, "dist", "hosts", "dsh", p)}`).join(" ")}`;
+    for (const name of ["alpha", "beta"]) {
+      expect(calls).toContain(remove(name));
+      expect(calls).toContain(add(name));
+      const patch = readFileSync(join(home, ".dsh", "profiles", name, "cordis.patch.yml"), "utf8");
+      for (const provider of PROVIDERS) expect(patch).toContain(`- id: llm-${provider}`);
+    }
+    // The "test" profile holds no package.json, so the sweep leaves it alone.
+    expect(calls.some((line) => line.startsWith("dsh plugin --profile test "))).toBe(false);
+  });
+
   it("uninstalls everything it registered", () => {
     const result = nsBridge(["uninstall", "all", "--profile", "test"]);
     expect(result.status).toBe(0);
