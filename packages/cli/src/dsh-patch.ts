@@ -194,7 +194,10 @@ function findEntry(lines: readonly string[], provider: ProviderName): Entry | un
 }
 
 /** The nearest `- insert:` item above the entry, unless another list item intervenes. */
-function findInsert(lines: readonly string[], entryStart: number): { start: number; end: number; disabled: boolean } | undefined {
+function findInsert(
+  lines: readonly string[],
+  entryStart: number,
+): { start: number; end: number; disabled: boolean } | undefined {
   let start = -1;
   for (let index = entryStart - 1; index >= 0; index -= 1) {
     const line = lines[index] ?? "";

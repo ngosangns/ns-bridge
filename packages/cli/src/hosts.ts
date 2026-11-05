@@ -11,8 +11,8 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -246,7 +246,11 @@ function dshSteps(action: HostAction, profile: string, paths: HostPaths, desktop
     const dir = join(dshHome(paths), "profiles", profile);
     const deps = action === "uninstall" ? "drop" : "sync";
     return [
-      { host: "dsh", label: `${deps} ns-dsh-llm-* deps in ${join(dir, "package.json")}`, apply: () => syncDshDeps(dir, action, paths) },
+      {
+        host: "dsh",
+        label: `${deps} ns-dsh-llm-* deps in ${join(dir, "package.json")}`,
+        apply: () => syncDshDeps(dir, action, paths),
+      },
       { host: "dsh", argv: ["pnpm", "install", "--dir", dir] },
       action === "uninstall"
         ? { host: "dsh", label: `remove provider blocks from ${patch}`, apply: () => removeDshPatch(patch) }

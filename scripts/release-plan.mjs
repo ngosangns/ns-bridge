@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 // ABOUTME: Lists the workspace packages whose package.json version is not on npm yet,
-// ABOUTME: in dependency order, so publish.yml can release them without a broken window.
+// ABOUTME: in dependency order, so `task publish` can release them without a broken window.
 //
 // The only package this repo publishes is @ngosangns/ns-bridge. The provider
 // packages stay on npm at their last version and are not released again.
-// A release is "bump that package, push, then push the tag ns-bridge@<version>".
+// A release is "bump that package, commit, then run task publish".
 //
-// A package npm has never seen is left out of the CI plan with a warning:
-// trusted publishing cannot create a package, so its first version is
-// published by hand (2FA) and its trusted publisher registered afterwards.
-// A planned package that depends on one is refused until then.
+// A package npm has never seen stays out of the plan. Publish that first
+// version by hand (`npm publish <dir> --access public`). A planned package
+// that depends on one is refused until then.
 //
 //   node scripts/release-plan.mjs            # human-readable plan
-//   node scripts/release-plan.mjs --json     # [{dir,name,version}] for CI
+//   node scripts/release-plan.mjs --json     # [{dir,name,version}]
 //   node scripts/release-plan.mjs --tag ns-bridge@<version>
 //       exits non-zero unless the CLI is in the plan at that version
 
@@ -88,9 +87,8 @@ function isPublished(name, version) {
 }
 
 /**
- * Whether npm has any version of `name`. Trusted publishing (OIDC) cannot
- * create a package: its first version must be published by hand (with the
- * account's 2FA), and the trusted publisher registered afterwards.
+ * Whether npm has any version of `name`. A name npm has never seen stays
+ * out of the plan until its first version is published by hand.
  */
 function existsOnNpm(name) {
   try {
@@ -154,7 +152,7 @@ const unpublished = topoSort()
     tag: tagFor(manifest.name, manifest.version),
   }));
 
-// First releases need a human (see existsOnNpm); everything else goes to CI.
+// First releases stay out of `task publish` until a human publishes them once.
 const firstReleases = unpublished.filter((entry) => !existsOnNpm(entry.name));
 const firstReleaseNames = new Set(firstReleases.map((entry) => entry.name));
 const plan = unpublished.filter((entry) => !firstReleaseNames.has(entry.name));
@@ -189,7 +187,7 @@ if (tagIndex !== -1) {
   const tag = args[tagIndex + 1];
   const match = plan.find((entry) => entry.tag === tag);
   if (!match && firstReleases.some((entry) => entry.tag === tag)) {
-    console.error(`::error::${tag} is a first release, which trusted publishing cannot create; publish it by hand`);
+    console.error(`::error::${tag} has never been on npm; publish that first version by hand`);
     process.exit(1);
   }
   if (!match) {
@@ -206,10 +204,9 @@ if (tagIndex !== -1) {
 
 if (firstReleases.length > 0) {
   console.error(
-    `::warning::not published by CI (never on npm; trusted publishing cannot create a package): ` +
+    `::warning::not in the plan (never on npm): ` +
       `${firstReleases.map((entry) => `${entry.name}@${entry.version}`).join(", ")}. ` +
-      `Publish each by hand once, in this order (npm publish <dir> --access public, with 2FA), ` +
-      `then register the trusted publisher: npm trust github <name> --file publish.yml --repo ngosangns/ns-bridge --allow-publish`,
+      `Publish each by hand once, in this order (npm publish <dir> --access public).`,
   );
 }
 for (const blocker of blockers) console.error(`::error::${blocker}`);

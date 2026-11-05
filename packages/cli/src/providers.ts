@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DSH_ID, DSH_PLUGIN, dshPluginState, setDshPluginEnabled } from "./dsh-patch.js";
-import { type Host, dshDesktopRunning, dshProfiles, isPiBundleSource, PI_SOURCE, parseHosts } from "./hosts.js";
+import { dshDesktopRunning, dshProfiles, type Host, isPiBundleSource, PI_SOURCE, parseHosts } from "./hosts.js";
 import {
   PROVIDERS,
   type ProviderName,
@@ -269,11 +269,7 @@ function dshMutateStep(
   };
 }
 
-function readDshProvider(
-  provider: ProviderName,
-  profile: string,
-  dshHome: string,
-): { on: boolean; note?: string } {
+function readDshProvider(provider: ProviderName, profile: string, dshHome: string): { on: boolean; note?: string } {
   const patch = join(dshHome, "profiles", profile, "cordis.patch.yml");
   let raw: string;
   try {

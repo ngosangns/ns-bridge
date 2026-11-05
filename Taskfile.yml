@@ -1,0 +1,26 @@
+version: "3"
+
+tasks:
+  check:
+    desc: Lint, build, typecheck, and test. The pre-commit hook runs this.
+    cmds:
+      - pnpm lint
+      - pnpm -r build
+      - pnpm -r check
+      - pnpm test
+
+  hooks:
+    desc: Use .githooks/pre-commit in this clone.
+    cmds:
+      - git config core.hooksPath .githooks
+    status:
+      - test "$(git config --get core.hooksPath)" = .githooks
+
+  publish:
+    desc: Pack @ngosangns/ns-bridge and upload it. You run this. GitHub does not.
+    cmds:
+      - task: check
+      - node scripts/release-plan.mjs
+      - node scripts/publish-pack.mjs
+      - cmd: node scripts/publish-upload.mjs
+        prompt: Upload the packed tarball to npm?

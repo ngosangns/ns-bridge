@@ -354,9 +354,9 @@ A DSH profile can point at a local build with
 
 ## CI
 
-`.github/workflows/ci.yml` runs on push to `main` and on pull requests:
-`pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm -r build`, `pnpm -r check`,
-`pnpm test`. Run the same sequence locally before pushing.
+There is no GitHub Actions check. `.githooks/pre-commit` runs `task check`
+(`pnpm lint`, `pnpm -r build`, `pnpm -r check`, `pnpm test`). A clone uses
+that hook after `task hooks`, which sets `core.hooksPath` to `.githooks`.
 
 ## Releasing
 
@@ -367,99 +367,33 @@ run when any other package is publishable. What they build is shipped inside
 the CLI tarball as `dist/hosts/**`, so a provider change reaches users with
 the next `ns-bridge` release, not a package of its own.
 
-Publishing runs from `.github/workflows/publish.yml` using npm **trusted
-publishing** (OIDC) on the self-hosted runner, so no npm token is stored.
-The workflow accepts only a `ns-bridge@<version>` tag.
+`task publish` is the only publish step. GitHub does not upload the package.
+The task runs the same checks as the pre-commit hook, then
+[`scripts/release-plan.mjs`](scripts/release-plan.mjs), `pnpm pack`, a check
+of the packed manifest, and asks before `npm publish`. The machine must
+already be logged in to npm. The task does not log in and does not push a tag.
 
 ### Cutting a release
 
 1. Bump `version` in `packages/cli/package.json`.
-2. Commit and push to `main`.
-3. Push the tag, npm scope dropped:
+2. Commit and push to `main`. The pre-commit hook runs `task check`.
+3. Run `task publish` and confirm the upload.
 
-   ```bash
-   git tag ns-bridge@<version> && git push origin ns-bridge@<version>
-   ```
-
-`npm view @ngosangns/ns-bridge versions` lists what is published; never
-republish one of those or push its tag again. The next release is a new
-version in `packages/cli/package.json`.
-
-The workflow re-runs lint, build, typecheck and tests, then
-[`scripts/release-plan.mjs`](scripts/release-plan.mjs) publishes that CLI
-version when npm does not have it yet. It refuses a tag for any other package,
-or a CLI version already on npm.
-
-A package npm has never seen is left out of the plan with a warning: trusted
-publishing cannot create a package, so its first version is published by hand
-and its trusted publisher registered afterwards
-(`npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bridge --allow-publish`).
-
-Then it packs with `pnpm pack`, verifies the packed manifest (`repository.url`
-naming this repo, no `workspace:` range), and publishes with `npm publish`.
-Run `node scripts/release-plan.mjs` locally to see what a tag would ship.
-`workflow_dispatch` runs the same job, dry-run by default.
+`npm view @ngosangns/ns-bridge versions` lists what is published. Never
+republish one of those. The next release is a new version in
+`packages/cli/package.json`. `scripts/release-plan.mjs` refuses a version
+already on npm, and it leaves out a package npm has never seen.
 
 Tags from before the merge were renamed to the same scheme
 (`ns-pi-provider@0.2.2`, `ns-omp-provider@0.3.1`, `ns-devin-core@0.2.0`, …);
 the former ns-kiro-provider `v*` tags are kept and mirrored as
-`ns-kiro-core@<version>`.
-
-### Trusted publisher for `@ngosangns/ns-bridge`
-
-The publisher is registered. The `0.1.1` publish validated it, and every
-release since has published from the same workflow (`0.1.2` was workflow
-`39284264937`). `npm view @ngosangns/ns-bridge versions` lists them, and
-`gh run list -R ngosangns/ns-bridge -w publish.yml` shows the runs. Settings →
-Trusted Publisher → GitHub Actions, with
-
-| Field | Value |
-| --- | --- |
-| Organization / user | `ngosangns` |
-| Repository | `ns-bridge` |
-| Workflow filename | `publish.yml` |
-| Environment | *(leave empty)* |
-
-or:
-
-```bash
-npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bridge --allow-publish
-```
-
-`--allow-publish` is required. npm can stage by default, and this workflow
-runs `npm publish`, not `npm stage publish`. Leave the environment empty:
-`publish.yml` does not set one.
-
-npm only allows a trusted publisher on a package that exists, so a brand-new
-package needs its first version published by hand from a logged-in machine:
-
-```bash
-pnpm --filter @ngosangns/ns-bridge build && cd packages/cli && pnpm pack && npm publish ./ngosangns-ns-bridge-<version>.tgz --access public
-npm trust github @ngosangns/ns-bridge --file publish.yml --repo ngosangns/ns-bridge --allow-publish
-```
-
-That sequence already ran for this CLI: `0.1.0` from a logged-in machine, then
-every later version from the workflow. A later release is a
-version bump and a new `ns-bridge@<version>` tag.
-
-A trusted publisher that has never published expires 48 hours after it is
-created. Uploading from the laptop does not validate it. The first successful
-`npm publish` from this workflow does, and binds the configuration to the
-repository id. When the first version was uploaded locally, bump a patch and
-push that package's tag the same day so CI publishes it. After that, later
-versions publish from the tag. Do not ask for `npm login`, an OTP, or a token.
-
-`npm trust list <name>` prints the configuration. `npm trust list --json`
-asks for a fresh one-time password, so do not use it.
-
-Until a new package exists on npm, `scripts/release-plan.mjs` leaves it out
-of the plan with a warning, and tagging it fails. A planned package that
-depends on it is refused.
+`ns-kiro-core@<version>`. Versions through `0.1.27` were published by the
+deleted `.github/workflows/publish.yml`. The `ns-bridge@0.1.28` publish run
+was cancelled and did not upload. A tag does not publish anymore.
 
 ### Why `pnpm pack` and `npm publish`, not one tool
 
 The adapters declare internal dependencies as `workspace:*`. Only pnpm rewrites
-that to the real version when packing; `npm pack` would ship the literal
-`workspace:*` and the published package would be uninstallable. But `pnpm
-publish` does not speak OIDC, so the tarball pnpm produces is handed to
-`npm publish`.
+that to the real version when packing. `npm pack` would ship the literal
+`workspace:*` and the published package would be uninstallable. `task publish`
+hands the tarball pnpm produces to `npm publish`.

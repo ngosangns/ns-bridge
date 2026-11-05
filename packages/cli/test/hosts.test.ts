@@ -191,9 +191,7 @@ describe("planHostCommands guards", () => {
     const sweep = planHostCommands("install", ["dsh"], undefined, paths, () => true);
     expect(sweep.error).toBeUndefined();
     expect(sweep.notes).toEqual(["# dsh desktop skipped: quit the DeepSeek Harness app to edit it"]);
-    expect(sweep.steps.every((step) => !JSON.stringify(step.argv ?? step.label ?? "").includes("desktop"))).toBe(
-      true,
-    );
+    expect(sweep.steps.every((step) => !JSON.stringify(step.argv ?? step.label ?? "").includes("desktop"))).toBe(true);
 
     const named = planHostCommands("install", ["dsh"], "desktop", paths, () => true);
     expect(named.steps).toEqual([]);
