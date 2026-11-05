@@ -4,7 +4,12 @@
 import { randomUUID } from "node:crypto";
 import { recordUsage } from "ns-core-utils";
 import { type ResolvedQoderAuth, requireQoderAuth } from "./auth.js";
-import { QODER_DEFAULT_CONTEXT_WINDOW, QODER_DEFAULT_MAX_TOKENS, qoderBootstrapModels } from "./catalog.js";
+import {
+  QODER_DEFAULT_CONTEXT_WINDOW,
+  QODER_DEFAULT_MAX_TOKENS,
+  QODER_WIRE_BODY_LIMIT_BYTES,
+  qoderBootstrapModels,
+} from "./catalog.js";
 import { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js";
 import { toQoderWireMessages } from "./prompt.js";
 import { createWireReduceState, finishWireReduce, reduceWireChunk } from "./reduce.js";
@@ -265,7 +270,16 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
   };
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = qoderWireUrl(process.env.QODER_MODEL_SERVER_HOST, options.endpoint);
-  const response = await postWithRetry(fetchImpl, url, headers, JSON.stringify(payload), options.signal);
+  const body = JSON.stringify(payload);
+  const bodyBytes = Buffer.byteLength(body);
+  // The model server answers HTTP 500 with {"error":"internal server error"}
+  // for every body over this cap, which a host cannot tell from an outage.
+  if (bodyBytes > QODER_WIRE_BODY_LIMIT_BYTES) {
+    throw new QoderApiError(
+      `Qoder prompt is too long for this model's context window (${bodyBytes} bytes > ${QODER_WIRE_BODY_LIMIT_BYTES} bytes)`,
+    );
+  }
+  const response = await postWithRetry(fetchImpl, url, headers, body, options.signal);
   if (!response.ok) throw await responseError(response);
   if (!response.body) throw new QoderApiError("Qoder model server returned an empty body");
 

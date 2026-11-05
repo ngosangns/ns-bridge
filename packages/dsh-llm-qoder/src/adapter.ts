@@ -25,12 +25,25 @@ function reserveField(model: { contextWindow: number; maxTokens: number; compact
   return reserve !== undefined && reserve < model.maxTokens ? { compactionReserveTokens: reserve } : {};
 }
 
+/**
+ * Tokens `dsh-compaction-basic` subtracts from the reported window by default.
+ * A catalog window of 65,536 leaves a negative pressure budget, so the
+ * pre-step compact is rejected and the turn is sent whole.
+ */
+const DSH_COMPACTION_HEADROOM_TOKENS = 65_536;
+
+function dshContextWindow(model: { contextWindow: number; maxTokens: number }): number {
+  const pressure = model.contextWindow - model.maxTokens - DSH_COMPACTION_HEADROOM_TOKENS;
+  if (pressure > 0) return model.contextWindow;
+  return model.contextWindow + DSH_COMPACTION_HEADROOM_TOKENS;
+}
+
 function toAdapterModel(model: QoderListedModel): DshAdapterModel {
   return {
     id: model.id,
     name: model.name,
     input: model.input,
-    contextWindow: model.contextWindow,
+    contextWindow: dshContextWindow(model),
     maxTokens: model.maxTokens,
     ...reserveField(model),
     ...(model.reasoning && model.efforts?.length ? { efforts: model.efforts } : {}),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { QoderApiError } from "../src/errors.js";
 import { streamQoder } from "../src/stream.js";
 import type { QoderStreamEvent } from "../src/types.js";
 
@@ -53,6 +54,24 @@ function textOf(events: readonly QoderStreamEvent[], type: "text_delta" | "think
 }
 
 describe("qoder wire stream", () => {
+  it("refuses a body over the 256 KiB wire cap before calling the server", async () => {
+    let called = false;
+    const events = streamQoder({
+      model: "efficient",
+      messages: [{ role: "user", content: [{ type: "text", text: "x".repeat(300_000) }] }],
+      auth: AUTH,
+      fetchImpl: async () => {
+        called = true;
+        return new Response("", { status: 500 });
+      },
+    });
+    await expect(events.next()).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof QoderApiError && /prompt is too long for this model's context window/.test(error.message),
+    );
+    expect(called).toBe(false);
+  });
+
   it("recovers a frame the server wrapped with a raw newline inside a string", async () => {
     const reasoning = JSON.stringify(frame({ reasoning_content: "We need exact strings" }));
     // The model server wraps long frames and can split a JSON string, which is
