@@ -118,4 +118,66 @@ describe("qoder wire stream", () => {
     expect(textOf(events, "text_delta")).toBe("ok");
     expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop" });
   });
+
+  it("posts the signed agent path and unwraps the SSE envelope", async () => {
+    const previous = process.env.QODER_CONFIG_DIR;
+    process.env.QODER_CONFIG_DIR = "/tmp/ns-qoder-no-store";
+    let url = "";
+    let headerNames: string[] = [];
+    const envelope = JSON.stringify({
+      headers: { "Content-Type": ["application/json"] },
+      body: JSON.stringify(frame({ content: "pong" }, "stop")),
+      statusCodeValue: 200,
+      statusCode: "OK",
+    });
+    try {
+      const events: QoderStreamEvent[] = [];
+      for await (const event of streamQoder({
+        model: "efficient",
+        messages: MESSAGES,
+        auth: AUTH,
+        fetchImpl: async (input, init) => {
+          url = String(input);
+          headerNames = Object.keys((init?.headers ?? {}) as Record<string, string>);
+          return new Response(wireText([envelope]), { status: 200 });
+        },
+      })) {
+        events.push(event);
+      }
+      const parsed = new URL(url);
+      expect(parsed.hostname).toBe("api2.qoder.sh");
+      expect(parsed.pathname).toBe("/algo/api/v2/service/pro/sse/agent_chat_generation");
+      expect(headerNames).toContain("Cosy-Key");
+      expect(headerNames).not.toContain("authorization");
+      expect(textOf(events, "text_delta")).toBe("pong");
+      expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop" });
+    } finally {
+      if (previous === undefined) delete process.env.QODER_CONFIG_DIR;
+      else process.env.QODER_CONFIG_DIR = previous;
+    }
+  });
+
+  it("surfaces an envelope rejection without calling the reducer", async () => {
+    const previous = process.env.QODER_CONFIG_DIR;
+    process.env.QODER_CONFIG_DIR = "/tmp/ns-qoder-no-store";
+    const envelope = JSON.stringify({
+      body: JSON.stringify({ code: "101", message: "Signature invalid" }),
+      statusCodeValue: 403,
+      statusCode: "FORBIDDEN",
+    });
+    try {
+      const events = streamQoder({
+        model: "efficient",
+        messages: MESSAGES,
+        auth: AUTH,
+        fetchImpl: async () => new Response(wireText([envelope]), { status: 200 }),
+      });
+      await expect(events.next()).rejects.toSatisfy(
+        (error: unknown) => error instanceof QoderApiError && /Signature invalid/.test(error.message),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.QODER_CONFIG_DIR;
+      else process.env.QODER_CONFIG_DIR = previous;
+    }
+  });
 });

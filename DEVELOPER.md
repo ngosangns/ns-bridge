@@ -336,18 +336,22 @@ NS_PI_LIVE=1 pnpm --filter @ngosangns/ns-pi-provider test:live
 NS_QODER_LIVE=1 pnpm vitest run --project qoder packages/qoder-core/test/live/smoke.test.ts
 ```
 
-`ns-qoder-core` calls the Qoder model server directly over its OpenAI-style
-SSE wire (`POST /model/v1/chat/completions` on `api2-v2.qoder.sh`) — no SDK,
-no daemon, no worker runtime. The bearer token comes from
-`QODER_PERSONAL_ACCESS_TOKEN` or the qodercli credential store
-(`~/.qoder/.auth/user`), which is AES-256-GCM under the machine id;
-`store.ts` decrypts it with `vendor/qoder-auth.wasm`, the same cipher module
-qodercli embeds. The request body needs the CLI-shaped `metadata.business`
-object or the server rejects every model id except `auto`, and its SSE frames
-sometimes carry a raw newline inside the JSON, so `stream.ts` scans each
-`data:` payload as one balanced JSON value instead of splitting on lines.
-Session ids are normalized to a UUID (`qoderSessionId`) and sent as
-`X-Session-ID`. Auth: `qodercli login` or `QODER_PERSONAL_ACCESS_TOKEN`.
+`ns-qoder-core` calls the Qoder model server directly — no SDK, no daemon,
+no worker runtime. The live infer route is
+`POST /algo/api/v2/service/pro/sse/agent_chat_generation` on `api2.qoder.sh`.
+`store.ts` signs that request with `vendor/qoder-auth.wasm`
+(`prepareInferRequest`), the same module qodercli 1.1.83 embeds. The wasm
+returns the URL, the body, and the signature headers (`Cosy-Key`,
+`Authorization`, and the rest). Those headers have to be sent as returned.
+The old `api2-v2.qoder.sh` host no longer resolves, and the unsigned
+`/model/v1/chat/completions` path answers 404. A qodercli session in
+`~/.qoder/.auth/user` supplies the identity the signer hashes. A PAT with no
+local session can still build an anonymous signature, which the server
+rejects. SSE frames are an envelope `{body, statusCodeValue}` around an
+OpenAI chunk, and the inner JSON sometimes carries a raw newline, so
+`stream.ts` scans each `data:` payload as one balanced JSON value.
+Auth: `qodercli login`. `QODER_PERSONAL_ACCESS_TOKEN` still satisfies the
+local login check, but infer signing needs the qodercli session fields.
 
 A DSH profile can point at a local build with
 `dsh plugin --profile <name> add link:<path>/packages/dsh-llm-kiro`.

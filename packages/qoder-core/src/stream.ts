@@ -1,9 +1,9 @@
-// ABOUTME: Direct client for the Qoder model server's OpenAI-style SSE wire.
+// ABOUTME: Direct client for the Qoder model server's signed agent SSE wire.
 // The host owns the tool loop: this process only streams and reports tool calls.
 
 import { randomUUID } from "node:crypto";
 import { recordUsage } from "ns-core-utils";
-import { type ResolvedQoderAuth, requireQoderAuth } from "./auth.js";
+import { qoderConfigDir, type ResolvedQoderAuth, requireQoderAuth } from "./auth.js";
 import {
   QODER_DEFAULT_CONTEXT_WINDOW,
   QODER_DEFAULT_MAX_TOKENS,
@@ -14,6 +14,7 @@ import { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js"
 import { toQoderWireMessages } from "./prompt.js";
 import { createWireReduceState, finishWireReduce, reduceWireChunk } from "./reduce.js";
 import { qoderSessionId } from "./session.js";
+import { type QoderSigningIdentity, readQoderSigningIdentity, signQoderInferRequest } from "./store.js";
 import type { QoderEffort, QoderMessage, QoderStreamEvent, QoderTool } from "./types.js";
 
 export interface StreamQoderOptions {
@@ -30,18 +31,31 @@ export interface StreamQoderOptions {
   endpoint?: string;
 }
 
-/** Version string the model server's metadata gate expects from the CLI. */
-const QODER_WIRE_VERSION = "1.1.81";
-const QODER_WIRE_URL = "https://api2-v2.qoder.sh/model/v1/chat/completions";
+/** Cosy-Version the live qodercli 1.1.83 signer puts on infer requests. */
+const QODER_WIRE_VERSION = "1.1.83";
+const QODER_INFER_ORIGIN = "https://api2.qoder.sh";
+const ANONYMOUS_SIGNING_IDENTITY: QoderSigningIdentity = {
+  machineId: "00000000-0000-0000-0000-000000000000",
+  userInfoJson: JSON.stringify({ uid: "", encrypt_user_info: "", key: "" }),
+};
 const RETRY_DELAYS_MS = [200, 500];
 
-/** CLI's own override for the model server host (`https://<host>/model/v1/...`). */
+/** Inference origin. `prepareInferRequest` rewrites it onto the agent SSE path. */
 export function qoderWireUrl(host: string | undefined, endpoint?: string): string {
   const direct = endpoint?.trim();
-  if (direct) return direct;
+  if (direct) return originOf(direct);
   const override = host?.trim();
-  if (override) return `https://${override}/model/v1/chat/completions`;
-  return QODER_WIRE_URL;
+  if (!override) return QODER_INFER_ORIGIN;
+  if (override.startsWith("http://") || override.startsWith("https://")) return originOf(override);
+  return `https://${override}`;
+}
+
+function originOf(value: string): string {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return value;
+  }
 }
 
 function aborted(): Error {
@@ -79,34 +93,70 @@ interface QoderRequestBody {
   requestId: string;
 }
 
+function lastUserText(messages: readonly QoderMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") continue;
+    const lines: string[] = [];
+    for (const part of message.content) {
+      if (part.type === "text" && part.text) lines.push(part.text);
+    }
+    if (lines.length > 0) return lines.join("\n");
+  }
+  return "";
+}
+
 function buildRequestBody(options: StreamQoderOptions, sessionId: string | undefined): QoderRequestBody {
   const requestId = randomUUID();
   const spec = qoderBootstrapModels().find((model) => model.id === options.model);
+  const text = lastUserText(options.messages);
+  const maxTokens = spec?.maxTokens ?? QODER_DEFAULT_MAX_TOKENS;
   const payload: Record<string, unknown> = {
-    model: options.model,
-    messages: toQoderWireMessages(options.messages, options.systemPrompt),
+    request_id: requestId,
+    chat_record_id: requestId,
+    request_set_id: randomUUID(),
+    session_id: sessionId,
+    source_session_id: sessionId,
     stream: true,
-    stream_options: { include_usage: true },
-    metadata: {
-      context: {
-        request_id: requestId,
-        request_set_id: randomUUID(),
-        session_id: sessionId,
-        task_id: "common",
-        client_type: "5",
+    chat_task: "FREE_INPUT",
+    is_reply: true,
+    is_retry: false,
+    source: 1,
+    version: "3",
+    agent_id: "agent_common",
+    aliyun_user_type: "",
+    chat_context: {
+      text,
+      features: [],
+      extra: {
+        context: [],
+        modelConfig: { key: options.model, is_reasoning: spec?.reasoning === true },
+        originalContent: text,
       },
-      // `business` is the gate: without `product: "cli"` the server rejects
-      // every model id except `auto`.
-      business: {
-        product: "cli",
-        version: QODER_WIRE_VERSION,
-        type: "agent",
-        model_key: options.model,
-      },
+      chatPrompt: "",
+      imageUrls: null,
     },
-    max_tokens: spec?.maxTokens ?? QODER_DEFAULT_MAX_TOKENS,
-    ...(options.tools?.length ? { tools: options.tools.map(toWireTool) } : {}),
-    ...(options.effort ? { enable_thinking: true, reasoning_effort: wireEffort(options.effort) } : {}),
+    session_type: "qodercli",
+    task_id: "common",
+    system: options.systemPrompt ?? "",
+    messages: toQoderWireMessages(options.messages, options.systemPrompt),
+    tools: options.tools?.map(toWireTool) ?? [],
+    parameters: {
+      max_tokens: maxTokens,
+      ...(options.effort ? { enable_thinking: true, reasoning_effort: wireEffort(options.effort) } : {}),
+    },
+    model_config: {
+      key: options.model,
+      display_name: spec?.name ?? options.model,
+      model: "",
+      is_vl: spec?.input.includes("image") === true,
+      is_reasoning: spec?.reasoning === true,
+      max_input_tokens: spec?.contextWindow ?? QODER_DEFAULT_CONTEXT_WINDOW,
+      source: "system",
+      format: "openai",
+      api_key: "",
+      url: "",
+    },
   };
   return { payload, requestId };
 }
@@ -170,6 +220,29 @@ async function responseError(response: Response): Promise<Error> {
     return new QoderAuthError(`${QODER_LOGIN_MESSAGE} (HTTP ${response.status}${suffix})`);
   }
   return new QoderApiError(`Qoder model server returned HTTP ${response.status}${suffix}`);
+}
+
+/** The agent SSE wraps each OpenAI chunk in `{body, statusCodeValue}`. */
+function unwrapWireChunk(chunk: unknown): unknown {
+  if (!chunk || typeof chunk !== "object" || Array.isArray(chunk)) return chunk;
+  const record = chunk as Record<string, unknown>;
+  if (typeof record.statusCodeValue !== "number" || typeof record.body !== "string") return chunk;
+  if (record.statusCodeValue !== 200) {
+    let detail = "";
+    try {
+      const inner = JSON.parse(record.body) as { message?: unknown };
+      if (typeof inner.message === "string") detail = inner.message.slice(0, 200);
+    } catch {
+      // The status line is enough when the envelope body is not JSON.
+    }
+    const status = typeof record.statusCode === "string" ? record.statusCode : String(record.statusCodeValue);
+    throw new QoderApiError(`Qoder model server rejected the request (${status}${detail ? `: ${detail}` : ""})`);
+  }
+  try {
+    return JSON.parse(record.body);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -255,21 +328,12 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string
 async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator<QoderStreamEvent> {
   if (options.signal?.aborted) throw aborted();
   const auth = options.auth ?? requireQoderAuth();
+  if (!auth.token) throw new QoderAuthError(QODER_LOGIN_MESSAGE);
   const sessionId = qoderSessionId(options.sessionId);
-  const { payload, requestId } = buildRequestBody(options, sessionId);
+  const { payload } = buildRequestBody(options, sessionId);
   if ((payload.messages as unknown[]).length === 0) throw new QoderApiError("Qoder prompt is empty");
 
-  const headers: Record<string, string> = {
-    authorization: `Bearer ${auth.token}`,
-    "content-type": "application/json",
-    "x-request-id": requestId,
-    "cosy-clienttype": "5",
-    "cosy-machineos": machineOs(),
-    "cosy-version": QODER_WIRE_VERSION,
-    ...(sessionId ? { "x-session-id": sessionId } : {}),
-  };
   const fetchImpl = options.fetchImpl ?? fetch;
-  const url = qoderWireUrl(process.env.QODER_MODEL_SERVER_HOST, options.endpoint);
   const body = JSON.stringify(payload);
   const bodyBytes = Buffer.byteLength(body);
   // The model server answers HTTP 500 with {"error":"internal server error"}
@@ -279,7 +343,14 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
       `Qoder prompt is too long for this model's context window (${bodyBytes} bytes > ${QODER_WIRE_BODY_LIMIT_BYTES} bytes)`,
     );
   }
-  const response = await postWithRetry(fetchImpl, url, headers, body, options.signal);
+  const origin = qoderWireUrl(process.env.QODER_MODEL_SERVER_HOST, options.endpoint);
+  const identity = readQoderSigningIdentity(qoderConfigDir()) ?? ANONYMOUS_SIGNING_IDENTITY;
+  const signed = signQoderInferRequest(origin, body, options.model, "system", identity, QODER_WIRE_VERSION);
+  const headers = { ...signed.headers };
+  if (!Object.keys(headers).some((name) => name.toLowerCase() === "cosy-machineos")) {
+    headers["Cosy-MachineOS"] = machineOs();
+  }
+  const response = await postWithRetry(fetchImpl, signed.url, headers, signed.body, options.signal);
   if (!response.ok) throw await responseError(response);
   if (!response.body) throw new QoderApiError("Qoder model server returned an empty body");
 
@@ -290,10 +361,12 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
       if (data === "[DONE]") break;
       let chunk: unknown;
       try {
-        chunk = JSON.parse(data);
-      } catch {
+        chunk = unwrapWireChunk(JSON.parse(data));
+      } catch (error) {
+        if (error instanceof QoderApiError) throw error;
         continue;
       }
+      if (chunk === undefined) continue;
       for (const event of reduceWireChunk(state, chunk)) yield event;
     }
     for (const event of finishWireReduce(state)) yield event;
