@@ -71,7 +71,7 @@ describe("wire reduce", () => {
     const usage = events.find((e) => e.type === "usage") as {
       usage: { input: number; output: number; totalTokens: number; cacheRead?: number };
     };
-    expect(usage.usage.input).toBe(100);
+    expect(usage.usage.input).toBe(40);
     expect(usage.usage.output).toBe(10);
     expect(usage.usage.totalTokens).toBe(110);
     expect(usage.usage.cacheRead).toBe(60);
