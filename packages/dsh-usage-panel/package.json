@@ -12,6 +12,9 @@
     "./package.json": "./package.json"
   },
   "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "scripts": {
+    "self-check": "node self-check.mjs"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.0",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.0-rc.2"
