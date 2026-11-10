@@ -11,8 +11,8 @@ import { existsSync } from "node:fs";
 import { type ArnictIo, runArnict } from "./arnict.js";
 import { type CatalogPaths, catalogPaths, formatCatalog, parseVendors, readCatalogs, type Vendor } from "./catalog.js";
 import {
-  dshDesktopRunning,
   defaultHostPaths,
+  dshDesktopRunning,
   formatCommand,
   type HostAction,
   type HostPaths,
@@ -22,6 +22,7 @@ import {
   planHostCommands,
 } from "./hosts.js";
 import { defaultKiroProfiles, findKiroProfile, formatKiroProfiles, type KiroProfileOps } from "./kiro-profile.js";
+import { runPluginInstall } from "./plugin.js";
 import { formatProviderPlan, type ProviderPaths, planProviders, providerPaths } from "./providers.js";
 import { defaultModelRefresh, type ModelRefresh, refreshLine } from "./refresh.js";
 import { currentVersion, PACKAGE_NAME, parseNpmVersion, planSelfUpdate } from "./self.js";
@@ -83,6 +84,7 @@ Usage:
   ns-bridge uninstall [pi|omp|dsh|all] [--dry-run] [--profile <name>]
   ns-bridge providers status [pi|omp|dsh|all] [kiro|devin|grok|arnict|qoder] [--profile <name>]
   ns-bridge providers enable|disable <pi|omp|dsh> <kiro|devin|grok|arnict|qoder> [--dry-run] [--profile <name>]
+  ns-bridge plugin install <bundle-path> [pi|omp|dsh|all] [--dry-run] [--profile <name>]
   ns-bridge usage [--vendor <kiro|devin|grok|arnict|qoder>] [--day YYYY-MM-DD] [--days <n>] [--json]
   ns-bridge usage --session <id> [--vendor <name>] [--json]
   ns-bridge models list [kiro|devin|grok|arnict|qoder|all]
@@ -323,6 +325,35 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
       ...(options.selectionFilePath ? { selectionFilePath: options.selectionFilePath } : {}),
       ...(options.now !== undefined ? { now: new Date(options.now) } : {}),
     });
+  }
+  if (command === "plugin") {
+    if (target !== "install") {
+      err("usage: ns-bridge plugin install <bundle-path> [pi|omp|dsh|all]");
+      return 1;
+    }
+    const bundlePath = extra;
+    if (!bundlePath) {
+      err("usage: ns-bridge plugin install <bundle-path> [pi|omp|dsh|all]");
+      return 1;
+    }
+    const hostArg = parsed.positionals[3] ?? "all";
+    const parsed2 = parseHosts(hostArg);
+    if ("error" in parsed2) {
+      err(parsed2.error);
+      return 1;
+    }
+    const host = hostArg === "all" ? "all" : parsed2[0];
+    const result = await runPluginInstall({
+      bundlePath,
+      host,
+      profile: parsed.profile,
+      apply: parsed.apply,
+      log,
+      err,
+      ...(options.hostPaths ? { hostPaths: options.hostPaths } : {}),
+      ...(options.desktopRunning ? { desktopRunning: options.desktopRunning } : {}),
+    });
+    return result.code;
   }
   err(`unknown command ${command}`);
   err("run ns-bridge help");
