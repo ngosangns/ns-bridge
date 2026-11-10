@@ -71,6 +71,10 @@ export default defineConfig({
         test: {
           name: "cli",
           include: ["packages/cli/test/**/*.test.ts"],
+          // serve.test.ts imports src/serve-entry.js, which pulls every bundled
+          // backend into the module graph. That first import measured 4057ms
+          // under load, just inside the default 5s budget.
+          testTimeout: 20_000,
         },
       },
       "packages/pi-provider",
