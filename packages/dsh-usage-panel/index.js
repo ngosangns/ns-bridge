@@ -13,17 +13,15 @@ const PER_MILLION = 1_000_000;
 // One credit unit for every vendor: packages/kiro-core/src/usage-tracking.ts:8.
 const USD_PER_CREDIT = 0.04;
 const NATIVE_CREDIT_UNITS = new Set(['credit', 'credits']);
-const TOP_SESSIONS = 20;
-const SCHEMA_VERSION = 1;
 /**
- * Standalone DSH runs with no ns-bridge config, so it has no real limit. When
- * neither the budget file nor the environment gives one, the panel shows this
- * example limit and labels its source so nobody reads it as a real quota.
+ * One limit for every vendor, for a host that has no budget file. When neither
+ * the budget file nor this variable gives a limit, a vendor reports no credits
+ * left. The panel never invents an example quota, because a made-up number in
+ * a budget bar reads as a real one.
  */
-const FALLBACK_BUDGET_CREDITS = 200;
 const FALLBACK_BUDGET_ENV = 'NS_BRIDGE_CREDIT_LIMIT';
-// Only this many digits survive. The panel never accepts an arbitrary number.
-const WINDOW_CHOICES = [1, 3, 5, 10];
+// The model label on a row that exists only to carry a budget.
+const NO_USAGE_MODEL = 'no usage';
 
 /**
  * Cold-start price table, USD per one million tokens. The values were read from
@@ -217,12 +215,12 @@ function dayFolders(root) {
 }
 
 /**
- * How many day folders to read. The default covers the whole window the panel
- * can select, so a shorter period is a filter over these rows and never a
- * second round trip. `days` in the plugin config narrows the read.
+ * How many day folders to read. `packages/cli/src/usage.ts:86` uses the same
+ * rule: the newest N folders, N from the config, default DEFAULT_USAGE_DAYS.
+ * Reading more days would put rows in the panel that the CLI does not show.
  */
 function windowDays(config) {
-	const wanted = Math.floor(num(config.days, MAX_USAGE_DAYS));
+	const wanted = Math.floor(num(config?.days, DEFAULT_USAGE_DAYS));
 	if (wanted < 1) return 1;
 	return Math.min(wanted, MAX_USAGE_DAYS);
 }
@@ -277,52 +275,45 @@ function readRecords(root, days) {
 	return found;
 }
 
+/** One aggregate per vendor and model inside the window. */
 function emptyGroup(vendor, model) {
 	return {
 		vendor,
 		model,
-		credits: 0,
 		billed: 0,
 		estimated: 0,
 		promptTokens: 0,
 		outputTokens: 0,
-		cacheReadTokens: 0,
-		cacheWriteTokens: 0,
-		stepCount: 0,
 		sessions: new Set(),
 	};
 }
 
-function emptySession(vendor, session) {
-	return {
-		vendor,
-		session,
-		usedCredits: 0,
-		totalTokens: 0,
-		stepCount: 0,
-		firstDay: '',
-		lastDay: '',
-		models: new Map(),
-	};
+/** The credit limit for one vendor: budget file first, then the environment. */
+function vendorBudget(budgets, fallback, vendor) {
+	if (budgets.has(vendor)) return budgets.get(vendor);
+	return fallback;
 }
 
-/** The whole payload is optional; a snapshot always stands on its own. */
-function emptySnapshot(reason) {
+/**
+ * Credits a vendor still has. A vendor with no limit reports zero, never a
+ * number this panel invented, because a made-up limit reads as a real quota.
+ * Spending more than the limit also reports zero.
+ */
+function creditsLeft(budget, spent) {
+	if (!Number.isFinite(budget)) return 0;
+	return Math.max(0, round(budget - num(spent)));
+}
+
+/** A row for a budgeted vendor that used nothing inside the window. */
+function budgetRow(vendor, budget) {
 	return {
-		schemaVersion: SCHEMA_VERSION,
-		generatedAt: new Date().toISOString(),
-		error: typeof reason === 'string' ? reason : '',
-		usageRoot: usageRoot(),
-		budgetFile: budgetPath(),
-		defaultDays: DEFAULT_USAGE_DAYS,
-		maxDays: MAX_USAGE_DAYS,
-		windowChoices: WINDOW_CHOICES.slice(),
-		availableDays: [],
-		from: '',
-		to: '',
-		limits: [],
-		rows: [],
-		sessions: [],
+		vendor: String(vendor),
+		model: NO_USAGE_MODEL,
+		totalTokens: 0,
+		totalCredits: 0,
+		billedCredits: 0,
+		sessionCount: 0,
+		remainingCredits: creditsLeft(budget, 0),
 	};
 }
 
@@ -340,158 +331,91 @@ export default class UsageService extends TypertRemoteService {
 		}
 	}
 
-	/** Called through the RPC gateway with no arguments. Returns one snapshot. */
+	/**
+	 * Called through the RPC gateway with no arguments. Returns a flat array of
+	 * rows, one per vendor and model. A failure returns an empty array, so the
+	 * panel shows an empty table instead of a half-built one.
+	 */
 	getUsageSummary() {
 		try {
-			return this.buildSnapshot();
+			return buildRows(this.panelConfig);
 		} catch (error) {
-			const reason = 'usage summary failed: ' + String(error?.message ?? error);
-			warn(this.ctx, reason);
-			return emptySnapshot(reason);
+			warn(this.ctx, 'usage summary failed: ' + String(error?.message ?? error));
+			return [];
 		}
-	}
-
-	/**
-	 * One row per day, vendor, and model. The row is the fact; every total, bar,
-	 * and chart point is a sum of rows taken by the panel. Nothing is clamped, so
-	 * a vendor that spent more than its limit still shows its real usage.
-	 */
-	buildSnapshot() {
-		const root = usageRoot();
-		const allDays = dayFolders(root);
-		const days = allDays.slice(0, windowDays(this.panelConfig));
-		const records = days.length > 0 ? readRecords(root, days) : [];
-		const catalog = loadCatalog();
-		const groups = new Map();
-		const sessionMap = new Map();
-
-		for (const entry of records) {
-			const record = entry.record;
-			const vendor = record.vendor;
-			const model = typeof record.model === 'string' && record.model !== '' ? record.model : 'unknown';
-			const key = `${entry.day}\u0000${vendor}\u0000${model}`;
-			let group = groups.get(key);
-			if (!group) {
-				group = emptyGroup(vendor, model);
-				groups.set(key, group);
-			}
-			const billed = billedCredits(record);
-			const estimated = billed > 0 ? 0 : estimateCredits(vendor, record, catalog);
-			const promptTokens = num(record.promptTokens);
-			group.billed += billed;
-			group.estimated += estimated;
-			group.credits += billed > 0 ? billed : estimated;
-			group.promptTokens += promptTokens;
-			group.outputTokens += num(record.output);
-			group.cacheReadTokens += num(record.cacheRead);
-			group.cacheWriteTokens += num(record.cacheWrite);
-			group.stepCount += 1;
-
-			const session = typeof record.session === 'string' && record.session !== '' ? record.session : '';
-			if (session === '') continue;
-			group.sessions.add(session);
-			const sessionKey = `${vendor}\u0000${session}`;
-			let aggregate = sessionMap.get(sessionKey);
-			if (!aggregate) {
-				aggregate = emptySession(vendor, session);
-				sessionMap.set(sessionKey, aggregate);
-			}
-			const used = billed > 0 ? billed : estimated;
-			aggregate.usedCredits += used;
-			aggregate.totalTokens += promptTokens + num(record.output);
-			aggregate.stepCount += 1;
-			if (aggregate.firstDay === '' || entry.day < aggregate.firstDay) aggregate.firstDay = entry.day;
-			if (aggregate.lastDay === '' || entry.day > aggregate.lastDay) aggregate.lastDay = entry.day;
-			const perModel = num(aggregate.models.get(model)) + used;
-			aggregate.models.set(model, perModel);
-		}
-
-		const rows = [...groups.entries()]
-			.map(([key, group]) => ({
-				day: key.split('\u0000')[0],
-				vendor: String(group.vendor),
-				model: String(group.model),
-				promptTokens: round(group.promptTokens),
-				outputTokens: round(group.outputTokens),
-				cacheReadTokens: round(group.cacheReadTokens),
-				cacheWriteTokens: round(group.cacheWriteTokens),
-				totalTokens: round(group.promptTokens + group.outputTokens),
-				usedCredits: round(group.credits),
-				billedCredits: round(group.billed),
-				estimatedCredits: round(group.estimated),
-				stepCount: round(group.stepCount),
-				sessionCount: round(group.sessions.size),
-			}))
-			.sort((a, b) => {
-				if (a.day !== b.day) return a.day < b.day ? 1 : -1;
-				if (a.vendor !== b.vendor) return String(a.vendor).localeCompare(String(b.vendor));
-				return b.usedCredits - a.usedCredits;
-			});
-
-		const sessions = [...sessionMap.values()]
-			.map((aggregate) => {
-				let topModel = '';
-				let topCredits = -1;
-				for (const [model, credits] of aggregate.models) {
-					if (credits > topCredits) {
-						topCredits = credits;
-						topModel = model;
-					}
-				}
-				return {
-					vendor: String(aggregate.vendor),
-					session: String(aggregate.session),
-					model: String(topModel),
-					usedCredits: round(aggregate.usedCredits),
-					totalTokens: round(aggregate.totalTokens),
-					stepCount: round(aggregate.stepCount),
-					firstDay: String(aggregate.firstDay),
-					lastDay: String(aggregate.lastDay),
-				};
-			})
-			.sort(
-				(a, b) =>
-					b.usedCredits - a.usedCredits ||
-					b.lastDay.localeCompare(a.lastDay) ||
-					a.session.localeCompare(b.session),
-			)
-			.slice(0, TOP_SESSIONS);
-
-		const budgets = loadBudgets();
-		const fallback = envBudget();
-		const seen = new Set(rows.map((row) => row.vendor));
-		for (const vendor of budgets.keys()) seen.add(vendor);
-
-		const limits = [...seen]
-			.sort((a, b) => String(a).localeCompare(String(b)))
-			.map((vendor) => {
-				if (budgets.has(vendor)) {
-					return { vendor: String(vendor), limitCredits: round(budgets.get(vendor)), limitSource: 'file' };
-				}
-				if (Number.isFinite(fallback)) {
-					return { vendor: String(vendor), limitCredits: round(fallback), limitSource: 'env' };
-				}
-				return { vendor: String(vendor), limitCredits: FALLBACK_BUDGET_CREDITS, limitSource: 'fallback' };
-			});
-
-		return {
-			schemaVersion: SCHEMA_VERSION,
-			generatedAt: new Date().toISOString(),
-			error: '',
-			usageRoot: root,
-			budgetFile: budgetPath(),
-			defaultDays: DEFAULT_USAGE_DAYS,
-			maxDays: MAX_USAGE_DAYS,
-			windowChoices: WINDOW_CHOICES.slice(),
-			availableDays: days.slice(),
-			from: days.length > 0 ? days[days.length - 1] : '',
-			to: days.length > 0 ? days[0] : '',
-			limits,
-			rows,
-			sessions,
-		};
 	}
 }
+
+/**
+ * One row per vendor and model in the window. The grouping has no day
+ * dimension: the window is one period, and these rows add up to what
+ * `ns-bridge usage --days N` reports for the same days. A budgeted vendor with
+ * no usage in the window still gets a row, so its budget stays visible.
+ * Every number here is JSON-safe: RPC rejects -0, NaN, and undefined.
+ */
+function buildRows(config) {
+	const root = usageRoot();
+	const days = dayFolders(root).slice(0, windowDays(config));
+	const records = days.length > 0 ? readRecords(root, days) : [];
+	const catalog = loadCatalog();
+	const groups = new Map();
+
+	for (const entry of records) {
+		const record = entry.record;
+		const vendor = record.vendor;
+		const model = typeof record.model === 'string' && record.model !== '' ? record.model : 'unknown';
+		const key = `${vendor}\u0000${model}`;
+		let group = groups.get(key);
+		if (!group) {
+			group = emptyGroup(vendor, model);
+			groups.set(key, group);
+		}
+		// A step the provider billed in credits needs no price estimate.
+		const billed = billedCredits(record);
+		group.billed += billed;
+		group.estimated += billed > 0 ? 0 : estimateCredits(vendor, record, catalog);
+		group.promptTokens += num(record.promptTokens);
+		group.outputTokens += num(record.output);
+		const session = typeof record.session === 'string' ? record.session : '';
+		if (session !== '') group.sessions.add(session);
+	}
+
+	const spent = new Map();
+	for (const group of groups.values()) {
+		const vendor = String(group.vendor);
+		spent.set(vendor, num(spent.get(vendor)) + group.billed + group.estimated);
+	}
+	const budgets = loadBudgets();
+	const fallback = envBudget();
+
+	const rows = [...groups.values()].map((group) => {
+		const vendor = String(group.vendor);
+		return {
+			vendor,
+			model: String(group.model),
+			totalTokens: round(group.promptTokens + group.outputTokens),
+			totalCredits: round(group.billed + group.estimated),
+			billedCredits: round(group.billed),
+			sessionCount: round(group.sessions.size),
+			remainingCredits: creditsLeft(vendorBudget(budgets, fallback, vendor), num(spent.get(vendor))),
+		};
+	});
+
+	for (const [vendor, budget] of budgets) {
+		if (spent.has(vendor)) continue;
+		rows.push(budgetRow(vendor, budget));
+	}
+
+	// Vendor first, then the biggest spend, so the first row of a vendor is the
+	// one the client reads for its budget bar.
+	return rows.sort((a, b) => {
+		const byVendor = a.vendor.localeCompare(b.vendor);
+		if (byVendor !== 0) return byVendor;
+		if (a.totalCredits !== b.totalCredits) return b.totalCredits - a.totalCredits;
+		return a.model.localeCompare(b.model);
+	});
+}
+
 
 function warn(ctx, message) {
 	try {
