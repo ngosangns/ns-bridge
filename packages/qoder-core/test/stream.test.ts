@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { QoderApiError } from "../src/errors.js";
-import { streamQoder } from "../src/stream.js";
+import { fitQoderBody, streamQoder } from "../src/stream.js";
 import type { QoderStreamEvent } from "../src/types.js";
 
 const AUTH = { mode: "pat" as const, token: "test-token" };
@@ -70,6 +70,32 @@ describe("qoder wire stream", () => {
         error instanceof QoderApiError && /prompt is too long for this model's context window/.test(error.message),
     );
     expect(called).toBe(false);
+  });
+
+  it("trims oldest messages to fit the wire cap and keeps tool-call pairs", () => {
+    const bigChunk = "x".repeat(100_000);
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "oldest" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "calling tool" }],
+        tool_calls: [{ id: "call_1", type: "function", function: { name: "bash", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "call_1", content: bigChunk },
+      { role: "user", content: [{ type: "text", text: bigChunk }] },
+      { role: "assistant", content: [{ type: "text", text: bigChunk }] },
+      { role: "user", content: [{ type: "text", text: "latest" }] },
+    ];
+    const payload = { messages, model: "efficient" };
+    const fitted = fitQoderBody(payload) as { messages: typeof messages };
+    const fittedSize = Buffer.byteLength(JSON.stringify(fitted));
+    expect(fittedSize).toBeLessThanOrEqual(262_144);
+    // The oldest user message, the assistant that called the tool, and the tool result must be gone.
+    expect(fitted.messages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: bigChunk }] });
+    expect(fitted.messages).not.toContainEqual(expect.objectContaining({ role: "tool" }));
+    expect(fitted.messages).not.toContainEqual(expect.objectContaining({ tool_calls: expect.any(Array) }));
+    // The latest user message must remain.
+    expect(fitted.messages.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: "latest" }] });
   });
 
   it("recovers a frame the server wrapped with a raw newline inside a string", async () => {

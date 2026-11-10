@@ -76,6 +76,59 @@ function machineOs(): string {
   return `${arch}_${process.platform}`;
 }
 
+/**
+ * Estimate the serialized byte size of a Qoder request body.
+ * This is a rough approximation used for trimming decisions.
+ */
+function estimateQoderBodyBytes(payload: Record<string, unknown>): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(payload));
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
+  }
+}
+
+/**
+ * Trim oldest messages from the payload until it fits within the wire body limit.
+ * Preserves tool call pairs (assistant with tool_calls + corresponding tool results).
+ * Keeps the system message and at least the last user message.
+ *
+ * Modeled after Grok's `fitResponsesBody()` in packages/grok-core/src/request.ts.
+ */
+export function fitQoderBody(payload: Record<string, unknown>): Record<string, unknown> {
+  const messages = payload.messages as unknown[] | undefined;
+  if (!Array.isArray(messages) || messages.length <= 1) return payload;
+  if (estimateQoderBodyBytes(payload) <= QODER_WIRE_BODY_LIMIT_BYTES) return payload;
+
+  const kept = messages.slice();
+  while (kept.length > 1 && estimateQoderBodyBytes({ ...payload, messages: kept }) > QODER_WIRE_BODY_LIMIT_BYTES) {
+    const dropped = kept[0] as { role?: unknown; tool_calls?: unknown[] };
+    kept.shift();
+
+    // If we dropped an assistant message with tool_calls, also drop the
+    // corresponding tool result messages to keep pairs together.
+    if (dropped?.role === "assistant" && Array.isArray(dropped.tool_calls) && dropped.tool_calls.length > 0) {
+      const toolCallIds = new Set(
+        dropped.tool_calls
+          .map((tc) => (tc && typeof tc === "object" && "id" in tc ? (tc as { id?: unknown }).id : undefined))
+          .filter((id): id is string => typeof id === "string"),
+      );
+      // Drop tool result messages that correspond to the dropped tool calls
+      while (kept.length > 1) {
+        const next = kept[0] as { role?: unknown; tool_call_id?: unknown };
+        if (next?.role === "tool" && typeof next.tool_call_id === "string" && toolCallIds.has(next.tool_call_id)) {
+          kept.shift();
+          toolCallIds.delete(next.tool_call_id);
+          if (toolCallIds.size === 0) break;
+        } else {
+          break;
+        }
+      }
+    }
+  }
+  return { ...payload, messages: kept };
+}
+
 function toWireTool(tool: QoderTool): Record<string, unknown> {
   return {
     type: "function",
@@ -334,7 +387,8 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
   if ((payload.messages as unknown[]).length === 0) throw new QoderApiError("Qoder prompt is empty");
 
   const fetchImpl = options.fetchImpl ?? fetch;
-  const body = JSON.stringify(payload);
+  const fittedPayload = fitQoderBody(payload);
+  const body = JSON.stringify(fittedPayload);
   const bodyBytes = Buffer.byteLength(body);
   // The model server answers HTTP 500 with {"error":"internal server error"}
   // for every body over this cap, which a host cannot tell from an outage.
