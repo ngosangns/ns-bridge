@@ -1,10 +1,16 @@
 // Flow test for the dsh-usage-panel plugin.
 //
-// It checks four areas:
+// It checks ten sections:
 //   1. Package shape: what the plugin manager and the Cordis loader read.
-//   2. Cordis registration: the exact constructor call a fiber makes.
-//   3. Numbers: credit math and budget rows on a fixed fixture.
-//   4. RPC contract: payload safety and the client endpoint.
+//   2. Fixture: a fixed ledger with hand-computed answers, no checks.
+//   3. Cordis registration: the exact constructor call a fiber makes.
+//   4. Summary contract: the object shape the client renders.
+//   5. Credit math: billed, estimated, tokens and cache ratios.
+//   6. Budgets and limits: where a limit comes from and what is left.
+//   7. Window and empty paths: config days, missing ledger, no budget file.
+//   8. RPC payload safety: numbers and keys the gateway accepts.
+//   9. Client contract: endpoint, failure envelope, fields, locale keys.
+//  10. Silence: the host must not warn during any run above.
 //
 // Run it from OUTSIDE the repo, through the profile symlink, so bare imports
 // resolve the same way the app resolves them:
@@ -13,7 +19,7 @@
 //     "$HOME/.dsh/profiles/desktop/node_modules/@local/dsh-usage-panel/test-plugin.mjs"
 //
 // A green run is NOT the final proof. The final proof is the panel rendering
-// at http://127.0.0.1:64043 with no "Failed to load usage". Step 9 prints that
+// at http://127.0.0.1:53675 with no "Failed to load usage". Step 10 prints that
 // manual check.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
@@ -122,6 +128,7 @@ check('host half has no tsconfig or build step to go stale', () => {
 //    The default window is 10 folders, so day 1 stays outside it.
 //    Days 6 and 2 are empty folders: a day with no steps.
 // ---------------------------------------------------------------------------
+console.log('2. fixture');
 const RUN_ROOT = join(tmpdir(), 'dsh-usage-panel-test-' + process.pid);
 const USAGE_DIR = join(RUN_ROOT, 'usage');
 const DAY = (n) => '2026-01-' + String(n).padStart(2, '0');
@@ -163,18 +170,18 @@ append(dayFile(1, 'old'), [{ vendor: 'old', model: 'gone', promptTokens: 900000,
 mkdirSync(join(dayDir(6), 'kiro'), { recursive: true });
 mkdirSync(dayDir(2), { recursive: true });
 
-// Budgets: a flat map. used is stale and must be ignored. 0 and non-objects are skipped.
-writeFileSync(
-	join(RUN_ROOT, 'credit-budgets.json'),
-	JSON.stringify({ kiro: { budget: 100, used: 999 }, devin: { budget: 50 }, qoder: { budget: 5, used: 0 }, broken: { budget: 0 }, nope: 'string' }),
-	'utf8',
-);
+// Budgets: a nested map, one object per vendor. `used` is stale and must be
+// ignored. A budget of 0 and a non-object entry are skipped, so the vendor
+// keeps no row at all.
+const BUDGETS = { kiro: { budget: 100, used: 999 }, devin: { budget: 50 }, qoder: { budget: 5, used: 0 }, broken: { budget: 0 }, nope: 'string' };
+const BUDGET_PATH = join(RUN_ROOT, 'credit-budgets.json');
+writeFileSync(BUDGET_PATH, JSON.stringify(BUDGETS), 'utf8');
 process.env.NS_BRIDGE_USAGE_DIR = USAGE_DIR;
 
 // ---------------------------------------------------------------------------
 // 3. Service construction: the exact call the Cordis fiber makes.
 // ---------------------------------------------------------------------------
-console.log('2. cordis registration');
+console.log('3. cordis registration');
 const mod = await import(new URL('./index.js', HERE).href);
 const tp = await import('@deepseek-ai/dsh-typert-protocol');
 const UsageService = mod.default;
@@ -222,156 +229,367 @@ check('getUsageSummary is visible to the gateway reader', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Summary math on the fixture.
+// 4. Summary contract: the object the client renders.
+//    Every number here comes from the fixture above and was checked by hand.
 // ---------------------------------------------------------------------------
-console.log('3. summary math');
-const rows = service.getUsageSummary();
-const rowOf = (vendor, model) => {
-	const hit = rows.filter((r) => r.vendor === vendor && r.model === model);
-	assert.equal(hit.length, 1, 'rows for ' + vendor + '/' + model + ' = ' + hit.length);
-	return hit[0];
-};
+console.log('4. summary contract');
+const summary = service.getUsageSummary();
 
-check('row count matches the fixture', () => {
-	assert.equal(rows.length, 9, 'rows=' + rows.length + ' ' + JSON.stringify(rows.map((r) => r.vendor + '/' + r.model)));
-	return '9 rows';
-});
-check('native credits pass through unchanged', () => {
-	assert.equal(rowOf('kiro', 'claude-opus-5-5').totalCredits, 5);
-	return '5';
-});
-check('usd credits convert at 0.04 USD per credit', () => {
-	const row = rowOf('kiro', 'claude-haiku-4-5');
-	assert.equal(row.billedCredits, 12.5);
-	assert.equal(row.totalCredits, 12.5);
-	return '0.5 USD -> 12.5 credits';
-});
-check('unknown credit unit is not a credit amount', () => {
-	const row = rowOf('old', 'weird');
-	assert.equal(row.billedCredits, 0, 'unit tokens must not sum into credits');
-	return 'ok';
-});
-check('priced estimate uses the long-context band', () => {
-	assert.equal(rowOf('grok', 'grok-4.7').totalCredits, 15.3);
-	return '15.3';
-});
-check('estimate without cacheRead uses fresh input only', () => {
-	assert.equal(rowOf('kiro', 'claude-sonnet-5-5').totalCredits, 10.25);
-	return '10.25';
-});
-check('tier label with no rate prices to zero, not a guess', () => {
-	const row = rowOf('qoder', 'ultimate');
-	assert.equal(row.totalCredits, 0);
-	assert.equal(row.totalTokens, 5100);
-	return 'ok';
-});
-check('empty model id becomes unknown', () => {
-	assert.ok(rows.some((r) => r.vendor === 'kiro' && r.model === 'unknown'));
-	return 'ok';
-});
-check('totalTokens is promptTokens + output, never input + cacheRead again', () => {
-	assert.equal(rowOf('kiro', 'claude-sonnet-5-5').totalTokens, 201000);
-	assert.equal(rowOf('grok', 'grok-4.7').totalTokens, 301000);
-	return 'ok';
-});
-check('sessions count distinct ids, not lines', () => {
-	assert.equal(rowOf('kiro', 'claude-opus-5-5').sessionCount, 1);
-	return 'ok';
-});
-check('malformed ledger lines are skipped', () => {
-	assert.ok(!rows.some((r) => r.vendor === 'bad'), 'a bad row survived validation');
-	return 'ok';
-});
-check('default window is the 10 newest day folders', () => {
-	assert.equal(rowOf('old', 'x').totalTokens, 1000, 'day 4 must be inside the window');
-	assert.ok(!rows.some((r) => r.model === 'gone'), 'day 1 must sit outside the window');
-	return 'ok';
-});
+const USAGE_FIELD_NAMES = [
+	'steps',
+	'sessionCount',
+	'totalTokens',
+	'promptTokens',
+	'outputTokens',
+	'cacheReadTokens',
+	'cacheHitRatio',
+	'cacheWriteRatio',
+	'totalCredits',
+	'billedCredits',
+	'estimatedCredits',
+];
+const VENDOR_KEYS = ['vendor', ...USAGE_FIELD_NAMES, 'limit', 'limitSource', 'remainingCredits', 'overLimit'];
+const MODEL_KEYS = ['vendor', 'model', ...USAGE_FIELD_NAMES];
+const DAY_KEYS = ['day', 'vendor', 'model', ...USAGE_FIELD_NAMES];
 
-// ---------------------------------------------------------------------------
-// 5. Budget rows and the remaining-credit contract the client reads.
-// ---------------------------------------------------------------------------
-console.log('4. budgets');
-check('remainingCredits = budget - vendor total, ignoring stale used', () => {
-	assert.equal(rowOf('kiro', 'claude-opus-5-5').remainingCredits, 72.25);
-	return '100 - 27.75 = 72.25';
-});
-check('every row of a vendor carries the same remainingCredits', () => {
-	const kiroRows = rows.filter((r) => r.vendor === 'kiro');
-	assert.ok(kiroRows.length > 1, 'fixture needs several kiro rows');
-	const values = new Set(kiroRows.map((r) => r.remainingCredits));
-	assert.equal(values.size, 1, 'client reads only the first row per vendor: ' + [...values]);
-	return 'ok';
-});
-check('vendor without a budget reports zero, never undefined', () => {
-	assert.equal(rowOf('grok', 'grok-4.7').remainingCredits, 0);
-	return 'ok';
-});
-check('budgeted vendor with no usage still gets a row', () => {
-	const devin = rows.filter((r) => r.vendor === 'devin');
-	assert.equal(devin.length, 1);
-	assert.equal(devin[0].remainingCredits, 50);
-	assert.equal(devin[0].totalCredits, 0);
-	return 'ok';
-});
-check('budget of zero and non-object entries are dropped', () => {
-	assert.ok(!rows.some((r) => r.vendor === 'broken' || r.vendor === 'nope'));
-	return 'ok';
-});
+function findOne(list, label, test) {
+	const hits = list.filter(test);
+	assert.equal(hits.length, 1, 'expected exactly one ' + label + ', got ' + hits.length);
+	return hits[0];
+}
+const vendorRow = (vendor) => findOne(summary.vendors, 'vendor ' + vendor, (r) => r.vendor === vendor);
+const modelRow = (vendor, model) =>
+	findOne(summary.models, 'model ' + vendor + '/' + model, (r) => r.vendor === vendor && r.model === model);
+const dayRow = (day, vendor, model) =>
+	findOne(summary.days, 'day row ' + day, (r) => r.day === day && r.vendor === vendor && r.model === model);
 
-// ---------------------------------------------------------------------------
-// 6. Config override and the no-data path.
-// ---------------------------------------------------------------------------
-console.log('5. config and empty paths');
-check('panelConfig.days trims the window', () => {
-	const one = new UsageService(makeCtx(), { days: 1 });
-	const r = one.getUsageSummary();
-	assert.equal(r.length, 3, 'expected kiro day 12 plus two zero rows, got ' + JSON.stringify(r.map((x) => x.vendor + '/' + x.model)));
-	assert.ok(r.some((x) => x.vendor === 'kiro' && x.model === 'claude-opus-5-5'));
-	assert.ok(!r.some((x) => x.vendor === 'grok'), 'grok is only on day 9');
-	assert.ok(!r.some((x) => x.vendor === 'old'), 'old must be outside a one day window');
-	return '3 rows';
-});
-check('missing config object still works', () => {
-	const bare = new UsageService(makeCtx(), undefined);
-	assert.ok(Array.isArray(bare.getUsageSummary()));
-	return 'ok';
-});
-check('missing usage dir keeps budget rows and never throws', () => {
-	const saved = process.env.NS_BRIDGE_USAGE_DIR;
-	process.env.NS_BRIDGE_USAGE_DIR = join(RUN_ROOT, 'does-not-exist');
-	const out = new UsageService(makeCtx(), {}).getUsageSummary();
-	process.env.NS_BRIDGE_USAGE_DIR = saved;
-	assert.ok(Array.isArray(out), 'expected an array');
-	assert.equal(out.length, 3, 'budget rows must stay: ' + JSON.stringify(out.map((r) => r.vendor)));
-	for (const row of out) {
-		assert.equal(row.totalCredits, 0, row.vendor + ' has no usage');
-		assert.equal(row.sessionCount, 0, row.vendor + ' has no session');
+check('summary is a versioned object, not an array', () => {
+	assert.equal(summary.schemaVersion, 2, 'schemaVersion must match the client CONTRACT_SCHEMA');
+	assert.equal(typeof summary.window, 'object', 'window must be an object');
+	assert.equal(typeof summary.totals, 'object', 'totals must be an object');
+	for (const key of ['vendors', 'days', 'models']) {
+		assert.ok(Array.isArray(summary[key]), key + ' must be an array');
 	}
-	return '3 budget-only rows';
+	return 'schemaVersion=' + summary.schemaVersion;
 });
-check('no usage dir and no budget file returns an empty array', () => {
-	const saved = process.env.NS_BRIDGE_USAGE_DIR;
-	const emptyRoot = join(tmpdir(), 'dsh-usage-panel-empty-' + process.pid);
-	process.env.NS_BRIDGE_USAGE_DIR = join(emptyRoot, 'usage');
-	const out = new UsageService(makeCtx(), {}).getUsageSummary();
-	process.env.NS_BRIDGE_USAGE_DIR = saved;
-	assert.deepEqual(out, []);
-	return 'ok';
+check('window reports the days read and the folders found', () => {
+	assert.deepEqual(summary.window, {
+		days: 10,
+		choices: [1, 3, 7, 10, 30],
+		from: '2026-01-03',
+		to: '2026-01-12',
+		folders: 10,
+	});
+	return summary.window.from + '..' + summary.window.to;
 });
-check('bad NS_BRIDGE_PI_CATALOG path keeps the rows', () => {
-	const saved = process.env.NS_BRIDGE_PI_CATALOG;
-	process.env.NS_BRIDGE_PI_CATALOG = join(RUN_ROOT, 'not-a-catalog.json');
-	const out = service.getUsageSummary();
-	process.env.NS_BRIDGE_PI_CATALOG = saved;
-	assert.equal(out.length, 9, 'a missing catalog must not change the native rows');
-	return 'ok';
+check('every row type has one key list in a fixed order', () => {
+	assert.deepEqual(Object.keys(summary.totals), USAGE_FIELD_NAMES);
+	assert.deepEqual(Object.keys(summary.vendors[0]), VENDOR_KEYS);
+	assert.deepEqual(Object.keys(summary.models[0]), MODEL_KEYS);
+	assert.deepEqual(Object.keys(summary.days[0]), DAY_KEYS);
+	return 'vendors ' + VENDOR_KEYS.length + ', models ' + MODEL_KEYS.length + ' keys';
+});
+check('day rows are newest first and empty folders add no row', () => {
+	assert.deepEqual(summary.days.map((r) => r.day), [
+		'2026-01-12',
+		'2026-01-11',
+		'2026-01-10',
+		'2026-01-09',
+		'2026-01-08',
+		'2026-01-05',
+		'2026-01-04',
+		'2026-01-03',
+	]);
+	return summary.days.length + ' rows, days 6 and 2 absent';
+});
+check('model rows sort by vendor, then credits, then model', () => {
+	assert.deepEqual(
+		summary.models.map((r) => r.vendor + '/' + r.model),
+		[
+			'grok/grok-4.7',
+			'kiro/claude-haiku-4-5',
+			'kiro/claude-sonnet-5-5',
+			'kiro/claude-opus-5-5',
+			'kiro/unknown',
+			'old/weird',
+			'old/x',
+			'qoder/ultimate',
+		],
+	);
+	return summary.models.length + ' rows';
+});
+check('billed plus estimated equals total on every row', () => {
+	const rows = [{ what: 'totals', row: summary.totals }];
+	for (const list of ['vendors', 'models', 'days']) {
+		for (const row of summary[list]) rows.push({ what: list + ' ' + (row.model || row.vendor), row });
+	}
+	for (const { what, row } of rows) {
+		const sum = Math.round((row.billedCredits + row.estimatedCredits) * 1e6) / 1e6;
+		assert.equal(sum, row.totalCredits, what + ': billed+estimated must equal total');
+	}
+	return rows.length + ' rows add up';
 });
 
 // ---------------------------------------------------------------------------
-// 7. RPC payload safety: the gateway rejects -0, NaN, undefined and cycles.
+// 5. Credit math: what the ledger turns into credits.
 // ---------------------------------------------------------------------------
-console.log('6. rpc payload safety');
+console.log('5. credit math');
+check('a native credit amount is billed as it is', () => {
+	const r = modelRow('kiro', 'claude-opus-5-5');
+	assert.equal(r.billedCredits, 5);
+	assert.equal(r.estimatedCredits, 0);
+	assert.equal(r.totalCredits, 5);
+	return 'credits 5 -> billed 5';
+});
+check('a usd credit amount is divided by USD_PER_CREDIT', () => {
+	// 0.5 USD / 0.04 = 12.5 credits, all billed, nothing estimated.
+	const r = modelRow('kiro', 'claude-haiku-4-5');
+	assert.equal(r.billedCredits, 12.5);
+	assert.equal(r.estimatedCredits, 0);
+	assert.equal(r.totalCredits, 12.5);
+	return '0.5 usd -> 12.5 credits';
+});
+check('a priced model without a billed amount is estimated', () => {
+	const r = modelRow('kiro', 'claude-sonnet-5-5');
+	assert.equal(r.billedCredits, 0);
+	assert.equal(r.estimatedCredits, 10.25);
+	assert.equal(r.totalCredits, 10.25);
+	return 'kiro sonnet -> 10.25';
+});
+check('the long-context band applies to grok', () => {
+	const r = modelRow('grok', 'grok-4.7');
+	assert.equal(r.estimatedCredits, 15.3);
+	assert.equal(r.promptTokens, 300000);
+	assert.equal(r.input === undefined, true, 'input is not part of the payload');
+	return '300k prompt -> 15.3 credits';
+});
+check('a tier label with no priced model costs nothing', () => {
+	const r = modelRow('qoder', 'ultimate');
+	assert.equal(r.totalCredits, 0);
+	assert.equal(r.billedCredits, 0);
+	assert.equal(r.estimatedCredits, 0);
+	assert.equal(r.totalTokens, 5100);
+	return 'never a guessed price';
+});
+check('a credit unit the panel cannot name is not a credit amount', () => {
+	const r = modelRow('old', 'weird');
+	assert.equal(r.billedCredits, 0, 'credits 3 with unit tokens must be ignored');
+	assert.equal(r.totalCredits, 0);
+	return 'unit tokens -> 0';
+});
+check('an empty model id becomes unknown and is not priced', () => {
+	const r = modelRow('kiro', 'unknown');
+	assert.equal(r.model, 'unknown');
+	assert.equal(r.totalCredits, 0);
+	assert.equal(r.steps, 1);
+	return 'model "" -> unknown';
+});
+check('totalTokens is prompt plus output, cache read is separate', () => {
+	// The grok step read 200000 cached tokens. They must not double count.
+	const grok = modelRow('grok', 'grok-4.7');
+	assert.equal(grok.totalTokens, 301000);
+	assert.equal(grok.cacheReadTokens, 200000);
+	assert.equal(grok.totalTokens, grok.promptTokens + grok.outputTokens);
+	const sonnet = modelRow('kiro', 'claude-sonnet-5-5');
+	assert.equal(sonnet.totalTokens, 201000);
+	return 'cache read not added to total';
+});
+check('cache hit ratio uses cached read over cached prompt', () => {
+	const totals = summary.totals;
+	assert.equal(totals.cacheReadTokens, 200000);
+	assert.equal(totals.cacheHitRatio, 0.392157);
+	assert.equal(totals.cacheWriteRatio, 0);
+	assert.equal(modelRow('grok', 'grok-4.7').cacheHitRatio, 0.666667);
+	assert.equal(vendorRow('kiro').cacheHitRatio, 0);
+	// A vendor with no usage has no ratio at all: RPC rejects a missing key only
+	// when the value is undefined, so the host sends null.
+	assert.equal(vendorRow('devin').cacheHitRatio, null);
+	assert.equal(vendorRow('devin').cacheWriteRatio, null);
+	return 'totals 0.392157';
+});
+check('sessions are counted once per vendor and once in total', () => {
+	assert.equal(summary.totals.sessionCount, 6, 's1..s6; s0 is outside the window');
+	assert.equal(vendorRow('kiro').sessionCount, 3, 's1, s2, s5');
+	assert.equal(vendorRow('old').sessionCount, 1, 's6 twice on one vendor');
+	assert.equal(summary.totals.steps, 8);
+	assert.equal(summary.totals.totalCredits, 43.05);
+	return '6 sessions, 8 steps';
+});
+
+// ---------------------------------------------------------------------------
+// 6. Budgets and limits: the limit columns.
+// ---------------------------------------------------------------------------
+console.log('6. budgets and limits');
+check('vendors with a declared budget keep a row even with no usage', () => {
+	assert.deepEqual(summary.vendors.map((r) => r.vendor), ['devin', 'grok', 'kiro', 'old', 'qoder']);
+	const devin = vendorRow('devin');
+	assert.equal(devin.steps, 0);
+	assert.equal(devin.totalCredits, 0);
+	assert.equal(devin.limit, 50);
+	assert.equal(devin.remainingCredits, 50);
+	return 'budget 0 and a non-object entry are skipped';
+});
+check('a file budget is the limit and spent comes from the ledger', () => {
+	const kiro = vendorRow('kiro');
+	assert.equal(kiro.limit, 100);
+	assert.equal(kiro.limitSource, 'file');
+	assert.equal(kiro.totalCredits, 27.75);
+	assert.equal(kiro.remainingCredits, 72.25);
+	assert.equal(kiro.remainingCredits, 100 - kiro.totalCredits);
+	assert.equal(kiro.overLimit, false);
+	return 'stale used:999 ignored';
+});
+check('a vendor with no declared limit reports null', () => {
+	for (const vendor of ['grok', 'old']) {
+		const r = vendorRow(vendor);
+		assert.equal(r.limit, null, vendor + ' limit');
+		assert.equal(r.limitSource, 'none', vendor + ' limitSource');
+		assert.equal(r.remainingCredits, null, vendor + ' remainingCredits');
+		assert.equal(r.overLimit, false, vendor + ' overLimit');
+	}
+	return 'no invented limit';
+});
+check('a full budget reports zero left and is not over', () => {
+	const qoder = vendorRow('qoder');
+	assert.equal(qoder.limit, 5);
+	assert.equal(qoder.totalCredits, 0);
+	assert.equal(qoder.remainingCredits, 5);
+	assert.equal(qoder.overLimit, false);
+	return 'spent 0 of 5';
+});
+check('overLimit is true only when the remaining amount is negative', () => {
+	// The same ledger against a limit lower than the spend, so the negative
+	// number must stay visible and must not be clamped to zero. The file wins
+	// over NS_BRIDGE_CREDIT_LIMIT, so the low limit goes in the file.
+	writeFileSync(BUDGET_PATH, JSON.stringify({ kiro: { budget: 3 } }), 'utf8');
+	try {
+		const out = new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
+		const kiro = findOne(out.vendors, 'over limit kiro', (r) => r.vendor === 'kiro');
+		assert.equal(kiro.limitSource, 'file');
+		assert.equal(kiro.limit, 3);
+		assert.equal(kiro.totalCredits, 5);
+		assert.equal(kiro.remainingCredits, -2, 'remaining must not be clamped at 0');
+		assert.equal(kiro.overLimit, true);
+		return 'limit 3, spent 5, left -2';
+	} finally {
+		writeFileSync(BUDGET_PATH, JSON.stringify(BUDGETS), 'utf8');
+	}
+});
+check('env limit is used only when the budget file omits the vendor', () => {
+	// limitFor checks the file first, so an env-only run needs a file with no kiro.
+	writeFileSync(BUDGET_PATH, JSON.stringify({ devin: { budget: 50 } }), 'utf8');
+	process.env.NS_BRIDGE_CREDIT_LIMIT = '30';
+	try {
+		const out = new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
+		const kiro = findOne(out.vendors, 'env kiro', (r) => r.vendor === 'kiro');
+		assert.equal(kiro.limit, 30);
+		assert.equal(kiro.limitSource, 'env');
+		assert.equal(kiro.totalCredits, 5);
+		assert.equal(kiro.remainingCredits, 25);
+		assert.equal(kiro.overLimit, false);
+		// A vendor named by the file still reports the file, never the env value.
+		const devin = findOne(out.vendors, 'env devin', (r) => r.vendor === 'devin');
+		assert.equal(devin.limitSource, 'file');
+		assert.equal(devin.limit, 50);
+		return 'kiro 30 env, devin 50 file';
+	} finally {
+		delete process.env.NS_BRIDGE_CREDIT_LIMIT;
+		writeFileSync(BUDGET_PATH, JSON.stringify(BUDGETS), 'utf8');
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 7. Window and empty paths: config and missing files.
+// ---------------------------------------------------------------------------
+console.log('7. window and empty paths');
+check('a one day window reads only the newest folder', () => {
+	const out = new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
+	assert.deepEqual(out.window, { days: 1, choices: [1, 3, 7, 10, 30], from: '2026-01-12', to: '2026-01-12', folders: 1 });
+	assert.deepEqual(out.vendors.map((r) => r.vendor), ['devin', 'kiro', 'qoder']);
+	assert.deepEqual(out.models.map((r) => r.vendor + '/' + r.model), ['kiro/claude-opus-5-5']);
+	assert.equal(out.days.length, 1);
+	const kiro = findOne(out.vendors, 'kiro day 12', (r) => r.vendor === 'kiro');
+	assert.equal(kiro.totalCredits, 5);
+	assert.equal(kiro.remainingCredits, 95, '100 - 5');
+	return 'grok and old drop out of the window';
+});
+check('the window comes from config, not from an env var', () => {
+	process.env.NS_BRIDGE_USAGE_DAYS = '30';
+	try {
+		const out = new UsageService(makeCtx(), { days: 3 }).getUsageSummary();
+		assert.equal(out.window.days, 3, 'the panel must ignore NS_BRIDGE_USAGE_DAYS');
+		const dflt = new UsageService(makeCtx()).getUsageSummary();
+		assert.equal(dflt.window.days, 10, 'no config must give DEFAULT_USAGE_DAYS');
+		return 'config wins';
+	} finally {
+		delete process.env.NS_BRIDGE_USAGE_DAYS;
+	}
+});
+check('a missing ledger gives no rows but keeps the declared limits', () => {
+	process.env.NS_BRIDGE_USAGE_DIR = join(RUN_ROOT, 'nope');
+	try {
+		const out = new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
+		assert.deepEqual(out.models, []);
+		assert.deepEqual(out.days, []);
+		assert.deepEqual(out.vendors.map((r) => r.vendor), ['devin', 'kiro', 'qoder']);
+		for (const r of out.vendors) {
+			assert.equal(r.totalCredits, 0, r.vendor + ' spent');
+			assert.equal(r.limitSource, 'file', r.vendor + ' limit source');
+			assert.equal(r.overLimit, false);
+		}
+		assert.deepEqual(out.window, { days: 10, choices: [1, 3, 7, 10, 30], from: null, to: null, folders: 0 });
+		return '3 budgeted vendors still visible';
+	} finally {
+		process.env.NS_BRIDGE_USAGE_DIR = USAGE_DIR;
+	}
+});
+check('no ledger and no budget file gives an empty summary, not an error', () => {
+	// Two levels below a directory that has no credit-budgets.json, so
+	// budgetPath() finds nothing and every vendor has no limit.
+	const emptyRoot = join(RUN_ROOT, 'empty');
+	process.env.NS_BRIDGE_USAGE_DIR = join(emptyRoot, 'usage');
+	try {
+		const out = new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
+		assert.deepEqual(out.vendors, []);
+		assert.deepEqual(out.models, []);
+		assert.deepEqual(out.days, []);
+		assert.deepEqual(out.totals, {
+			steps: 0,
+			sessionCount: 0,
+			totalTokens: 0,
+			promptTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheHitRatio: null,
+			cacheWriteRatio: null,
+			totalCredits: 0,
+			billedCredits: 0,
+			estimatedCredits: 0,
+		});
+		return 'empty totals are complete';
+	} finally {
+		process.env.NS_BRIDGE_USAGE_DIR = USAGE_DIR;
+	}
+});
+check('an unreadable price catalog does not change billed credits', () => {
+	const before = vendorRow('kiro');
+	process.env.NS_BRIDGE_PI_CATALOG = join(RUN_ROOT, 'no-catalog.json');
+	try {
+		const out = new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
+		assert.equal(out.vendors.length, 5);
+		const kiro = findOne(out.vendors, 'kiro no catalog', (r) => r.vendor === 'kiro');
+		assert.equal(kiro.totalCredits, before.totalCredits);
+		assert.equal(kiro.remainingCredits, before.remainingCredits);
+		return 'kiro 27.75 with and without the catalog';
+	} finally {
+		delete process.env.NS_BRIDGE_PI_CATALOG;
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 8. RPC payload safety: the gateway rejects -0, NaN, undefined and cycles.
+// ---------------------------------------------------------------------------
+console.log('8. rpc payload safety');
 check('payload is strict JSON with finite numbers', () => {
 	const visit = (value, seen) => {
 		if (value === null) return;
@@ -393,21 +611,40 @@ check('payload is strict JSON with finite numbers', () => {
 		}
 		seen.delete(value);
 	};
-	for (const row of rows) {
-		for (const key of ['vendor', 'model', 'totalTokens', 'totalCredits', 'billedCredits', 'sessionCount', 'remainingCredits']) {
-			assert.ok(key in row, 'row missing ' + key);
+	visit(summary, new Set());
+	const text = JSON.stringify(summary);
+	assert.ok(!text.includes('undefined'), 'stringify contains undefined');
+	assert.ok(!/"folders":\[/.test(text), 'window.folders must not be a list');
+	assert.equal(typeof summary.window.days, 'number', 'window.days must be a number');
+	return text.length + ' bytes';
+});
+check('every row carries the shared usage fields', () => {
+	const rows = [[summary.totals], summary.vendors, summary.models, summary.days];
+	for (const list of rows) {
+		assert.ok(list.length > 0, 'an empty list makes this check vacuous');
+	}
+	for (const list of rows) {
+		for (const row of list) {
+			for (const key of USAGE_FIELD_NAMES) {
+				assert.ok(key in row, 'row missing ' + key);
+			}
 		}
 	}
-	visit(rows, new Set());
-	const text = JSON.stringify(rows);
-	assert.ok(!text.includes('undefined'), 'stringify contains undefined');
-	return text.length + ' bytes';
+	for (const row of summary.vendors) {
+		assert.ok(['file', 'env', 'none'].includes(row.limitSource), 'bad limitSource ' + row.limitSource);
+		assert.equal(typeof row.overLimit, 'boolean');
+		if (row.limitSource === 'none') {
+			assert.equal(row.limit, null);
+			assert.equal(row.remainingCredits, null);
+		}
+	}
+	return USAGE_FIELD_NAMES.length + ' shared fields on ' + (1 + summary.vendors.length + summary.models.length + summary.days.length) + ' rows';
 });
 
 // ---------------------------------------------------------------------------
-// 8. Client contract: endpoint, fields, locale keys.
+// 9. Client contract: endpoint, failure envelope, fields, locale keys.
 // ---------------------------------------------------------------------------
-console.log('7. client contract');
+console.log('9. client contract');
 check('client calls the endpoint the host registers', () => {
 	assert.match(clientText, /usage\/getUsageSummary/);
 	assert.match(clientText, /rpc\.call\(\s*['"]\/api['"]/);
@@ -417,14 +654,32 @@ check('client passes an empty args object', () => {
 	assert.match(clientText, /getUsageSummary['"],\s*\{\s*args:\s*\{\}\s*\}/, 'rpc args shape changed');
 	return 'ok';
 });
+check('client treats a failed call as an outcome, not as a throw', () => {
+	// The gateway resolves { ok: false, error } instead of throwing, so a client
+	// that only catches would show a generic error with no code.
+	assert.match(clientText, /result\.ok\s*!==\s*true/, 'client must check result.ok');
+	assert.match(clientText, /result\.value/, 'client must read the value out of the envelope');
+	assert.match(clientText, /error\.code/, 'client must report the stable remote code');
+	assert.match(clientText, /state\.detail/, 'client must show the code to the user');
+	return 'ok';
+});
 check('client reads only fields the host returns', () => {
-	const read = new Set([...clientText.matchAll(/\b(?:row|item|r|entry)\.(vendor|model|totalTokens|totalCredits|billedCredits|sessionCount|remainingCredits)\b/g)].map((m) => m[1]));
-	const schema = new Set(Object.keys(rows[0] ?? {}));
+	// Locale dictionaries write keys as strings, for example 'totals.tokens'.
+	// Those are labels, not reads, so blank every single-quoted string first.
+	const code = clientText.replace(/'[^'\n]*'/g, "''");
+	const read = new Set([...code.matchAll(/(?<!\.)\b(?:row|item|r|entry|vendor|model|day|part|totals)\.([A-Za-z][\w]*)/g)].map((m) => m[1]));
+	const schema = new Set([
+		...Object.keys(summary.totals),
+		...Object.keys(summary.vendors[0]),
+		...Object.keys(summary.models[0]),
+		...Object.keys(summary.days[0]),
+	]);
+	assert.ok(read.size > 8, 'the field reader found only ' + read.size + ' fields; the regex is too narrow');
 	for (const field of read) {
 		assert.ok(schema.has(field), 'client reads ' + field + ' which the host never returns');
 	}
-	for (const field of ['vendor', 'model', 'totalTokens', 'totalCredits', 'sessionCount', 'remainingCredits']) {
-		assert.ok(schema.has(field), field);
+	for (const field of [...VENDOR_KEYS, ...MODEL_KEYS, 'day']) {
+		assert.ok(schema.has(field), field + ' missing from the payload');
 	}
 	return read.size + ' fields used';
 });
@@ -445,12 +700,20 @@ check('locale files still carry the plugin meta strings', () => {
 });
 check('client half declares its inject list', () => {
 	assert.match(clientText, /inject:\s*\[[^\]]*'slots'[^\]]*\]/);
+	assert.match(clientText, /inject:\s*\[[^\]]*'connection'[^\]]*\]/, 'the body needs connection for rpc');
+	assert.match(clientText, /locale:\s*NS/, 'the slot must set locale so it receives t');
 	return 'ok';
 });
 
 // ---------------------------------------------------------------------------
-// 9. Cleanup and the manual app check.
+// 10. Silence and cleanup.
 // ---------------------------------------------------------------------------
+console.log('10. no warnings');
+check('no run above made the host log a warning', () => {
+	assert.deepEqual(logs, [], 'host logged: ' + logs.join(' | '));
+	return passed + ' checks, ' + logs.length + ' log lines';
+});
+
 rmSync(RUN_ROOT, { recursive: true, force: true });
 delete process.env.NS_BRIDGE_USAGE_DIR;
 
@@ -465,6 +728,6 @@ console.log('');
 console.log('Manual app proof, in this order:');
 console.log('  1. Quit DeepSeek Harness completely, then open it again. The host half is');
 console.log('     cached, so an edit to index.js does not take effect until a restart.');
-console.log('  2. Open the panel in the right sidebar at http://127.0.0.1:64043.');
+console.log('  2. Open the panel in the right sidebar at http://127.0.0.1:53675.');
 console.log('  3. The panel must show rows. It must not show "Failed to load usage".');
 console.log('  4. Check the credit numbers against: ns-bridge usage --days 10');

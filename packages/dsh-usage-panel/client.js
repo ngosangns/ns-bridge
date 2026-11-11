@@ -7,59 +7,133 @@ window.__ModuleLoader__.load({
     const NS = 'dsh-usage-panel';
     const USAGE_ID = '@local/dsh-usage-panel';
     const USAGE_KIND = 'usage';
+    // The payload shape this client renders. A mismatch shows an error, not zeros.
+    const CLIENT_SCHEMA = 2;
 
     const en = {
       'type.label': 'Usage',
-      'guide.title': 'Usage & credits',
-      'guide.description': 'Token and credit usage of ns-bridge provider models',
-      'panel.title': 'Usage summary',
-      'panel.loading': 'Loading usage…',
+      'guide.title': 'Usage and limits',
+      'guide.description': 'Token use, credit cost, and the credit limit of every ns-bridge vendor',
+      'panel.loading': 'Loading usage',
       'panel.error': 'Failed to load usage',
-      'panel.empty': 'No usage data yet',
+      'panel.empty': 'No usage in this window',
+      'panel.unexpected': 'The panel and the host disagree on the data shape',
+      'panel.retry': 'Load the summary again',
+      'action.retry': 'Retry',
+      'action.refresh': 'Refresh',
+      'window.label': 'Window',
+      'window.days': '{days} days',
+      'window.range': '{from} to {to}',
+      'totals.tokens': 'Tokens',
+      'totals.output': '{tokens} output',
+      'totals.credits': 'Credits',
+      'totals.sessions': 'Sessions',
+      'totals.cacheHit': 'Cache hit',
+      'totals.cacheRead': '{read} read',
+      'totals.ofBilled': '{billed} billed, {estimated} estimated',
+      'section.limits': 'Credit limits',
+      'section.days': 'Credits per day',
+      'section.models': 'Models',
+      'limits.note': 'Limits come from your own files. The panel never invents a quota.',
       'column.vendor': 'Vendor',
       'column.model': 'Model',
       'column.tokens': 'Tokens',
       'column.credits': 'Credits',
-      'column.remaining': 'Remaining',
-      'column.sessions': 'Sessions',
-      'section.vendorBudget': 'Vendor Budgets',
-      'action.retry': 'Retry'
+      'column.steps': 'Steps',
+      'column.cacheHit': 'Hit',
+      'column.sessions': 'Sess.',
+      'cost.billed': 'billed',
+      'cost.estimated': 'est.',
+      'limit.none': 'no limit',
+      'limit.left': '{credits} left',
+      'limit.over': 'over by {credits}',
+      'limit.file': 'limit from credit-budgets.json',
+      'limit.env': 'limit from NS_BRIDGE_CREDIT_LIMIT',
+      'limit.spent': 'spent {credits} credits'
     };
 
     const vi = {
       'type.label': 'Mức dùng',
-      'guide.title': 'Token & tín dụng',
-      'guide.description': 'Token và tín dụng của các model provider ns-bridge',
-      'panel.title': 'Tổng hợp mức dùng',
-      'panel.loading': 'Đang tải mức dùng…',
+      'guide.title': 'Mức dùng và hạn mức',
+      'guide.description': 'Token, chi phí tín dụng và hạn mức tín dụng của từng nhà cung cấp ns-bridge',
+      'panel.loading': 'Đang tải mức dùng',
       'panel.error': 'Không tải được mức dùng',
-      'panel.empty': 'Chưa có dữ liệu mức dùng',
+      'panel.empty': 'Chưa có dữ liệu trong khoảng này',
+      'panel.unexpected': 'Panel và host không cùng phiên bản dữ liệu',
+      'panel.retry': 'Tải lại bảng tổng hợp',
+      'action.retry': 'Thử lại',
+      'action.refresh': 'Làm mới',
+      'window.label': 'Khoảng',
+      'window.days': '{days} ngày',
+      'window.range': '{from} đến {to}',
+      'totals.tokens': 'Token',
+      'totals.output': 'ra {tokens}',
+      'totals.credits': 'Tín dụng',
+      'totals.sessions': 'Phiên',
+      'totals.cacheHit': 'Cache hit',
+      'totals.cacheRead': 'đọc {read}',
+      'totals.ofBilled': '{billed} tính tiền, {estimated} ước tính',
+      'section.limits': 'Hạn mức tín dụng',
+      'section.days': 'Tín dụng theo ngày',
+      'section.models': 'Model',
+      'limits.note': 'Hạn mức lấy từ tệp của bạn. Panel không tự tạo định mức.',
       'column.vendor': 'Nhà cung cấp',
       'column.model': 'Model',
       'column.tokens': 'Token',
       'column.credits': 'Tín dụng',
-      'column.remaining': 'Còn lại',
+      'column.steps': 'Bước',
+      'column.cacheHit': 'Hit',
       'column.sessions': 'Phiên',
-      'section.vendorBudget': 'Ngân sách nhà cung cấp',
-      'action.retry': 'Thử lại'
+      'cost.billed': 'tính tiền',
+      'cost.estimated': 'ước tính',
+      'limit.none': 'không hạn mức',
+      'limit.left': 'còn {credits}',
+      'limit.over': 'vượt {credits}',
+      'limit.file': 'hạn mức từ credit-budgets.json',
+      'limit.env': 'hạn mức từ NS_BRIDGE_CREDIT_LIMIT',
+      'limit.spent': 'đã dùng {credits} tín dụng'
     };
 
     const zh = {
       'type.label': '用量',
-      'guide.title': '用量与额度',
-      'guide.description': 'ns-bridge 各模型的 token 与额度用量',
-      'panel.title': '用量汇总',
-      'panel.loading': '正在加载用量…',
+      'guide.title': '用量与限额',
+      'guide.description': '每个 ns-bridge 供应商的 token 用量、额度成本与额度上限',
+      'panel.loading': '正在加载用量',
       'panel.error': '用量加载失败',
-      'panel.empty': '暂无用量数据',
+      'panel.empty': '此时间段没有用量数据',
+      'panel.unexpected': '面板与宿主的数据版本不一致',
+      'panel.retry': '重新加载汇总',
+      'action.retry': '重试',
+      'action.refresh': '刷新',
+      'window.label': '时间段',
+      'window.days': '{days} 天',
+      'window.range': '{from} 至 {to}',
+      'totals.tokens': 'Token',
+      'totals.output': '输出 {tokens}',
+      'totals.credits': '额度',
+      'totals.sessions': '会话',
+      'totals.cacheHit': '缓存命中',
+      'totals.cacheRead': '读 {read}',
+      'totals.ofBilled': '已计费 {billed}，估算 {estimated}',
+      'section.limits': '额度限额',
+      'section.days': '每日额度',
+      'section.models': '模型',
+      'limits.note': '限额来自你自己的文件，面板不会臆造配额。',
       'column.vendor': '供应商',
       'column.model': '模型',
       'column.tokens': 'Token',
       'column.credits': '额度',
-      'column.remaining': '剩余',
+      'column.steps': '步骤',
+      'column.cacheHit': '命中',
       'column.sessions': '会话',
-      'section.vendorBudget': '供应商预算',
-      'action.retry': '重试'
+      'cost.billed': '已计费',
+      'cost.estimated': '估算',
+      'limit.none': '未设限额',
+      'limit.left': '剩 {credits}',
+      'limit.over': '超 {credits}',
+      'limit.file': '限额来自 credit-budgets.json',
+      'limit.env': '限额来自 NS_BRIDGE_CREDIT_LIMIT',
+      'limit.spent': '已用 {credits} 额度'
     };
 
     function UsageArtwork({ size }) {
@@ -95,469 +169,593 @@ window.__ModuleLoader__.load({
       };
     }
 
-    function formatNumber(value) {
-      return Number(value || 0).toLocaleString();
+    // Vendor marks are data colours. Every other colour here is a theme token.
+    const VENDOR_COLORS = {
+      grok: '#4A90E2',
+      kiro: '#D97706',
+      qoder: '#10A37F',
+      devin: '#8B5CF6',
+      deepseek: '#4A90E2',
+      openai: '#10A37F',
+      anthropic: '#D97706',
+      google: '#4285F4'
+    };
+    const VENDOR_FALLBACK_COLOR = '#6B7280';
+
+    function vendorColor(vendor) {
+      return VENDOR_COLORS[String(vendor ?? '').toLowerCase()] ?? VENDOR_FALLBACK_COLOR;
+    }
+
+    const NUMERIC = { fontVariantNumeric: 'tabular-nums' };
+
+    function formatTokens(value) {
+      const n = Number(value) || 0;
+      if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+      if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+      if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+      return String(Math.round(n));
     }
 
     function formatCredits(value) {
-      return Number(value || 0).toFixed(2);
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '—';
+      return n.toFixed(2);
     }
 
-    function SummaryCard({ icon, label, value, accentColor }) {
-      return h('div', { 
-        style: { 
-          borderLeft: `3px solid ${accentColor}`,
-          padding: '12px 16px',
-          backgroundColor: 'var(--dsw-alias-bg-layer-2)',
-          borderRadius: '6px',
-          flex: '1 1 0'
-        }
-      },
-        h('div', { 
-          style: { 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px',
-            marginBottom: '4px'
-          }
-        },
-          h('span', { style: { fontSize: '18px' } }, icon),
-          h('span', { 
-            style: { 
-              fontSize: '12px', 
-              color: 'var(--dsw-alias-label-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-              fontWeight: '500'
-            }
-          }, label)
-        ),
-        h('div', { 
-          style: { 
-            fontSize: '20px', 
-            fontWeight: '600',
-            color: 'var(--dsw-alias-label-primary)'
-          }
-        }, value)
-      );
+    function formatRatio(ratio) {
+      if (typeof ratio !== 'number' || !Number.isFinite(ratio)) return '—';
+      return `${Math.round(ratio * 100)}%`;
+    }
+
+    function fill(template, values) {
+      let text = template;
+      for (const key of Object.keys(values)) {
+        text = text.split(`{${key}}`).join(values[key]);
+      }
+      return text;
     }
 
     function Spinner() {
       return h('div', {
         style: {
-          display: 'inline-block',
-          width: '20px',
-          height: '20px',
+          width: '16px',
+          height: '16px',
+          borderRadius: '50%',
           border: '2px solid var(--dsw-alias-border-l1)',
           borderTopColor: 'var(--dsw-alias-brand-primary)',
-          borderRadius: '50%',
           animation: 'dsh-spin 0.8s linear infinite'
         }
       });
     }
 
-    function UsageBody(props) {
-      const { t } = props;
-      const [state, setState] = React.useState({ phase: 'loading', rows: [] });
-
-      const load = React.useCallback(async () => {
-        setState({ phase: 'loading', rows: [] });
-        try {
-          const result = await props.connection.rpc.call('/api', 'usage/getUsageSummary', { args: {} });
-          const payload = result && result.ok === true ? result.value : result;
-          const rows = Array.isArray(payload) ? payload : [];
-          setState({ phase: 'ok', rows });
-        } catch {
-          setState({ phase: 'error', rows: [] });
+    /** A button that always carries a tooltip. */
+    function ToolButton(props) {
+      return h('button', {
+        type: 'button',
+        title: props.title,
+        onClick: props.onClick,
+        disabled: props.disabled,
+        'aria-pressed': props.active === undefined ? undefined : props.active,
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: '3px 8px',
+          fontSize: '12px',
+          lineHeight: '16px',
+          color: props.active
+            ? 'var(--dsw-alias-label-primary)'
+            : 'var(--dsw-alias-label-secondary)',
+          backgroundColor: props.active
+            ? 'var(--dsw-alias-bg-layer-2)'
+            : 'transparent',
+          border: '1px solid var(--dsw-alias-border-l1)',
+          borderRadius: '5px',
+          cursor: props.disabled ? 'default' : 'pointer',
+          opacity: props.disabled ? 0.5 : 1,
+          fontVariantNumeric: 'tabular-nums'
         }
-      }, [props.connection]);
+      }, props.label);
+    }
 
-      React.useEffect(() => {
-        load();
-      }, [load]);
-
-      const totalTokens = state.rows.reduce((sum, row) => sum + (row.totalTokens || 0), 0);
-      const totalCredits = state.rows.reduce((sum, row) => sum + (row.totalCredits || 0), 0);
-      const totalSessions = state.rows.reduce((sum, row) => sum + (row.sessionCount || 0), 0);
-
-      // Group by vendor to show remaining credits
-      const vendorMap = new Map();
-      state.rows.forEach(row => {
-        if (!vendorMap.has(row.vendor)) {
-          vendorMap.set(row.vendor, {
-            vendor: row.vendor,
-            totalCredits: 0,
-            remainingCredits: row.remainingCredits || 0
-          });
+    function SectionTitle(props) {
+      return h('div', {
+        style: {
+          fontSize: '11px',
+          fontWeight: 600,
+          letterSpacing: '0.5px',
+          textTransform: 'uppercase',
+          color: 'var(--dsw-alias-label-secondary)',
+          marginBottom: '6px'
         }
-        const vendor = vendorMap.get(row.vendor);
-        vendor.totalCredits += row.totalCredits || 0;
-      });
-      const vendorBudgets = Array.from(vendorMap.values());
+      }, props.children);
+    }
 
-      if (state.phase === 'loading') {
-        return h('div', { 
-          style: { 
-            display: 'flex', 
-            flexDirection: 'column',
-            alignItems: 'center', 
-            justifyContent: 'center',
-            padding: '40px 20px',
-            gap: '12px'
-          }
-        },
-          h(Spinner),
-          h('span', { 
-            style: { 
-              color: 'var(--dsw-alias-label-secondary)',
-              fontSize: '14px'
-            }
-          }, t('panel.loading'))
-        );
-      }
-
-      if (state.phase === 'error') {
-        return h('div', { 
-          style: { 
-            display: 'flex', 
-            flexDirection: 'column',
-            alignItems: 'center', 
-            justifyContent: 'center',
-            padding: '40px 20px',
-            gap: '12px'
-          }
-        },
-          h('span', { style: { fontSize: '32px' } }, '⚠️'),
-          h('span', { 
-            style: { 
-              color: 'var(--dsw-alias-label-secondary)',
-              fontSize: '14px'
-            }
-          }, t('panel.error')),
-          h('button', {
-            type: 'button',
-            onClick: () => load(),
-            style: {
-              marginTop: '8px',
-              padding: '8px 16px',
-              backgroundColor: 'var(--dsw-alias-brand-primary)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '500'
-            }
-          }, t('action.retry'))
-        );
-      }
-
-      if (state.rows.length === 0) {
-        return h('div', { 
-          style: { 
-            display: 'flex', 
-            flexDirection: 'column',
-            alignItems: 'center', 
-            justifyContent: 'center',
-            padding: '60px 20px',
-            gap: '12px'
-          }
-        },
-          h('span', { style: { fontSize: '48px', opacity: '0.3' } }, '📊'),
-          h('span', { 
-            style: { 
-              color: 'var(--dsw-alias-label-secondary)',
-              fontSize: '14px'
-            }
-          }, t('panel.empty'))
-        );
-      }
-
-      const vendorColors = {
-        'deepseek': '#4A90E2',
-        'openai': '#10A37F',
-        'anthropic': '#D97706',
-        'google': '#4285F4',
-        'default': '#6B7280'
+    function SummaryCard(props) {
+      const cardStyle = {
+        flex: '1 1 0',
+        minWidth: '104px',
+        padding: '8px 10px',
+        backgroundColor: 'var(--dsw-alias-bg-layer-2)',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderLeft: `3px solid ${props.color}`,
+        borderRadius: '6px'
       };
-
-      const getVendorColor = (vendor) => {
-        const key = vendor.toLowerCase();
-        return vendorColors[key] || vendorColors.default;
-      };
-
-      const headerCells = [
-        ['vendor', 'column.vendor', 'left'],
-        ['model', 'column.model', 'left'],
-        ['tokens', 'column.tokens', 'right'],
-        ['credits', 'column.credits', 'right'],
-        ['sessions', 'column.sessions', 'right']
-      ];
-
-      return h('div', { 
-        style: { 
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px'
-        }
-      },
-        h('style', {}, `
-          @keyframes dsh-spin {
-            to { transform: rotate(360deg); }
-          }
-          .dsh-usage-panel__row:hover {
-            background-color: var(--dsw-alias-bg-layer-2) !important;
-          }
-        `),
-        
-        // Summary cards
-        h('div', { 
-          style: { 
-            display: 'flex', 
-            gap: '12px',
-            flexWrap: 'wrap'
-          }
-        },
-          h(SummaryCard, {
-            icon: '🔤',
-            label: t('column.tokens'),
-            value: formatNumber(totalTokens),
-            accentColor: '#4A90E2'
-          }),
-          h(SummaryCard, {
-            icon: '💰',
-            label: t('column.credits'),
-            value: formatCredits(totalCredits),
-            accentColor: '#10A37F'
-          }),
-          h(SummaryCard, {
-            icon: '💬',
-            label: t('column.sessions'),
-            value: formatNumber(totalSessions),
-            accentColor: '#D97706'
-          })
-        ),
-
-        // Vendor budgets section
-        vendorBudgets.length > 0 && h('div', {
-          style: {
-            border: '1px solid var(--dsw-alias-border-l1)',
-            borderRadius: '8px',
-            overflow: 'hidden'
-          }
-        },
-          h('div', {
-            style: {
-              padding: '10px 12px',
-              backgroundColor: 'var(--dsw-alias-bg-layer-2)',
-              borderBottom: '1px solid var(--dsw-alias-border-l1)',
-              fontWeight: '600',
-              fontSize: '11px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-              color: 'var(--dsw-alias-label-secondary)'
-            }
-          }, t('section.vendorBudget')),
-          h('div', {
-            style: {
-              padding: '8px 12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px'
-            }
-          },
-            vendorBudgets.map((vendor, idx) => {
-              const hasBudget = vendor.remainingCredits > 0 || vendor.totalCredits > 0;
-              const budgetTotal = vendor.totalCredits + vendor.remainingCredits;
-              const percentUsed = budgetTotal > 0 ? (vendor.totalCredits / budgetTotal * 100) : 0;
-              const barColor = percentUsed > 80 ? '#EF4444' : percentUsed > 60 ? '#F59E0B' : '#10B981';
-              
-              return h('div', {
-                key: vendor.vendor,
-                style: {
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px'
-                }
-              },
-                h('div', {
-                  style: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    minWidth: '80px'
-                  }
-                },
-                  h('span', {
-                    style: {
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: getVendorColor(vendor.vendor),
-                      flexShrink: 0
-                    }
-                  }),
-                  h('span', {
-                    style: {
-                      fontWeight: '500',
-                      fontSize: '13px',
-                      color: 'var(--dsw-alias-label-primary)'
-                    }
-                  }, vendor.vendor)
-                ),
-                h('div', {
-                  style: {
-                    flex: 1,
-                    height: '8px',
-                    backgroundColor: 'var(--dsw-alias-border-l1)',
-                    borderRadius: '4px',
-                    overflow: 'hidden'
-                  }
-                },
-                  h('div', {
-                    style: {
-                      width: `${Math.min(100, percentUsed)}%`,
-                      height: '100%',
-                      backgroundColor: barColor,
-                      borderRadius: '4px',
-                      transition: 'width 0.3s ease'
-                    }
-                  })
-                ),
-                h('div', {
-                  style: {
-                    display: 'flex',
-                    gap: '8px',
-                    fontSize: '12px',
-                    fontFamily: 'monospace',
-                    minWidth: '140px',
-                    justifyContent: 'flex-end'
-                  }
-                },
-                  h('span', {
-                    style: { color: 'var(--dsw-alias-label-secondary)' }
-                  }, `${formatCredits(vendor.totalCredits)} / ${formatCredits(budgetTotal)}`),
-                  h('span', {
-                    style: { 
-                      color: 'var(--dsw-alias-state-success-primary)',
-                      fontWeight: '600'
-                    }
-                  }, `(${formatCredits(vendor.remainingCredits)})`)
-                )
-              );
-            })
-          )
-        ),
-
-        // Table
+      return h('div', { style: cardStyle },
         h('div', {
           style: {
-            border: '1px solid var(--dsw-alias-border-l1)',
-            borderRadius: '8px',
-            overflow: 'hidden'
+            fontSize: '10px',
+            letterSpacing: '0.5px',
+            textTransform: 'uppercase',
+            color: 'var(--dsw-alias-label-secondary)'
+          }
+        }, props.label),
+        h('div', {
+          style: { fontSize: '17px', lineHeight: '22px', ...NUMERIC, color: 'var(--dsw-alias-label-primary)' }
+        }, props.value),
+        props.hint
+          ? h('div', {
+            style: { fontSize: '10px', color: 'var(--dsw-alias-label-secondary)' }
+          }, props.hint)
+          : null);
+    }
+
+    /** One usage bar. The fill clamps to the track; the label keeps the real ratio. */
+    function MeterBar(props) {
+      const clamped = Math.max(0, Math.min(1, props.ratio));
+      return h('div', {
+        role: 'progressbar',
+        'aria-valuemin': 0,
+        'aria-valuemax': 100,
+        'aria-valuenow': Math.round(clamped * 100),
+        'aria-label': props.label,
+        style: {
+          flex: '1 1 auto',
+          minWidth: '48px',
+          height: `${props.height ?? 6}px`,
+          backgroundColor: 'var(--dsw-alias-bg-layer-1)',
+          border: '1px solid var(--dsw-alias-border-l1)',
+          borderRadius: '999px',
+          overflow: 'hidden'
+        }
+      },
+        h('div', {
+          style: {
+            width: `${clamped * 100}%`,
+            height: '100%',
+            backgroundColor: props.color,
+            transition: 'width 0.2s ease'
+          }
+        }));
+    }
+
+    /**
+     * One vendor against one limit. `limit: null` means the user declared no
+     * limit, so the row shows no bar and no budget figure. Over budget keeps a
+     * negative remainder, because that is the number the user needs to see.
+     */
+    function LimitRow(props) {
+      const vendor = props.vendor;
+      const t = props.t;
+      const limit = Number.isFinite(vendor.limit) && vendor.limit > 0 ? Number(vendor.limit) : null;
+      const spent = Number(vendor.totalCredits) || 0;
+      const over = vendor.overLimit === true;
+      const left = Number(vendor.remainingCredits);
+      const ratio = limit === null ? 0 : spent / limit;
+      const color = limit === null
+        ? 'var(--dsw-alias-brand-primary)'
+        : over
+          ? 'var(--dsw-alias-state-error-primary)'
+          : ratio > 0.8
+            ? 'var(--dsw-alias-state-warn-primary)'
+            : 'var(--dsw-alias-state-success-primary)';
+      const source = vendor.limitSource === 'file'
+        ? t('limit.file')
+        : vendor.limitSource === 'env'
+          ? t('limit.env')
+          : t('limit.none');
+      const figure = limit === null
+        ? formatCredits(spent)
+        : `${formatCredits(spent)} / ${formatCredits(limit)}`;
+      const status = limit === null
+        ? t('limit.none')
+        : over
+          ? t('limit.over').replace('{credits}', formatCredits(Math.abs(Number.isFinite(left) ? left : 0)))
+          : t('limit.left').replace('{credits}', formatCredits(Number.isFinite(left) ? left : 0));
+      // grok, qoder and devin bill almost nothing, so their cost is estimated.
+      const estimatedOnly = spent > 0 && !(Number(vendor.billedCredits) > 0);
+      return h('div', {
+        title: `${vendor.vendor} · ${source} · ${t('limit.spent').replace('{credits}', formatCredits(spent))}`,
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '5px 0',
+          borderTop: '1px solid var(--dsw-alias-border-l1)'
+        }
+      },
+        h('span', {
+          'aria-hidden': true,
+          style: {
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: vendorColor(vendor.vendor),
+            flex: '0 0 auto'
+          }
+        }),
+        h('span', {
+          style: {
+            width: '56px',
+            fontSize: '12px',
+            color: 'var(--dsw-alias-label-primary)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }
+        }, vendor.vendor),
+        limit === null
+          ? h('span', { style: { flex: '1 1 auto' } })
+          : h(MeterBar, { ratio, color, label: `${vendor.vendor} ${t('section.limits')}` }),
+        h('span', {
+          style: {
+            minWidth: '100px',
+            textAlign: 'right',
+            fontSize: '12px',
+            ...NUMERIC,
+            color: 'var(--dsw-alias-label-primary)'
           }
         },
-          h('table', { 
-            style: { 
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '13px'
+          figure,
+          estimatedOnly
+            ? h('span', {
+              style: { fontSize: '10px', color: 'var(--dsw-alias-label-secondary)' }
+            }, ` ${t('cost.estimated')}`)
+            : null),
+        h('span', {
+          style: {
+            minWidth: '82px',
+            textAlign: 'right',
+            fontSize: '12px',
+            ...NUMERIC,
+            color: over ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-secondary)'
+          }
+        }, status));
+    }
+
+    /**
+     * Stacked day bars. Each segment is one vendor on one day, so the chart
+     * shows both the daily total and who produced it.
+     */
+    function DayChart(props) {
+      const days = props.days;
+      const t = props.t;
+      // These columns are built here from the host day rows. They are not host
+      // rows, so they use their own names: column, segment.
+      const peak = days.reduce((max, column) => Math.max(max, column.total), 0);
+      if (!(peak > 0)) {
+        return h('div', {
+          style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' }
+        }, t('panel.empty'));
+      }
+      const columns = days.map((column) => {
+        const segments = column.parts.map((segment) => h('div', {
+          key: `${column.day}:${segment.vendor}`,
+          title: `${column.day} · ${segment.vendor} · ${formatCredits(segment.credits)} ${t('column.credits')} · ${segment.steps} ${t('column.steps')}`,
+          style: {
+            width: '100%',
+            height: `${(segment.credits / peak) * 100}%`,
+            minHeight: '2px',
+            backgroundColor: vendorColor(segment.vendor),
+            borderRadius: '2px'
+          }
+        }));
+        return h('div', {
+          key: column.day,
+          style: {
+            // Bars share the full width, so a 1-day window is not a thin strip
+            // beside empty space.
+            flex: '1 1 0',
+            minWidth: '4px',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end',
+            gap: '1px'
+          }
+        }, ...segments);
+      });
+      return h('div', {},
+        h('div', {
+          role: 'img',
+          'aria-label': t('section.days'),
+          style: {
+            display: 'flex',
+            alignItems: 'stretch',
+            gap: '2px',
+            height: '58px',
+            borderBottom: '1px solid var(--dsw-alias-border-l2)'
+          }
+        }, ...columns),
+        h('div', {
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginTop: '4px',
+            fontSize: '10px',
+            ...NUMERIC,
+            color: 'var(--dsw-alias-label-secondary)'
+          }
+        },
+          h('span', {}, days[0].day),
+          h('span', {}, days[days.length - 1].day)));
+    }
+
+    function cellProps(align, color) {
+      return {
+        style: {
+          padding: '5px 8px',
+          fontSize: '12px',
+          textAlign: align,
+          color: color ?? 'var(--dsw-alias-label-primary)',
+          borderBottom: '1px solid var(--dsw-alias-border-l1)',
+          whiteSpace: 'nowrap',
+          fontVariantNumeric: 'tabular-nums'
+        }
+      };
+    }
+
+    const TABLE_COLUMNS = [
+      ['column.vendor', 'left'],
+      ['column.model', 'left'],
+      ['column.tokens', 'right'],
+      ['column.credits', 'right'],
+      ['column.steps', 'right'],
+      ['column.cacheHit', 'right'],
+      ['column.sessions', 'right']
+    ];
+
+    function ModelsTable(props) {
+      const models = props.models;
+      const t = props.t;
+      const head = h('thead', {}, h('tr', {}, ...TABLE_COLUMNS.map(([key, align]) => h('th', {
+        key,
+        scope: 'col',
+        style: {
+          position: 'sticky',
+          top: 0,
+          padding: '5px 8px',
+          fontSize: '10px',
+          fontWeight: 600,
+          letterSpacing: '0.5px',
+          textTransform: 'uppercase',
+          color: 'var(--dsw-alias-label-secondary)',
+          textAlign: align,
+          whiteSpace: 'nowrap',
+          backgroundColor: 'var(--dsw-alias-bg-base)',
+          borderBottom: '1px solid var(--dsw-alias-border-l2)'
+        }
+      }, t(key)))));
+      const rows = models.map((model, index) => h('tr', {
+        key: `${model.vendor}:${model.model}:${index}`,
+        className: 'dsh-usage-panel__row',
+        style: {
+          backgroundColor: index % 2 === 0 ? 'transparent' : 'var(--dsw-alias-bg-layer-1)'
+        }
+      },
+        h('td', cellProps('left'),
+          h('span', {
+            'aria-hidden': true,
+            style: {
+              display: 'inline-block',
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              backgroundColor: vendorColor(model.vendor),
+              marginRight: '6px'
             }
-          },
-            h('thead', {},
-              h('tr', {
-                style: {
-                  backgroundColor: 'var(--dsw-alias-bg-layer-2)',
-                  borderBottom: '1px solid var(--dsw-alias-border-l1)'
-                }
-              },
-                headerCells.map(([key, labelKey, align]) => h('th', {
-                  key,
-                  style: {
-                    padding: '10px 12px',
-                    textAlign: align,
-                    fontWeight: '600',
-                    fontSize: '11px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    color: 'var(--dsw-alias-label-secondary)'
-                  }
-                }, t(labelKey)))
-              )
-            ),
-            h('tbody', {},
-              state.rows.map((row, index) => h('tr', { 
-                key: `${row.vendor}:${row.model}:${index}`,
-                className: 'dsh-usage-panel__row',
-                style: {
-                  borderBottom: index < state.rows.length - 1 ? '1px solid var(--dsw-alias-border-l1)' : 'none',
-                  backgroundColor: index % 2 === 0 ? 'transparent' : 'var(--dsw-alias-bg-layer-2)',
-                  transition: 'background-color 0.15s ease'
-                }
-              },
-                h('td', { 
-                  style: { 
-                    padding: '10px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }
-                },
-                  h('span', {
-                    style: {
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: getVendorColor(row.vendor),
-                      flexShrink: 0
-                    }
-                  }),
-                  h('span', { 
-                    style: { 
-                      fontWeight: '500',
-                      color: 'var(--dsw-alias-label-primary)'
-                    } 
-                  }, row.vendor)
-                ),
-                h('td', { 
-                  style: { 
-                    padding: '10px 12px',
-                    color: 'var(--dsw-alias-label-secondary)'
-                  }
-                }, row.model),
-                h('td', { 
-                  style: { 
-                    padding: '10px 12px',
-                    textAlign: 'right',
-                    fontFamily: 'monospace',
-                    fontWeight: '500',
-                    color: 'var(--dsw-alias-label-primary)'
-                  }
-                }, formatNumber(row.totalTokens)),
-                h('td', { 
-                  style: { 
-                    padding: '10px 12px',
-                    textAlign: 'right',
-                    fontFamily: 'monospace',
-                    fontWeight: '500',
-                    color: row.totalCredits > 0 ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-secondary)'
-                  }
-                }, formatCredits(row.totalCredits)),
-                h('td', { 
-                  style: { 
-                    padding: '10px 12px',
-                    textAlign: 'right',
-                    fontFamily: 'monospace',
-                    fontWeight: '500',
-                    color: 'var(--dsw-alias-label-primary)'
-                  }
-                }, formatNumber(row.sessionCount))
-              ))
-            )
-          )
-        )
-      );
+          }),
+          model.vendor),
+        h('td', cellProps('left'), model.model),
+        h('td', cellProps('right'), formatTokens(model.totalTokens)),
+        h('td', cellProps('right'), h('span', {
+          title: `${formatCredits(model.billedCredits)} ${t('cost.billed')} · ${formatCredits(model.estimatedCredits)} ${t('cost.estimated')}`
+        }, formatCredits(model.totalCredits))),
+        h('td', cellProps('right', 'var(--dsw-alias-label-secondary)'), String(model.steps || 0)),
+        h('td', cellProps('right', 'var(--dsw-alias-label-secondary)'), formatRatio(model.cacheHitRatio)),
+        h('td', cellProps('right', 'var(--dsw-alias-label-secondary)'), String(model.sessionCount || 0))));
+      return h('table', {
+        style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' }
+      }, head, h('tbody', {}, ...rows));
+    }
+
+    function UsageBody(props) {
+      const t = props.t;
+      const [state, setState] = React.useState({ phase: 'loading' });
+
+      const load = React.useCallback(async () => {
+        setState({ phase: 'loading' });
+        let reason = 'rpc';
+        let detail = '';
+        try {
+          // The gateway resolves to { ok: true, value } or { ok: false, error }.
+          // A failed call is an outcome, so it never throws across the wire.
+          const result = await props.connection.rpc.call('/api', 'usage/getUsageSummary', { args: {} });
+          if (!result || result.ok !== true) {
+            // Discriminate a remote failure by its stable code, not by instanceof.
+            const failure = result && result.error;
+            detail = String((failure && failure.code) || (failure && failure.message) || '');
+          } else if (!result.value || result.value.schemaVersion !== CLIENT_SCHEMA) {
+            reason = 'schema';
+          } else {
+            setState({ phase: 'ready', payload: result.value });
+            return;
+          }
+        } catch (error) {
+          // Only a carrier fault throws: offline transport or an aborted call.
+          detail = String((error && error.code) || (error && error.message) || '');
+        }
+        setState({ phase: 'error', reason, detail });
+      }, [props.connection]);
+
+      React.useEffect(() => { load(); }, [load]);
+
+      const payload = state.payload;
+      const vendors = Array.isArray(payload?.vendors) ? payload.vendors : [];
+      const models = Array.isArray(payload?.models) ? payload.models : [];
+      const dayRows = Array.isArray(payload?.days) ? payload.days : [];
+      const totals = payload?.totals ?? {};
+      const meta = payload?.window ?? {};
+
+      // Group the per-day rows into one column per day, newest segments last.
+      const byDay = new Map();
+      for (const row of dayRows) {
+        let column = byDay.get(row.day);
+        if (!column) {
+          column = { day: row.day, total: 0, parts: [] };
+          byDay.set(row.day, column);
+        }
+        column.total += Number(row.totalCredits) || 0;
+        column.parts.push({
+          vendor: row.vendor,
+          credits: Number(row.totalCredits) || 0,
+          steps: Number(row.steps) || 0
+        });
+      }
+      const days = [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)).slice(-31);
+      for (const column of days) column.parts.sort((a, b) => b.credits - a.credits);
+
+      const head = h('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }
+      },
+        h(SectionTitle, { key: 'label' },
+          fill(t('window.label'), {}) + ' · ' + fill(t('window.days'), { days: String(meta.days ?? '') })),
+        h('span', { key: 'spacer', style: { flex: '1 1 auto' } }),
+        h(ToolButton, {
+          key: 'refresh',
+          label: t('action.refresh'),
+          title: t('panel.retry'),
+          onClick: load
+        }));
+
+      const cards = h('div', {
+        style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }
+      },
+        h(SummaryCard, {
+          key: 'tokens',
+          label: t('totals.tokens'),
+          value: formatTokens(totals.totalTokens),
+          hint: fill(t('totals.output'), { tokens: formatTokens(totals.outputTokens) }),
+          color: 'var(--dsw-alias-brand-primary)'
+        }),
+        h(SummaryCard, {
+          key: 'credits',
+          label: t('totals.credits'),
+          value: formatCredits(totals.totalCredits),
+          hint: fill(t('totals.ofBilled'), {
+            billed: formatCredits(totals.billedCredits),
+            estimated: formatCredits(totals.estimatedCredits)
+          }),
+          color: 'var(--dsw-alias-state-warn-primary)'
+        }),
+        h(SummaryCard, {
+          key: 'sessions',
+          label: t('totals.sessions'),
+          value: String(totals.sessionCount || 0),
+          hint: `${totals.steps || 0} ${t('column.steps')}`,
+          color: 'var(--dsw-alias-state-success-primary)'
+        }),
+        h(SummaryCard, {
+          key: 'cache',
+          label: t('totals.cacheHit'),
+          value: formatRatio(totals.cacheHitRatio),
+          hint: fill(t('totals.cacheRead'), { read: formatTokens(totals.cacheReadTokens) }),
+          color: 'var(--dsw-alias-state-idle-primary)'
+        }));
+
+      const limitBlock = h('div', { style: { marginBottom: '12px' } },
+        h(SectionTitle, {}, t('section.limits')),
+        vendors.length === 0
+          ? h('div', {
+            style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' }
+          }, t('panel.empty'))
+          : h('div', {}, ...vendors.map((vendor) => h(LimitRow, { key: vendor.vendor, vendor, t }))),
+        h('div', {
+          style: { marginTop: '6px', fontSize: '10px', color: 'var(--dsw-alias-label-secondary)' }
+        }, t('limits.note')));
+
+      const dayBlock = h('div', { style: { marginBottom: '12px' } },
+        h(SectionTitle, {}, t('section.days')),
+        days.length === 0
+          ? h('div', {
+            style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' }
+          }, t('panel.empty'))
+          : h(DayChart, { days, t }),
+        meta.from && meta.to
+          ? h('div', {
+            style: { marginTop: '4px', fontSize: '10px', ...NUMERIC, color: 'var(--dsw-alias-label-secondary)' }
+          }, fill(t('window.range'), { from: meta.from, to: meta.to }))
+          : null);
+
+      const modelBlock = h('div', {},
+        h(SectionTitle, {}, t('section.models')),
+        models.length === 0
+          ? h('div', {
+            style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' }
+          }, t('panel.empty'))
+          : h('div', { style: { maxHeight: '190px', overflow: 'auto' } }, h(ModelsTable, { models, t })));
+
+      let content;
+      if (state.phase === 'loading') {
+        content = h('div', {
+          role: 'status',
+          'aria-live': 'polite',
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '20px 0',
+            fontSize: '12px',
+            color: 'var(--dsw-alias-label-secondary)'
+          }
+        }, h(Spinner), t('panel.loading'));
+      } else if (state.phase === 'error') {
+        content = h('div', {
+          role: 'alert',
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '12px',
+            border: '1px solid var(--dsw-alias-state-error-primary)',
+            borderRadius: '6px',
+            fontSize: '12px',
+            color: 'var(--dsw-alias-label-primary)'
+          }
+        },
+          h('span', {},
+            state.reason === 'schema' ? t('panel.unexpected') : t('panel.error'),
+            state.detail ? ' (' + state.detail + ')' : ''),
+          h(ToolButton, { label: t('action.retry'), title: t('panel.retry'), onClick: load }));
+      } else if (vendors.length === 0 && models.length === 0 && days.length === 0) {
+        content = h('div', {
+          style: { padding: '14px 0', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' }
+        }, t('panel.empty'));
+      } else {
+        content = h('div', {}, limitBlock, cards, dayBlock, modelBlock);
+      }
+
+      return h('div', {
+        style: { padding: '12px', fontSize: '12px', color: 'var(--dsw-alias-label-primary)' }
+      },
+        h('style', {
+          // Two rules only. Every colour in the panel is a theme token.
+          dangerouslySetInnerHTML: {
+            __html: '@keyframes dsh-spin{to{transform:rotate(360deg)}}' +
+              '.dsh-usage-panel__row:hover{background-color:var(--dsw-alias-bg-layer-2)!important}'
+          }
+        }),
+        state.phase === 'ready' ? head : null,
+        content);
     }
 
     return {
@@ -575,7 +773,7 @@ window.__ModuleLoader__.load({
           name: 'sidebar.right.pane.tab',
           key: USAGE_ID,
           locale: NS,
-          inject: () => ({ connection: ctx.connection })
+          inject: () => ({ connection: ctx.connection, t })
         }, UsageBody)), 'dsh-usage-panel: body');
       }
     };
