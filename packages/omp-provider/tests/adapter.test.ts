@@ -216,6 +216,26 @@ describe("arnict model rows", () => {
   });
 });
 
+describe("kiro usage", () => {
+  it("gives Kiro the usage provider OMP's Usage panel reads, and no other provider", () => {
+    const kiro = adaptProviderConfig({ models: [] }, {}, "kiro");
+    const usage = kiro.usage as { id?: string; fetchUsage?: unknown } | undefined;
+    expect(usage?.id).toBe("kiro");
+    expect(typeof usage?.fetchUsage).toBe("function");
+
+    const qoder = adaptProviderConfig({ models: [] }, {}, "qoder");
+    expect(qoder).not.toHaveProperty("usage");
+    const arnict = adaptProviderConfig({ models: [] }, {}, "arnict");
+    expect(arnict).not.toHaveProperty("usage");
+  });
+
+  it("keeps a usage provider the caller already supplied", () => {
+    const supplied = { id: "custom" };
+    const adapted = adaptProviderConfig({ models: [], usage: supplied }, {}, "kiro");
+    expect(adapted.usage).toBe(supplied);
+  });
+});
+
 describe("qoder model rows", () => {
   const qoderRow = {
     id: "qmodel",

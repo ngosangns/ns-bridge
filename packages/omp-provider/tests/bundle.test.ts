@@ -71,6 +71,10 @@ describe("dist/index.js on a fake OMP API", () => {
     expect(kiro).not.toHaveProperty("refreshModels");
     expect(typeof kiro.fetchDynamicModels).toBe("function");
     expect(typeof kiro.streamSimple).toBe("function");
+    const usage = kiro.usage as { id?: string; fetchUsage?: unknown; validatesCredentials?: boolean } | undefined;
+    expect(usage?.id).toBe("kiro");
+    expect(typeof usage?.fetchUsage).toBe("function");
+    expect(usage?.validatesCredentials).toBe(true);
     // No credential/saved catalog in the temp HOME → zero models (ns-pi-provider >= 0.2.0).
     expect(Array.isArray(kiro.models)).toBe(true);
     // `$KIRO_ACCESS_TOKEN` is unset → no bogus literal key; OMP falls back to /login.

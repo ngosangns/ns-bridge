@@ -74,6 +74,7 @@
     "esbuild": "^0.28.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
-    "ns-bridge-core": "workspace:*"
+    "ns-bridge-core": "workspace:*",
+    "ns-kiro-core": "workspace:*"
   }
 }

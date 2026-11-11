@@ -24,6 +24,8 @@
 import type { BridgeEffort } from "ns-bridge-core";
 import { toOmpThinking } from "ns-bridge-core/pi";
 
+import { kiroUsageProvider } from "./kiro-usage.js";
+
 export type AnyRecord = Record<string, unknown>;
 
 export interface OmpLikeContext {
@@ -184,7 +186,8 @@ export function toFetchDynamicModels(
  * Adapt one Pi `registerProvider` config to OMP's `ProviderConfig`.
  * `providerName` is the id the config registers under; arnict and qoder rows are
  * remapped onto OMP's compaction rule (see {@link mapModelsForOmp}) — kiro rows
- * already carry OMP-shaped windows.
+ * already carry OMP-shaped windows. Kiro's Pi config has no `usage` field;
+ * OMP's Usage panel reads that field, so a missing one is filled here.
  */
 export function adaptProviderConfig(
   config: AnyRecord,
@@ -226,6 +229,10 @@ export function adaptProviderConfig(
 
   if (remapProvider && Array.isArray(next.models)) {
     next.models = mapModelsForOmp(next.models, remapProvider);
+  }
+
+  if (providerName === "kiro" && next.usage == null) {
+    next.usage = kiroUsageProvider;
   }
 
   return next;
