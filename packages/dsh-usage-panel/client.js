@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     const USAGE_ID = '@local/dsh-usage-panel';
     const USAGE_KIND = 'usage';
     // The payload shape this client renders. A mismatch shows an error, not zeros.
-    const CLIENT_SCHEMA = 2;
+    const CLIENT_SCHEMA = 3;
 
     const en = {
       'type.label': 'Usage',
@@ -34,7 +34,7 @@ window.__ModuleLoader__.load({
       'section.limits': 'Credit limits',
       'section.days': 'Credits per day',
       'section.models': 'Models',
-      'limits.note': 'Limits come from your own files. The panel never invents a quota.',
+      'limits.note': 'A provider quota wins. Your own budget file becomes a warning mark on that bar.',
       'column.vendor': 'Vendor',
       'column.model': 'Model',
       'column.tokens': 'Tokens',
@@ -49,7 +49,11 @@ window.__ModuleLoader__.load({
       'limit.over': 'over by {credits}',
       'limit.file': 'limit from credit-budgets.json',
       'limit.env': 'limit from NS_BRIDGE_CREDIT_LIMIT',
-      'limit.spent': 'spent {credits} credits'
+      'limit.spent': 'spent {credits} credits',
+      'limit.provider': 'limit read from the provider',
+      'quota.reset': 'resets {when}',
+      'quota.warning': 'own budget mark at {credits}',
+      'quota.noLimit': 'provider reports no cap'
     };
 
     const vi = {
@@ -76,7 +80,7 @@ window.__ModuleLoader__.load({
       'section.limits': 'Hạn mức tín dụng',
       'section.days': 'Tín dụng theo ngày',
       'section.models': 'Model',
-      'limits.note': 'Hạn mức lấy từ tệp của bạn. Panel không tự tạo định mức.',
+      'limits.note': 'Hạn mức nhà cung cấp là số thật. Tệp ngân sách của bạn chỉ thành vạch cảnh báo trên cùng thanh.',
       'column.vendor': 'Nhà cung cấp',
       'column.model': 'Model',
       'column.tokens': 'Token',
@@ -91,7 +95,11 @@ window.__ModuleLoader__.load({
       'limit.over': 'vượt {credits}',
       'limit.file': 'hạn mức từ credit-budgets.json',
       'limit.env': 'hạn mức từ NS_BRIDGE_CREDIT_LIMIT',
-      'limit.spent': 'đã dùng {credits} tín dụng'
+      'limit.spent': 'đã dùng {credits} tín dụng',
+      'limit.provider': 'hạn mức đọc từ nhà cung cấp',
+      'quota.reset': 'đặt lại vào {when}',
+      'quota.warning': 'vạch ngân sách của bạn ở {credits}',
+      'quota.noLimit': 'nhà cung cấp không báo trần'
     };
 
     const zh = {
@@ -118,7 +126,7 @@ window.__ModuleLoader__.load({
       'section.limits': '额度限额',
       'section.days': '每日额度',
       'section.models': '模型',
-      'limits.note': '限额来自你自己的文件，面板不会臆造配额。',
+      'limits.note': '供应商限额是真实数字。你自己的预算文件只在同一进度条上画一个警戒标记。没有配额接口的供应商，面板不会编造限额。',
       'column.vendor': '供应商',
       'column.model': '模型',
       'column.tokens': 'Token',
@@ -133,7 +141,11 @@ window.__ModuleLoader__.load({
       'limit.over': '超 {credits}',
       'limit.file': '限额来自 credit-budgets.json',
       'limit.env': '限额来自 NS_BRIDGE_CREDIT_LIMIT',
-      'limit.spent': '已用 {credits} 额度'
+      'limit.spent': '已用 {credits} 额度',
+      'limit.provider': '限额读取自供应商',
+      'quota.reset': '{when}重置',
+      'quota.warning': '你的预算线在 {credits}',
+      'quota.noLimit': '供应商未报告上限'
     };
 
     function UsageArtwork({ size }) {
@@ -205,6 +217,21 @@ window.__ModuleLoader__.load({
     function formatRatio(ratio) {
       if (typeof ratio !== 'number' || !Number.isFinite(ratio)) return '—';
       return `${Math.round(ratio * 100)}%`;
+    }
+
+    /** A provider counts credits or a percent window. Keep both readable. */
+    function formatAmount(value, unit) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '—';
+      if (unit === 'percent') return `${Math.round(n)}%`;
+      return n.toFixed(2);
+    }
+
+    /** One reset moment in the reader's own locale. A provider may report none. */
+    function formatReset(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) return '—';
+      return new Date(n).toLocaleString();
     }
 
     function fill(template, values) {
@@ -299,9 +326,17 @@ window.__ModuleLoader__.load({
           : null);
     }
 
-    /** One usage bar. The fill clamps to the track; the label keeps the real ratio. */
+    /**
+     * One usage bar. The fill clamps to the track; the label keeps the real
+     * ratio. `warningRatio` draws the user's own budget as a mark on the same
+     * bar, so one line answers both "how far has the provider gone" and "when
+     * should I stop".
+     */
     function MeterBar(props) {
       const clamped = Math.max(0, Math.min(1, props.ratio));
+      const given = props.warningRatio;
+      const mark = typeof given === 'number' || typeof given === 'string' ? Number(given) : null;
+      const tick = mark !== null && Number.isFinite(mark) ? Math.max(0, Math.min(1, mark)) : null;
       return h('div', {
         role: 'progressbar',
         'aria-valuemin': 0,
@@ -312,6 +347,7 @@ window.__ModuleLoader__.load({
           flex: '1 1 auto',
           minWidth: '48px',
           height: `${props.height ?? 6}px`,
+          position: 'relative',
           backgroundColor: 'var(--dsw-alias-bg-layer-1)',
           border: '1px solid var(--dsw-alias-border-l1)',
           borderRadius: '999px',
@@ -325,22 +361,51 @@ window.__ModuleLoader__.load({
             backgroundColor: props.color,
             transition: 'width 0.2s ease'
           }
-        }));
+        }),
+        tick === null
+          ? null
+          : h('div', {
+            'aria-hidden': true,
+            style: {
+              position: 'absolute',
+              top: '0',
+              bottom: '0',
+              left: `${tick * 100}%`,
+              width: '2px',
+              marginLeft: '-1px',
+              backgroundColor: 'var(--dsw-alias-label-primary)',
+              opacity: '0.75'
+            }
+          }));
     }
 
     /**
-     * One vendor against one limit. `limit: null` means the user declared no
-     * limit, so the row shows no bar and no budget figure. Over budget keeps a
-     * negative remainder, because that is the number the user needs to see.
+     * One vendor against one limit. A provider quota is the authoritative
+     * reading: it drives the bar, the remainder and the reset. `limit: null`
+     * means nobody declared a cap, so the row shows no bar and no budget
+     * figure. Over budget keeps a negative remainder, because that is the
+     * number the user needs to see.
      */
     function LimitRow(props) {
       const vendor = props.vendor;
       const t = props.t;
-      const limit = Number.isFinite(vendor.limit) && vendor.limit > 0 ? Number(vendor.limit) : null;
+      const quota = vendor.quota;
+      const live = quota && quota.source === 'provider' ? quota : null;
+      const own = Number.isFinite(vendor.limit) && vendor.limit > 0 ? Number(vendor.limit) : null;
+      const limit = live && Number.isFinite(live.limit) ? Number(live.limit) : own;
       const spent = Number(vendor.totalCredits) || 0;
-      const over = vendor.overLimit === true;
-      const left = Number(vendor.remainingCredits);
-      const ratio = limit === null ? 0 : spent / limit;
+      const used = live && Number.isFinite(live.used) ? Number(live.used) : spent;
+      const unit = live ? live.unit : 'credits';
+      const over = live && Number.isFinite(live.remaining)
+        ? live.remaining < 0
+        : vendor.overLimit === true;
+      const left = live && Number.isFinite(live.remaining)
+        ? Number(live.remaining)
+        : Number(vendor.remainingCredits);
+      const warningRatio = live && Number.isFinite(live.warning) && limit !== null
+        ? Number(live.warning) / limit
+        : null;
+      const ratio = limit === null ? 0 : used / limit;
       const color = limit === null
         ? 'var(--dsw-alias-brand-primary)'
         : over
@@ -348,23 +413,38 @@ window.__ModuleLoader__.load({
           : ratio > 0.8
             ? 'var(--dsw-alias-state-warn-primary)'
             : 'var(--dsw-alias-state-success-primary)';
-      const source = vendor.limitSource === 'file'
-        ? t('limit.file')
-        : vendor.limitSource === 'env'
-          ? t('limit.env')
-          : t('limit.none');
+      const source = live
+        ? t('limit.provider')
+        : vendor.limitSource === 'file'
+          ? t('limit.file')
+          : vendor.limitSource === 'env'
+            ? t('limit.env')
+            : t('limit.none');
       const figure = limit === null
-        ? formatCredits(spent)
-        : `${formatCredits(spent)} / ${formatCredits(limit)}`;
+        ? formatAmount(used, unit)
+        : `${formatAmount(used, unit)} / ${formatAmount(limit, unit)}`;
+      const leftText = formatAmount(Math.abs(Number.isFinite(left) ? left : 0), unit);
       const status = limit === null
-        ? t('limit.none')
+        ? (live ? t('quota.noLimit') : t('limit.none'))
         : over
-          ? t('limit.over').replace('{credits}', formatCredits(Math.abs(Number.isFinite(left) ? left : 0)))
-          : t('limit.left').replace('{credits}', formatCredits(Number.isFinite(left) ? left : 0));
+          ? fill(t('limit.over'), { credits: leftText })
+          : fill(t('limit.left'), { credits: leftText });
       // grok, qoder and devin bill almost nothing, so their cost is estimated.
       const estimatedOnly = spent > 0 && !(Number(vendor.billedCredits) > 0);
+      // The bar is narrow, so the tooltip carries what does not fit: the account
+      // the reading came from, the reset moment and the own-budget mark.
+      const detail = [
+        vendor.vendor,
+        source,
+        fill(t('limit.spent'), { credits: formatAmount(used, unit) }),
+        live ? (live.account || live.label) : '',
+        live ? fill(t('quota.reset'), { when: formatReset(live.resetAtMs) }) : '',
+        live && Number.isFinite(live.warning)
+          ? fill(t('quota.warning'), { credits: formatAmount(live.warning, unit) })
+          : ''
+      ].filter(Boolean).join(' · ');
       return h('div', {
-        title: `${vendor.vendor} · ${source} · ${t('limit.spent').replace('{credits}', formatCredits(spent))}`,
+        title: detail,
         style: {
           display: 'flex',
           alignItems: 'center',
@@ -395,7 +475,12 @@ window.__ModuleLoader__.load({
         }, vendor.vendor),
         limit === null
           ? h('span', { style: { flex: '1 1 auto' } })
-          : h(MeterBar, { ratio, color, label: `${vendor.vendor} ${t('section.limits')}` }),
+          : h(MeterBar, {
+            ratio,
+            color,
+            warningRatio,
+            label: `${vendor.vendor} ${t('section.limits')}`
+          }),
         h('span', {
           style: {
             minWidth: '100px',

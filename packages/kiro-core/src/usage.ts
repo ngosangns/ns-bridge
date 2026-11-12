@@ -56,6 +56,12 @@ export interface KiroGetUsageLimitsResponse {
   userInfo?: { userId?: string; email?: string };
 }
 
+/**
+ * What a bucket counts. The wire writes Kiro's credit bucket as `INVOCATIONS`,
+ * and sometimes leaves `unit` out, so hosts read this instead of `unit`.
+ */
+export type KiroUsageUnit = "credits" | "requests" | "tokens" | "usd" | "unknown";
+
 export interface KiroProviderUsageBonus {
   label: string;
   usedDisplay?: string;
@@ -74,9 +80,13 @@ export interface KiroProviderUsageBucket {
   usedDisplay: string;
   limitDisplay?: string;
   unit?: string;
+  /** Normalized from `unit` and `resourceType`. */
+  unitKind?: KiroUsageUnit;
   overagesDisplay?: string;
   overageChargesDisplay?: string;
   resetAt?: string;
+  /** The same instant as `resetAt`, in milliseconds since the epoch. */
+  resetAtMs?: number;
   bonus?: KiroProviderUsageBonus;
 }
 
@@ -84,6 +94,8 @@ export interface KiroProviderUsage {
   summary?: string;
   subscriptionTitle?: string;
   resetAt?: string;
+  /** The same instant as `resetAt`, in milliseconds since the epoch. */
+  resetAtMs?: number;
   daysUntilReset?: number;
   overageStatus?: string;
   manageUrl?: string;
@@ -91,10 +103,43 @@ export interface KiroProviderUsage {
   raw?: Record<string, unknown>;
 }
 
-function toIsoDate(value: EpochLike | undefined): string | undefined {
+/**
+ * Resets arrive as epoch seconds and, on some responses, as a date string.
+ * Both become milliseconds since the epoch, the one shape hosts can compare.
+ */
+function toEpochMs(value: EpochLike | undefined): number | undefined {
   if (value === undefined || value === null) return undefined;
-  const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  const ms = typeof value === "number" ? value * 1000 : Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+function toIsoDate(ms: number | undefined): string | undefined {
+  if (ms === undefined) return undefined;
+  return new Date(ms).toISOString();
+}
+
+/**
+ * The wire names the credit bucket `INVOCATIONS` and sometimes omits `unit`.
+ * `resourceType` is the reliable signal for those buckets.
+ */
+function toUsageUnit(unit: string | undefined, resourceType: string | undefined): KiroUsageUnit {
+  const named = unit?.toLowerCase();
+  if (resourceType?.toLowerCase() === "credit" && (named === undefined || named === "invocations")) return "credits";
+  switch (named) {
+    case "credit":
+    case "credits":
+      return "credits";
+    case "request":
+    case "requests":
+      return "requests";
+    case "token":
+    case "tokens":
+      return "tokens";
+    case "usd":
+      return "usd";
+    default:
+      return "unknown";
+  }
 }
 
 function formatCount(value: number | undefined): string | undefined {
@@ -118,6 +163,7 @@ function mapBucket(bucket: KiroUsageBreakdown, index: number): KiroProviderUsage
   const overages = bucket.currentOveragesWithPrecision ?? bucket.currentOverages;
   const freeTrialUsed = bucket.freeTrialInfo?.currentUsageWithPrecision ?? bucket.freeTrialInfo?.currentUsage;
   const freeTrialLimit = bucket.freeTrialInfo?.usageLimitWithPrecision ?? bucket.freeTrialInfo?.usageLimit;
+  const resetAtMs = toEpochMs(bucket.nextDateReset);
 
   return {
     id: bucket.resourceType || bucket.displayName || `usage-${index}`,
@@ -129,16 +175,18 @@ function mapBucket(bucket: KiroUsageBreakdown, index: number): KiroProviderUsage
     usedDisplay: formatCount(used) || "0",
     limitDisplay: formatCount(limit),
     unit: bucket.unit,
+    unitKind: toUsageUnit(bucket.unit, bucket.resourceType),
     overagesDisplay: overages && overages > 0 ? formatCount(overages) : undefined,
     overageChargesDisplay: formatMoney(bucket.overageCharges, bucket.currency),
-    resetAt: toIsoDate(bucket.nextDateReset),
+    resetAt: toIsoDate(resetAtMs),
+    resetAtMs,
     bonus:
       freeTrialUsed !== undefined || freeTrialLimit !== undefined || bucket.freeTrialInfo?.freeTrialExpiry !== undefined
         ? {
             label: "Bonus credits",
             usedDisplay: formatCount(freeTrialUsed),
             limitDisplay: formatCount(freeTrialLimit),
-            expiresAt: toIsoDate(bucket.freeTrialInfo?.freeTrialExpiry),
+            expiresAt: toIsoDate(toEpochMs(bucket.freeTrialInfo?.freeTrialExpiry)),
           }
         : undefined,
   };
@@ -162,11 +210,13 @@ export async function fetchKiroUsage(credentials: KiroCredentials): Promise<Kiro
     : raw.usageBreakdown
       ? [mapBucket(raw.usageBreakdown, 0)]
       : [];
+  const resetAtMs = toEpochMs(raw.nextDateReset);
 
   return {
     summary: raw.subscriptionInfo?.subscriptionTitle,
     subscriptionTitle: raw.subscriptionInfo?.subscriptionTitle,
-    resetAt: toIsoDate(raw.nextDateReset),
+    resetAt: toIsoDate(resetAtMs),
+    resetAtMs,
     daysUntilReset: raw.daysUntilReset,
     overageStatus: raw.overageConfiguration?.overageStatus,
     manageUrl: MANAGE_USAGE_URL,

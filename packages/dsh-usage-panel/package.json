@@ -11,9 +11,13 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "files": ["index.js", "quota.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
   "scripts": {
     "self-check": "node self-check.mjs"
+  },
+  "dependencies": {
+    "ns-devin-core": "workspace:*",
+    "ns-kiro-core": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.0",

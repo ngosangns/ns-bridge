@@ -91,7 +91,12 @@ export {
   type ResponseHeaderDeadline,
 } from "./transport.js";
 export * from "./types.js";
-export { fetchKiroUsage, type KiroProviderUsage, type KiroProviderUsageBucket } from "./usage.js";
+export {
+  fetchKiroUsage,
+  type KiroProviderUsage,
+  type KiroProviderUsageBucket,
+  type KiroUsageUnit,
+} from "./usage.js";
 export {
   DEFAULT_ESTIMATED_CACHE_TIMEOUT_MS,
   DEFAULT_USD_PER_CREDIT,

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { Remote, TypertRemoteService, remoteMethods } from '@deepseek-ai/dsh-typert-protocol';
+import { isProviderVendor, refreshQuota } from './quota.js';
 
 // Ledger reading follows packages/cli/src/usage.ts: same root, same day window,
 // same record validation. The panel and `ns-bridge usage` never disagree.
@@ -25,7 +26,8 @@ const FALLBACK_BUDGET_ENV = 'NS_BRIDGE_CREDIT_LIMIT';
 const WINDOW_CHOICES = [1, 3, 7, DEFAULT_USAGE_DAYS, MAX_USAGE_DAYS];
 // Shape of the payload the client renders. A client that meets a higher version
 // shows its error state instead of guessing at fields.
-const SCHEMA_VERSION = 2;
+// Version 3 adds `quota`, the live allowance read from the vendor provider.
+const SCHEMA_VERSION = 3;
 
 /**
  * Cold-start price table, USD per one million tokens. The values were read from
@@ -367,10 +369,12 @@ function usageFields(group) {
 }
 
 /**
- * The limit for one vendor and where it came from. A file limit wins over the
+ * The limit for one vendor and where it came from. The provider owns the real
+ * allowance, so a provider limit wins. Below it a file limit wins over the
  * environment variable, because a per-vendor budget is the more specific claim.
  */
-function limitFor(vendor, budgets, fallback) {
+function limitFor(vendor, budgets, fallback, quota) {
+	if (quota && Number.isFinite(quota.limit)) return { limit: round(quota.limit), limitSource: 'provider' };
 	if (budgets.has(vendor)) return { limit: round(budgets.get(vendor)), limitSource: 'file' };
 	if (Number.isFinite(fallback)) return { limit: round(fallback), limitSource: 'env' };
 	return { limit: null, limitSource: 'none' };
@@ -407,9 +411,9 @@ export default class UsageService extends TypertRemoteService {
 	 * rows. A failure returns an empty payload, so the panel shows an empty state
 	 * instead of a half-built one.
 	 */
-	getUsageSummary() {
+	async getUsageSummary() {
 		try {
-			return buildSummary(this.panelConfig);
+			return await buildSummary(this.panelConfig);
 		} catch (error) {
 			warn(this.ctx, 'usage summary failed: ' + String(error?.message ?? error));
 			return emptySummary(windowDays(this.panelConfig));
@@ -431,6 +435,22 @@ function emptySummary(days) {
 }
 
 /**
+ * The provider quota for one row, plus the early-warning tick. The budget file
+ * stays a second, lower mark on the same bar, so the row shows both claims.
+ * The cached quota object is shared, so this returns a copy and never writes
+ * through to the cache. A row with no provider quota has no tick either.
+ */
+function withWarning(quota, budget) {
+	if (!quota) return null;
+	const tick = Number.isFinite(budget) ? round(budget) : null;
+	// A tick outside the bar draws nothing, so it stays off.
+	const warning = tick !== null && Number.isFinite(quota.limit) && tick > 0 && tick < quota.limit
+		? tick
+		: null;
+	return { ...quota, warning };
+}
+
+/**
  * The panel payload, one period wide. `models` holds one row per vendor and
  * model, `days` one row per day, vendor and model, `vendors` one row per vendor
  * with its declared limit. All three cover the same window, so a day row and the
@@ -438,7 +458,7 @@ function emptySummary(days) {
  * Every number here is JSON-safe: RPC rejects -0, NaN and undefined, and a ratio
  * with no data is null, never undefined.
  */
-function buildSummary(config) {
+async function buildSummary(config) {
 	const root = usageRoot();
 	const wanted = windowDays(config);
 	const dayList = dayFolders(root).slice(0, wanted);
@@ -472,9 +492,20 @@ function buildSummary(config) {
 		if (!spent.has(vendor)) spent.set(vendor, 0);
 	}
 
-	const vendors = [...spent.keys()].sort().map((vendor) => {
+	// Provider reads run in parallel. Each one carries its own deadline, so a
+	// slow account adds no more than that deadline to this call.
+	const names = [...spent.keys()].sort();
+	const quotas = new Map();
+	await Promise.all(names.map(async (vendor) => {
+		if (!isProviderVendor(vendor)) return;
+		const found = await refreshQuota(vendor);
+		if (found) quotas.set(vendor, found);
+	}));
+
+	const vendors = names.map((vendor) => {
 		const group = byVendor.get(vendor) ?? emptyGroup();
-		const limit = limitFor(vendor, budgets, fallback);
+		const found = quotas.get(vendor) ?? null;
+		const limit = limitFor(vendor, budgets, fallback, found);
 		const remaining = creditsLeft(limit.limit, num(spent.get(vendor)));
 		return {
 			vendor,
@@ -483,6 +514,7 @@ function buildSummary(config) {
 			limitSource: limit.limitSource,
 			remainingCredits: remaining,
 			overLimit: remaining !== null && remaining < 0,
+			quota: withWarning(found, budgets.get(vendor)),
 		};
 	});
 

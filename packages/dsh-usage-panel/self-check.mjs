@@ -11,14 +11,25 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-// The contract test reads these three variables from the environment. It sets
-// the first two itself, and it has no default for the third. A value you export
-// in your own shell changes the numbers the test compares against, so remove all
-// three. Every run then reads only the fixture the test builds for itself.
+// The contract test reads these variables from the environment. It sets the
+// usage directory itself; the other five have no default. A value you export in
+// your own shell changes the numbers the test compares against, so remove all
+// six. Every run then reads only the fixture the test builds for itself.
 const env = { ...process.env };
-for (const name of ['NS_BRIDGE_USAGE_DIR', 'NS_BRIDGE_PI_CATALOG', 'NS_BRIDGE_CREDIT_LIMIT']) {
+for (const name of [
+	'NS_BRIDGE_USAGE_DIR',
+	'NS_BRIDGE_PI_CATALOG',
+	'NS_BRIDGE_CREDIT_LIMIT',
+	'KIRO_API_KEY',
+	'DEVIN_CREDENTIALS_PATH',
+	'XDG_DATA_HOME',
+]) {
 	delete env[name];
 }
+// A provider quota read needs the network and a real login, so the gate never
+// depends on either. The test sets this too; setting it here covers a run of
+// self-check on a machine that is signed in.
+env.NS_BRIDGE_USAGE_PROVIDER_QUOTA = '0';
 
 const child = spawnSync(process.execPath, [join(HERE, 'test-plugin.mjs')], {
 	env,

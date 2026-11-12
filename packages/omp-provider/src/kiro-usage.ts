@@ -14,38 +14,19 @@ import {
 } from "ns-kiro-core";
 
 /**
- * Kiro reports credit consumption. GetUsageLimits names that CREDIT bucket's
- * unit `INVOCATIONS` and sometimes omits it. The amounts are still credits.
- * Any other unit is passed through, or `unknown` when it is not one OMP knows.
+ * ns-kiro-core already normalizes the wire unit. Every value it returns is one
+ * OMP knows, so this adapter only names the missing case.
  */
-function toUsageUnit(unit: string | undefined, resourceType: string | undefined): UsageUnit {
-  const named = unit?.toLowerCase();
-  if (resourceType?.toLowerCase() === "credit" && (named === undefined || named === "invocations")) return "credits";
-  switch (named) {
-    case "credit":
-    case "credits":
-      return "credits";
-    case "request":
-    case "requests":
-      return "requests";
-    case "token":
-    case "tokens":
-      return "tokens";
-    case "usd":
-      return "usd";
-    default:
-      return "unknown";
-  }
+function toUsageUnit(bucket: KiroProviderUsageBucket): UsageUnit {
+  return bucket.unitKind ?? "unknown";
 }
 
-function toResetMs(iso: string | undefined): number | undefined {
-  if (!iso) return undefined;
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? undefined : ms;
-}
-
+/**
+ * ns-kiro-core already normalizes the reset instant. A bucket without one
+ * inherits the account-wide reset.
+ */
 function toLimit(provider: string, bucket: KiroProviderUsageBucket, usage: KiroProviderUsage) {
-  const resetsAt = toResetMs(bucket.resetAt ?? usage.resetAt);
+  const resetsAt = bucket.resetAtMs ?? usage.resetAtMs;
   const exhausted = bucket.limit !== undefined && bucket.used >= bucket.limit;
   const notes: string[] = [];
   if (bucket.overagesDisplay) notes.push(`Overage: ${bucket.overagesDisplay}`);
@@ -62,7 +43,7 @@ function toLimit(provider: string, bucket: KiroProviderUsageBucket, usage: KiroP
     amount: {
       used: bucket.used,
       ...(bucket.limit !== undefined ? { limit: bucket.limit } : {}),
-      unit: toUsageUnit(bucket.unit, bucket.resourceType),
+      unit: toUsageUnit(bucket),
     },
     // Kiro exposes no warning threshold of its own. Inventing one would put a
     // warning in front of the user that the service never raised.

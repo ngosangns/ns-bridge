@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetKiroProfileArnCache } from "../src/management.js";
-import { fetchKiroUsage } from "../src/usage.js";
+import { fetchKiroUsage, type KiroUsageUnit } from "../src/usage.js";
 
 const creds = {
   access: "access-token",
@@ -14,7 +14,14 @@ const creds = {
 
 const profileArn = "arn:aws:codewhisperer:us-east-1:123456789012:profile/test";
 
-function usageResponse() {
+/** The wire object a test may rewrite before the core reads it. */
+type WireUsage = {
+  [key: string]: unknown;
+  usageBreakdown?: Record<string, unknown>;
+  usageBreakdownList?: Record<string, unknown>[];
+};
+
+function usageResponse(): WireUsage {
   return {
     nextDateReset: 1775001600,
     daysUntilReset: 6,
@@ -98,18 +105,57 @@ describe("fetchKiroUsage", () => {
       daysUntilReset: 6,
       overageStatus: "DISABLED",
       manageUrl: "https://app.kiro.dev/account/usage",
+      resetAt: "2026-04-01T00:00:00.000Z",
+      resetAtMs: 1775001600000,
     });
     expect(usage.usageBuckets?.[0]).toMatchObject({
       label: "Credits",
       usedDisplay: "0",
       limitDisplay: "50",
       unit: "CREDITS",
+      unitKind: "credits",
       bonus: {
         label: "Bonus credits",
         usedDisplay: "0",
         limitDisplay: "500",
       },
     });
+  });
+
+  async function unitKindOf(overrides: Record<string, unknown>): Promise<KiroUsageUnit | undefined> {
+    const raw: WireUsage = usageResponse();
+    raw.usageBreakdown = { ...raw.usageBreakdown, ...overrides };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(raw) }));
+    const usage = await fetchKiroUsage({ ...creds, profileArn });
+    return usage.usageBuckets?.[0]?.unitKind;
+  }
+
+  it("normalizes the units Kiro names on the wire", async () => {
+    expect(await unitKindOf({ unit: "INVOCATIONS" })).toBe("credits");
+    expect(await unitKindOf({ unit: undefined })).toBe("credits");
+    expect(await unitKindOf({ unit: "REQUESTS" })).toBe("requests");
+    expect(await unitKindOf({ unit: "TOKENS" })).toBe("tokens");
+    expect(await unitKindOf({ unit: "USD" })).toBe("usd");
+    expect(await unitKindOf({ unit: "widget" })).toBe("unknown");
+    expect(await unitKindOf({ unit: undefined, resourceType: "SEAT" })).toBe("unknown");
+  });
+
+  it("maps every bucket in a usageBreakdownList", async () => {
+    const raw: WireUsage = usageResponse();
+    const credits = { ...raw.usageBreakdown };
+    delete raw.usageBreakdown;
+    raw.usageBreakdownList = [
+      credits,
+      { resourceType: "SEAT", displayName: "Seats", currentUsage: 1, usageLimit: 3, unit: "COUNT" },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(raw) }));
+
+    const usage = await fetchKiroUsage({ ...creds, profileArn });
+
+    expect(usage.usageBuckets?.map((bucket) => [bucket.label, bucket.unitKind])).toEqual([
+      ["Credits", "credits"],
+      ["Seats", "unknown"],
+    ]);
   });
 
   it("resolves a profile before fetching usage when the credential has no profile ARN", async () => {

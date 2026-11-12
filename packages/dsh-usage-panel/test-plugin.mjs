@@ -37,9 +37,12 @@ const RUN_COMMAND =
 let passed = 0;
 const failures = [];
 
-function check(name, fn) {
+// `getUsageSummary` is async, so a check may return a promise. It is awaited
+// here, so a rejected call lands in the failure list and not in an unhandled
+// rejection. Every call site below uses `await check(...)`.
+async function check(name, fn) {
 	try {
-		const detail = fn();
+		const detail = await fn();
 		passed += 1;
 		console.log('  ok   ' + name + (detail ? ' — ' + detail : ''));
 	} catch (error) {
@@ -75,7 +78,7 @@ const patchText = readFileSync(join(PKG_DIR, 'cordis.patch.yml'), 'utf8');
 const indexText = readFileSync(join(PKG_DIR, 'index.js'), 'utf8');
 const clientText = readFileSync(join(PKG_DIR, 'client.js'), 'utf8');
 
-check('exports maps every shipped entry point', () => {
+await check('exports maps every shipped entry point', async () => {
 	const need = { '.': './index.js', './client': './client.js', './package.json': './package.json' };
 	for (const [key, value] of Object.entries(need)) {
 		assert.equal(pkg.exports[key], value, 'exports[' + key + ']');
@@ -83,41 +86,41 @@ check('exports maps every shipped entry point', () => {
 	assert.ok(pkg.exports['./cordis.patch.yml'], 'exports ./cordis.patch.yml missing');
 	return Object.keys(pkg.exports).length + ' exports';
 });
-check('files covers the runtime and the patch', () => {
-	for (const f of ['index.js', 'client.js', 'cordis.patch.yml', 'icon.svg']) {
+await check('files covers the runtime and the patch', async () => {
+	for (const f of ['index.js', 'quota.js', 'client.js', 'cordis.patch.yml', 'icon.svg']) {
 		assert.ok(pkg.files.includes(f), 'files missing ' + f);
 	}
 	return pkg.files.join(',');
 });
-check('dsh.bundle.patch is present so install_bundle accepts the dir', () => {
+await check('dsh.bundle.patch is present so install_bundle accepts the dir', async () => {
 	assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml');
 	return 'ok';
 });
-check('cordis.patch.yml inserts this plugin by its package name', () => {
+await check('cordis.patch.yml inserts this plugin by its package name', async () => {
 	assert.match(patchText, /id:\s*dsh-usage-panel/);
 	assert.match(patchText, /name:\s*'@local\/dsh-usage-panel'/);
 	return 'ok';
 });
-check('runtime imports are declared as peers', () => {
+await check('runtime imports are declared as peers', async () => {
 	const imported = [...indexText.matchAll(/from\s+'(@[^']+)'/g)].map((m) => m[1]);
 	for (const spec of imported) {
 		assert.ok(pkg.peerDependencies[spec], spec + ' imported but not declared');
 	}
 	return imported.join(',');
 });
-check('no peer is pinned to an exact version', () => {
+await check('no peer is pinned to an exact version', async () => {
 	for (const [name, range] of Object.entries(pkg.peerDependencies)) {
 		assert.match(range, /(\^|>=)/, name + ' must stay a range: the app bundle differs from disk');
 	}
 	return 'ok';
 });
-check('host half uses the Form B service-class idiom', () => {
+await check('host half uses the Form B service-class idiom', async () => {
 	assert.match(indexText, /export default class \w+ extends TypertRemoteService/);
 	assert.ok(!/export const inject/.test(indexText), 'export const inject in host half');
 	assert.ok(!/ctx\.provide\s*\(/.test(indexText), 'ctx.provide does not exist on a Cordis ctx');
 	return 'ok';
 });
-check('host half has no tsconfig or build step to go stale', () => {
+await check('host half has no tsconfig or build step to go stale', async () => {
 	assert.ok(!existsSync(join(PKG_DIR, 'tsconfig.json')), 'tsconfig.json still present');
 	return 'ok';
 });
@@ -177,6 +180,9 @@ const BUDGETS = { kiro: { budget: 100, used: 999 }, devin: { budget: 50 }, qoder
 const BUDGET_PATH = join(RUN_ROOT, 'credit-budgets.json');
 writeFileSync(BUDGET_PATH, JSON.stringify(BUDGETS), 'utf8');
 process.env.NS_BRIDGE_USAGE_DIR = USAGE_DIR;
+// Provider quota needs the network and real credentials, so the suite turns it
+// off. Every row then keeps its file, env or none limit, exactly as before.
+process.env.NS_BRIDGE_USAGE_PROVIDER_QUOTA = '0';
 
 // ---------------------------------------------------------------------------
 // 3. Service construction: the exact call the Cordis fiber makes.
@@ -204,21 +210,21 @@ function makeCtx() {
 const ctx = makeCtx();
 const service = new UsageService(ctx, { days: 10 });
 
-check('service key is usage', () => {
+await check('service key is usage', async () => {
 	assert.equal(service.name, 'usage');
 	return 'ok';
 });
-check('registered once on ctx.reflect.provide under usage', () => {
+await check('registered once on ctx.reflect.provide under usage', async () => {
 	assert.equal(provided.length, 1, 'expected one provide, got ' + provided.length);
 	assert.equal(provided[0].name, 'usage');
 	assert.equal(provided[0].impl, service, 'provide must receive the instance');
 	return 'ok';
 });
-check('gateway namespace is usage', () => {
+await check('gateway namespace is usage', async () => {
 	assert.equal(service.typertRemote && service.typertRemote.namespace, 'usage');
 	return 'namespace=' + service.typertRemote.namespace;
 });
-check('getUsageSummary is visible to the gateway reader', () => {
+await check('getUsageSummary is visible to the gateway reader', async () => {
 	// remoteMethods is the same public reader the RPC gateway uses. A missing
 	// marker makes usage/getUsageSummary fail and the panel shows panel.error.
 	const marks = tp.remoteMethods(service);
@@ -233,7 +239,7 @@ check('getUsageSummary is visible to the gateway reader', () => {
 //    Every number here comes from the fixture above and was checked by hand.
 // ---------------------------------------------------------------------------
 console.log('4. summary contract');
-const summary = service.getUsageSummary();
+const summary = await service.getUsageSummary();
 
 const USAGE_FIELD_NAMES = [
 	'steps',
@@ -248,7 +254,16 @@ const USAGE_FIELD_NAMES = [
 	'billedCredits',
 	'estimatedCredits',
 ];
-const VENDOR_KEYS = ['vendor', ...USAGE_FIELD_NAMES, 'limit', 'limitSource', 'remainingCredits', 'overLimit'];
+const QUOTA_KEYS = ['source', 'unit', 'used', 'limit', 'remaining', 'resetAtMs', 'label', 'account', 'warning'];
+const VENDOR_KEYS = [
+	'vendor',
+	...USAGE_FIELD_NAMES,
+	'limit',
+	'limitSource',
+	'remainingCredits',
+	'overLimit',
+	'quota',
+];
 const MODEL_KEYS = ['vendor', 'model', ...USAGE_FIELD_NAMES];
 const DAY_KEYS = ['day', 'vendor', 'model', ...USAGE_FIELD_NAMES];
 
@@ -263,8 +278,8 @@ const modelRow = (vendor, model) =>
 const dayRow = (day, vendor, model) =>
 	findOne(summary.days, 'day row ' + day, (r) => r.day === day && r.vendor === vendor && r.model === model);
 
-check('summary is a versioned object, not an array', () => {
-	assert.equal(summary.schemaVersion, 2, 'schemaVersion must match the client CONTRACT_SCHEMA');
+await check('summary is a versioned object, not an array', async () => {
+	assert.equal(summary.schemaVersion, 3, 'schemaVersion must match the client CLIENT_SCHEMA');
 	assert.equal(typeof summary.window, 'object', 'window must be an object');
 	assert.equal(typeof summary.totals, 'object', 'totals must be an object');
 	for (const key of ['vendors', 'days', 'models']) {
@@ -272,7 +287,7 @@ check('summary is a versioned object, not an array', () => {
 	}
 	return 'schemaVersion=' + summary.schemaVersion;
 });
-check('window reports the days read and the folders found', () => {
+await check('window reports the days read and the folders found', async () => {
 	assert.deepEqual(summary.window, {
 		days: 10,
 		choices: [1, 3, 7, 10, 30],
@@ -282,14 +297,14 @@ check('window reports the days read and the folders found', () => {
 	});
 	return summary.window.from + '..' + summary.window.to;
 });
-check('every row type has one key list in a fixed order', () => {
+await check('every row type has one key list in a fixed order', async () => {
 	assert.deepEqual(Object.keys(summary.totals), USAGE_FIELD_NAMES);
 	assert.deepEqual(Object.keys(summary.vendors[0]), VENDOR_KEYS);
 	assert.deepEqual(Object.keys(summary.models[0]), MODEL_KEYS);
 	assert.deepEqual(Object.keys(summary.days[0]), DAY_KEYS);
 	return 'vendors ' + VENDOR_KEYS.length + ', models ' + MODEL_KEYS.length + ' keys';
 });
-check('day rows are newest first and empty folders add no row', () => {
+await check('day rows are newest first and empty folders add no row', async () => {
 	assert.deepEqual(summary.days.map((r) => r.day), [
 		'2026-01-12',
 		'2026-01-11',
@@ -302,7 +317,7 @@ check('day rows are newest first and empty folders add no row', () => {
 	]);
 	return summary.days.length + ' rows, days 6 and 2 absent';
 });
-check('model rows sort by vendor, then credits, then model', () => {
+await check('model rows sort by vendor, then credits, then model', async () => {
 	assert.deepEqual(
 		summary.models.map((r) => r.vendor + '/' + r.model),
 		[
@@ -318,7 +333,7 @@ check('model rows sort by vendor, then credits, then model', () => {
 	);
 	return summary.models.length + ' rows';
 });
-check('billed plus estimated equals total on every row', () => {
+await check('billed plus estimated equals total on every row', async () => {
 	const rows = [{ what: 'totals', row: summary.totals }];
 	for (const list of ['vendors', 'models', 'days']) {
 		for (const row of summary[list]) rows.push({ what: list + ' ' + (row.model || row.vendor), row });
@@ -334,14 +349,14 @@ check('billed plus estimated equals total on every row', () => {
 // 5. Credit math: what the ledger turns into credits.
 // ---------------------------------------------------------------------------
 console.log('5. credit math');
-check('a native credit amount is billed as it is', () => {
+await check('a native credit amount is billed as it is', async () => {
 	const r = modelRow('kiro', 'claude-opus-5-5');
 	assert.equal(r.billedCredits, 5);
 	assert.equal(r.estimatedCredits, 0);
 	assert.equal(r.totalCredits, 5);
 	return 'credits 5 -> billed 5';
 });
-check('a usd credit amount is divided by USD_PER_CREDIT', () => {
+await check('a usd credit amount is divided by USD_PER_CREDIT', async () => {
 	// 0.5 USD / 0.04 = 12.5 credits, all billed, nothing estimated.
 	const r = modelRow('kiro', 'claude-haiku-4-5');
 	assert.equal(r.billedCredits, 12.5);
@@ -349,21 +364,21 @@ check('a usd credit amount is divided by USD_PER_CREDIT', () => {
 	assert.equal(r.totalCredits, 12.5);
 	return '0.5 usd -> 12.5 credits';
 });
-check('a priced model without a billed amount is estimated', () => {
+await check('a priced model without a billed amount is estimated', async () => {
 	const r = modelRow('kiro', 'claude-sonnet-5-5');
 	assert.equal(r.billedCredits, 0);
 	assert.equal(r.estimatedCredits, 10.25);
 	assert.equal(r.totalCredits, 10.25);
 	return 'kiro sonnet -> 10.25';
 });
-check('the long-context band applies to grok', () => {
+await check('the long-context band applies to grok', async () => {
 	const r = modelRow('grok', 'grok-4.7');
 	assert.equal(r.estimatedCredits, 15.3);
 	assert.equal(r.promptTokens, 300000);
 	assert.equal(r.input === undefined, true, 'input is not part of the payload');
 	return '300k prompt -> 15.3 credits';
 });
-check('a tier label with no priced model costs nothing', () => {
+await check('a tier label with no priced model costs nothing', async () => {
 	const r = modelRow('qoder', 'ultimate');
 	assert.equal(r.totalCredits, 0);
 	assert.equal(r.billedCredits, 0);
@@ -371,20 +386,20 @@ check('a tier label with no priced model costs nothing', () => {
 	assert.equal(r.totalTokens, 5100);
 	return 'never a guessed price';
 });
-check('a credit unit the panel cannot name is not a credit amount', () => {
+await check('a credit unit the panel cannot name is not a credit amount', async () => {
 	const r = modelRow('old', 'weird');
 	assert.equal(r.billedCredits, 0, 'credits 3 with unit tokens must be ignored');
 	assert.equal(r.totalCredits, 0);
 	return 'unit tokens -> 0';
 });
-check('an empty model id becomes unknown and is not priced', () => {
+await check('an empty model id becomes unknown and is not priced', async () => {
 	const r = modelRow('kiro', 'unknown');
 	assert.equal(r.model, 'unknown');
 	assert.equal(r.totalCredits, 0);
 	assert.equal(r.steps, 1);
 	return 'model "" -> unknown';
 });
-check('totalTokens is prompt plus output, cache read is separate', () => {
+await check('totalTokens is prompt plus output, cache read is separate', async () => {
 	// The grok step read 200000 cached tokens. They must not double count.
 	const grok = modelRow('grok', 'grok-4.7');
 	assert.equal(grok.totalTokens, 301000);
@@ -394,7 +409,7 @@ check('totalTokens is prompt plus output, cache read is separate', () => {
 	assert.equal(sonnet.totalTokens, 201000);
 	return 'cache read not added to total';
 });
-check('cache hit ratio uses cached read over cached prompt', () => {
+await check('cache hit ratio uses cached read over cached prompt', async () => {
 	const totals = summary.totals;
 	assert.equal(totals.cacheReadTokens, 200000);
 	assert.equal(totals.cacheHitRatio, 0.392157);
@@ -407,7 +422,7 @@ check('cache hit ratio uses cached read over cached prompt', () => {
 	assert.equal(vendorRow('devin').cacheWriteRatio, null);
 	return 'totals 0.392157';
 });
-check('sessions are counted once per vendor and once in total', () => {
+await check('sessions are counted once per vendor and once in total', async () => {
 	assert.equal(summary.totals.sessionCount, 6, 's1..s6; s0 is outside the window');
 	assert.equal(vendorRow('kiro').sessionCount, 3, 's1, s2, s5');
 	assert.equal(vendorRow('old').sessionCount, 1, 's6 twice on one vendor');
@@ -420,7 +435,7 @@ check('sessions are counted once per vendor and once in total', () => {
 // 6. Budgets and limits: the limit columns.
 // ---------------------------------------------------------------------------
 console.log('6. budgets and limits');
-check('vendors with a declared budget keep a row even with no usage', () => {
+await check('vendors with a declared budget keep a row even with no usage', async () => {
 	assert.deepEqual(summary.vendors.map((r) => r.vendor), ['devin', 'grok', 'kiro', 'old', 'qoder']);
 	const devin = vendorRow('devin');
 	assert.equal(devin.steps, 0);
@@ -429,7 +444,7 @@ check('vendors with a declared budget keep a row even with no usage', () => {
 	assert.equal(devin.remainingCredits, 50);
 	return 'budget 0 and a non-object entry are skipped';
 });
-check('a file budget is the limit and spent comes from the ledger', () => {
+await check('a file budget is the limit and spent comes from the ledger', async () => {
 	const kiro = vendorRow('kiro');
 	assert.equal(kiro.limit, 100);
 	assert.equal(kiro.limitSource, 'file');
@@ -439,7 +454,7 @@ check('a file budget is the limit and spent comes from the ledger', () => {
 	assert.equal(kiro.overLimit, false);
 	return 'stale used:999 ignored';
 });
-check('a vendor with no declared limit reports null', () => {
+await check('a vendor with no declared limit reports null', async () => {
 	for (const vendor of ['grok', 'old']) {
 		const r = vendorRow(vendor);
 		assert.equal(r.limit, null, vendor + ' limit');
@@ -449,7 +464,7 @@ check('a vendor with no declared limit reports null', () => {
 	}
 	return 'no invented limit';
 });
-check('a full budget reports zero left and is not over', () => {
+await check('a full budget reports zero left and is not over', async () => {
 	const qoder = vendorRow('qoder');
 	assert.equal(qoder.limit, 5);
 	assert.equal(qoder.totalCredits, 0);
@@ -457,13 +472,13 @@ check('a full budget reports zero left and is not over', () => {
 	assert.equal(qoder.overLimit, false);
 	return 'spent 0 of 5';
 });
-check('overLimit is true only when the remaining amount is negative', () => {
+await check('overLimit is true only when the remaining amount is negative', async () => {
 	// The same ledger against a limit lower than the spend, so the negative
 	// number must stay visible and must not be clamped to zero. The file wins
 	// over NS_BRIDGE_CREDIT_LIMIT, so the low limit goes in the file.
 	writeFileSync(BUDGET_PATH, JSON.stringify({ kiro: { budget: 3 } }), 'utf8');
 	try {
-		const out = new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
+		const out = await new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
 		const kiro = findOne(out.vendors, 'over limit kiro', (r) => r.vendor === 'kiro');
 		assert.equal(kiro.limitSource, 'file');
 		assert.equal(kiro.limit, 3);
@@ -475,12 +490,12 @@ check('overLimit is true only when the remaining amount is negative', () => {
 		writeFileSync(BUDGET_PATH, JSON.stringify(BUDGETS), 'utf8');
 	}
 });
-check('env limit is used only when the budget file omits the vendor', () => {
+await check('env limit is used only when the budget file omits the vendor', async () => {
 	// limitFor checks the file first, so an env-only run needs a file with no kiro.
 	writeFileSync(BUDGET_PATH, JSON.stringify({ devin: { budget: 50 } }), 'utf8');
 	process.env.NS_BRIDGE_CREDIT_LIMIT = '30';
 	try {
-		const out = new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
+		const out = await new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
 		const kiro = findOne(out.vendors, 'env kiro', (r) => r.vendor === 'kiro');
 		assert.equal(kiro.limit, 30);
 		assert.equal(kiro.limitSource, 'env');
@@ -497,13 +512,114 @@ check('env limit is used only when the budget file omits the vendor', () => {
 		writeFileSync(BUDGET_PATH, JSON.stringify(BUDGETS), 'utf8');
 	}
 });
+await check('provider quota stays off the network for the whole suite', async () => {
+	const q = await import(new URL('./quota.js', HERE).href);
+	assert.equal(q.isProviderVendor('kiro'), false, 'the kill switch must disable kiro');
+	assert.equal(q.isProviderVendor('devin'), false, 'the kill switch must disable devin');
+	assert.equal(await q.refreshQuota('kiro'), null, 'a disabled provider answers null');
+	delete process.env.NS_BRIDGE_USAGE_PROVIDER_QUOTA;
+	try {
+		assert.equal(q.isProviderVendor('Kiro'), true, 'the vendor name is matched case first');
+		assert.equal(q.isProviderVendor(' grok '), false, 'grok has no quota endpoint');
+		assert.equal(q.isProviderVendor('qoder'), false, 'qoder has no quota endpoint');
+	} finally {
+		process.env.NS_BRIDGE_USAGE_PROVIDER_QUOTA = '0';
+	}
+	return 'kiro and devin only';
+});
+await check('normalizeKiro picks the credit bucket over any other unit', async () => {
+	const q = await import(new URL('./quota.js', HERE).href);
+	const quota = q.normalizeKiro({
+		subscriptionTitle: 'KIRO PRO+',
+		usageBuckets: [
+			{ id: 'tokens', label: 'Token', used: 1200, limit: 5000, unitKind: 'tokens' },
+			{ id: 'invocations', label: 'Credit', used: 640.65, limit: 2000, unitKind: 'credits', resetAtMs: 1796083200000 },
+		],
+	});
+	assert.deepEqual(Object.keys(quota), QUOTA_KEYS, 'a quota has one key list');
+	assert.equal(quota.source, 'provider');
+	assert.equal(quota.unit, 'credits', 'a bought allowance wins over a token bucket');
+	assert.equal(quota.used, 640.65);
+	assert.equal(quota.limit, 2000);
+	assert.equal(quota.remaining, 1359.35);
+	assert.equal(quota.resetAtMs, 1796083200000);
+	assert.equal(quota.label, 'Credit');
+	assert.equal(quota.account, 'KIRO PRO+');
+	assert.equal(quota.warning, null, 'the caller owns the budget file tick');
+	return '640.65 of 2000 credits';
+});
+await check('normalizeKiro returns null unless a bucket carries a real bar', async () => {
+	const q = await import(new URL('./quota.js', HERE).href);
+	assert.equal(q.normalizeKiro(undefined), null, 'no response at all');
+	assert.equal(q.normalizeKiro({}), null, 'no buckets at all');
+	assert.equal(q.normalizeKiro({ usageBuckets: [] }), null, 'an empty bucket list');
+	assert.equal(q.normalizeKiro({ usageBuckets: [{ label: 'Credit', used: 0 }] }), null, 'used with no limit and no reset is not a bar');
+	assert.equal(q.normalizeKiro({ usageBuckets: [{ label: 'Credit', used: 'x', limit: 10 }] }), null, 'a used that is not a number');
+	const bonus = q.normalizeKiro({
+		subscriptionTitle: 'FREE',
+		usageBuckets: [{ label: 'Bonus', used: 3, unitKind: 'credits' }],
+		resetAtMs: 1796083200000,
+	});
+	assert.equal(bonus.limit, null, 'a bucket with no allowance has no limit');
+	assert.equal(bonus.remaining, null, 'no limit means no remaining');
+	assert.equal(bonus.resetAtMs, 1796083200000, 'the response reset is the fallback');
+	return 'five null paths, one fallback';
+});
+await check('normalizeDevin adds the credit windows into one allowance', async () => {
+	const q = await import(new URL('./quota.js', HERE).href);
+	const quota = q.normalizeDevin({
+		planName: 'Free',
+		limits: [
+			{ id: 'devin:credits:prompt', label: 'Prompt credits', window: 'month', unit: 'credits', used: 0, limit: 2500 },
+			{ id: 'devin:credits:flow', label: 'Flow credits', window: 'month', unit: 'credits', used: 12.5, limit: 500 },
+			{ id: 'devin:quota:daily', label: 'Daily', window: 'day', unit: 'percent', used: 20, limit: 100, resetsAt: 1796000000000 },
+			{ id: 'devin:quota:weekly', label: 'Weekly', window: 'week', unit: 'percent', used: 75, limit: 100, resetsAt: 1796000001000 },
+		],
+	});
+	assert.deepEqual(Object.keys(quota), QUOTA_KEYS, 'a quota has one key list');
+	assert.equal(quota.unit, 'credits', 'the plan allowance is the number a person reads');
+	assert.equal(quota.used, 12.5, '0 + 12.5');
+	assert.equal(quota.limit, 3000, '2500 + 500');
+	assert.equal(quota.remaining, 2987.5);
+	assert.equal(quota.resetAtMs, null, 'these credit rows carry no reset');
+	assert.equal(quota.label, 'Free');
+	assert.equal(quota.account, 'Free');
+	return 'two credit windows summed';
+});
+await check('normalizeDevin picks the fullest percent window, not the first', async () => {
+	const q = await import(new URL('./quota.js', HERE).href);
+	const quota = q.normalizeDevin({
+		planName: 'Team',
+		limits: [
+			{ id: 'daily', label: 'Daily', unit: 'percent', used: 20, limit: 100, resetsAt: 1796000000000 },
+			{ id: 'open', label: 'No allowance', unit: 'percent', used: 5, resetsAt: 1796000002000 },
+			{ id: 'weekly', label: 'Weekly', unit: 'percent', used: 90, limit: 100, resetsAt: 1796000001000 },
+		],
+	});
+	assert.equal(quota.label, 'Weekly', 'the fullest window is the honest bar');
+	assert.equal(quota.unit, 'percent');
+	assert.equal(quota.used, 90);
+	assert.equal(quota.limit, 100, 'a percent window is already out of one hundred');
+	assert.equal(quota.remaining, 10);
+	assert.equal(quota.resetAtMs, 1796000001000);
+	return 'max share wins';
+});
+await check('normalizeDevin returns null when no row carries an allowance', async () => {
+	const q = await import(new URL('./quota.js', HERE).href);
+	assert.equal(q.normalizeDevin(undefined), null, 'no response at all');
+	assert.equal(q.normalizeDevin({}), null, 'no limits at all');
+	assert.equal(q.normalizeDevin({ limits: [] }), null, 'an empty limit list');
+	assert.equal(q.normalizeDevin({ limits: [{ unit: 'credits', used: 3, limit: 0 }] }), null, 'a zero allowance is not a cap');
+	assert.equal(q.normalizeDevin({ limits: [{ unit: 'credits', used: 3, limit: -5 }] }), null, 'a negative allowance is not a cap');
+	return 'five null paths';
+});
 
 // ---------------------------------------------------------------------------
 // 7. Window and empty paths: config and missing files.
 // ---------------------------------------------------------------------------
 console.log('7. window and empty paths');
-check('a one day window reads only the newest folder', () => {
-	const out = new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
+await check('a one day window reads only the newest folder', async () => {
+	const out = await new UsageService(makeCtx(), { days: 1 }).getUsageSummary();
 	assert.deepEqual(out.window, { days: 1, choices: [1, 3, 7, 10, 30], from: '2026-01-12', to: '2026-01-12', folders: 1 });
 	assert.deepEqual(out.vendors.map((r) => r.vendor), ['devin', 'kiro', 'qoder']);
 	assert.deepEqual(out.models.map((r) => r.vendor + '/' + r.model), ['kiro/claude-opus-5-5']);
@@ -513,22 +629,22 @@ check('a one day window reads only the newest folder', () => {
 	assert.equal(kiro.remainingCredits, 95, '100 - 5');
 	return 'grok and old drop out of the window';
 });
-check('the window comes from config, not from an env var', () => {
+await check('the window comes from config, not from an env var', async () => {
 	process.env.NS_BRIDGE_USAGE_DAYS = '30';
 	try {
-		const out = new UsageService(makeCtx(), { days: 3 }).getUsageSummary();
+		const out = await new UsageService(makeCtx(), { days: 3 }).getUsageSummary();
 		assert.equal(out.window.days, 3, 'the panel must ignore NS_BRIDGE_USAGE_DAYS');
-		const dflt = new UsageService(makeCtx()).getUsageSummary();
+		const dflt = await new UsageService(makeCtx()).getUsageSummary();
 		assert.equal(dflt.window.days, 10, 'no config must give DEFAULT_USAGE_DAYS');
 		return 'config wins';
 	} finally {
 		delete process.env.NS_BRIDGE_USAGE_DAYS;
 	}
 });
-check('a missing ledger gives no rows but keeps the declared limits', () => {
+await check('a missing ledger gives no rows but keeps the declared limits', async () => {
 	process.env.NS_BRIDGE_USAGE_DIR = join(RUN_ROOT, 'nope');
 	try {
-		const out = new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
+		const out = await new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
 		assert.deepEqual(out.models, []);
 		assert.deepEqual(out.days, []);
 		assert.deepEqual(out.vendors.map((r) => r.vendor), ['devin', 'kiro', 'qoder']);
@@ -536,6 +652,7 @@ check('a missing ledger gives no rows but keeps the declared limits', () => {
 			assert.equal(r.totalCredits, 0, r.vendor + ' spent');
 			assert.equal(r.limitSource, 'file', r.vendor + ' limit source');
 			assert.equal(r.overLimit, false);
+			assert.equal(r.quota, null, r.vendor + ' quota');
 		}
 		assert.deepEqual(out.window, { days: 10, choices: [1, 3, 7, 10, 30], from: null, to: null, folders: 0 });
 		return '3 budgeted vendors still visible';
@@ -543,13 +660,13 @@ check('a missing ledger gives no rows but keeps the declared limits', () => {
 		process.env.NS_BRIDGE_USAGE_DIR = USAGE_DIR;
 	}
 });
-check('no ledger and no budget file gives an empty summary, not an error', () => {
+await check('no ledger and no budget file gives an empty summary, not an error', async () => {
 	// Two levels below a directory that has no credit-budgets.json, so
 	// budgetPath() finds nothing and every vendor has no limit.
 	const emptyRoot = join(RUN_ROOT, 'empty');
 	process.env.NS_BRIDGE_USAGE_DIR = join(emptyRoot, 'usage');
 	try {
-		const out = new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
+		const out = await new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
 		assert.deepEqual(out.vendors, []);
 		assert.deepEqual(out.models, []);
 		assert.deepEqual(out.days, []);
@@ -571,11 +688,11 @@ check('no ledger and no budget file gives an empty summary, not an error', () =>
 		process.env.NS_BRIDGE_USAGE_DIR = USAGE_DIR;
 	}
 });
-check('an unreadable price catalog does not change billed credits', () => {
+await check('an unreadable price catalog does not change billed credits', async () => {
 	const before = vendorRow('kiro');
 	process.env.NS_BRIDGE_PI_CATALOG = join(RUN_ROOT, 'no-catalog.json');
 	try {
-		const out = new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
+		const out = await new UsageService(makeCtx(), { days: 10 }).getUsageSummary();
 		assert.equal(out.vendors.length, 5);
 		const kiro = findOne(out.vendors, 'kiro no catalog', (r) => r.vendor === 'kiro');
 		assert.equal(kiro.totalCredits, before.totalCredits);
@@ -590,7 +707,7 @@ check('an unreadable price catalog does not change billed credits', () => {
 // 8. RPC payload safety: the gateway rejects -0, NaN, undefined and cycles.
 // ---------------------------------------------------------------------------
 console.log('8. rpc payload safety');
-check('payload is strict JSON with finite numbers', () => {
+await check('payload is strict JSON with finite numbers', async () => {
 	const visit = (value, seen) => {
 		if (value === null) return;
 		const type = typeof value;
@@ -618,7 +735,7 @@ check('payload is strict JSON with finite numbers', () => {
 	assert.equal(typeof summary.window.days, 'number', 'window.days must be a number');
 	return text.length + ' bytes';
 });
-check('every row carries the shared usage fields', () => {
+await check('every row carries the shared usage fields', async () => {
 	const rows = [[summary.totals], summary.vendors, summary.models, summary.days];
 	for (const list of rows) {
 		assert.ok(list.length > 0, 'an empty list makes this check vacuous');
@@ -631,7 +748,7 @@ check('every row carries the shared usage fields', () => {
 		}
 	}
 	for (const row of summary.vendors) {
-		assert.ok(['file', 'env', 'none'].includes(row.limitSource), 'bad limitSource ' + row.limitSource);
+		assert.ok(['provider', 'file', 'env', 'none'].includes(row.limitSource), 'bad limitSource ' + row.limitSource);
 		assert.equal(typeof row.overLimit, 'boolean');
 		if (row.limitSource === 'none') {
 			assert.equal(row.limit, null);
@@ -645,16 +762,16 @@ check('every row carries the shared usage fields', () => {
 // 9. Client contract: endpoint, failure envelope, fields, locale keys.
 // ---------------------------------------------------------------------------
 console.log('9. client contract');
-check('client calls the endpoint the host registers', () => {
+await check('client calls the endpoint the host registers', async () => {
 	assert.match(clientText, /usage\/getUsageSummary/);
 	assert.match(clientText, /rpc\.call\(\s*['"]\/api['"]/);
 	return 'ok';
 });
-check('client passes an empty args object', () => {
+await check('client passes an empty args object', async () => {
 	assert.match(clientText, /getUsageSummary['"],\s*\{\s*args:\s*\{\}\s*\}/, 'rpc args shape changed');
 	return 'ok';
 });
-check('client treats a failed call as an outcome, not as a throw', () => {
+await check('client treats a failed call as an outcome, not as a throw', async () => {
 	// The gateway resolves { ok: false, error } instead of throwing, so a client
 	// that only catches would show a generic error with no code.
 	assert.match(clientText, /result\.ok\s*!==\s*true/, 'client must check result.ok');
@@ -663,34 +780,46 @@ check('client treats a failed call as an outcome, not as a throw', () => {
 	assert.match(clientText, /state\.detail/, 'client must show the code to the user');
 	return 'ok';
 });
-check('client reads only fields the host returns', () => {
+await check('a bar with no provider quota draws no budget mark', async () => {
+	// Number(null) is 0. A raw cast put a mark at 0% on every row, even grok
+	// and qoder, which have no provider quota at all.
+	assert.match(clientText, /const given = props\.warningRatio;/, 'MeterBar must read the mark into a named local');
+	assert.match(clientText, /typeof given === 'number' \|\| typeof given === 'string' \? Number\(given\) : null/, 'MeterBar must reject a missing mark before it casts');
+	assert.doesNotMatch(clientText, /Number\(props\.warningRatio\)/, 'MeterBar must not cast a missing mark');
+	return 'ok';
+});
+await check('client reads only fields the host returns', async () => {
 	// Locale dictionaries write keys as strings, for example 'totals.tokens'.
 	// Those are labels, not reads, so blank every single-quoted string first.
 	const code = clientText.replace(/'[^'\n]*'/g, "''");
-	const read = new Set([...code.matchAll(/(?<!\.)\b(?:row|item|r|entry|vendor|model|day|part|totals)\.([A-Za-z][\w]*)/g)].map((m) => m[1]));
+	// `quota` is a nested object, so a local named quota counts as a read too.
+	const read = new Set([...code.matchAll(/(?<!\.)\b(?:row|item|r|entry|vendor|model|day|part|totals|quota)\.([A-Za-z][\w]*)/g)].map((m) => m[1]));
 	const schema = new Set([
 		...Object.keys(summary.totals),
 		...Object.keys(summary.vendors[0]),
 		...Object.keys(summary.models[0]),
 		...Object.keys(summary.days[0]),
+		// A provider is offline here, so every row quota is null. Read the
+		// nested names from the list the host builds, not from the payload.
+		...QUOTA_KEYS,
 	]);
 	assert.ok(read.size > 8, 'the field reader found only ' + read.size + ' fields; the regex is too narrow');
 	for (const field of read) {
 		assert.ok(schema.has(field), 'client reads ' + field + ' which the host never returns');
 	}
-	for (const field of [...VENDOR_KEYS, ...MODEL_KEYS, 'day']) {
+	for (const field of [...VENDOR_KEYS, ...MODEL_KEYS, ...QUOTA_KEYS, 'day']) {
 		assert.ok(schema.has(field), field + ' missing from the payload');
 	}
 	return read.size + ' fields used';
 });
-check('every locale key the client asks for is defined', () => {
+await check('every locale key the client asks for is defined', async () => {
 	const used = new Set([...clientText.matchAll(/\bt\(\s*['"]([\w.]+)['"]/g)].map((m) => m[1]));
 	const defined = new Set([...clientText.matchAll(/['"]([a-z][\w.]*\.[\w.]+)['"]\s*:/g)].map((m) => m[1]));
 	const missing = [...used].filter((k) => !defined.has(k));
 	assert.deepEqual(missing, [], 'keys used but not registered: ' + missing.join(','));
 	return used.size + ' keys, all defined';
 });
-check('locale files still carry the plugin meta strings', () => {
+await check('locale files still carry the plugin meta strings', async () => {
 	for (const lang of ['en', 'vi']) {
 		const data = JSON.parse(readFileSync(join(PKG_DIR, 'locale', lang + '.json'), 'utf8'));
 		assert.equal(typeof data.meta.title, 'string', lang + '.meta.title');
@@ -698,7 +827,7 @@ check('locale files still carry the plugin meta strings', () => {
 	}
 	return 'ok';
 });
-check('client half declares its inject list', () => {
+await check('client half declares its inject list', async () => {
 	assert.match(clientText, /inject:\s*\[[^\]]*'slots'[^\]]*\]/);
 	assert.match(clientText, /inject:\s*\[[^\]]*'connection'[^\]]*\]/, 'the body needs connection for rpc');
 	assert.match(clientText, /locale:\s*NS/, 'the slot must set locale so it receives t');
@@ -709,7 +838,7 @@ check('client half declares its inject list', () => {
 // 10. Silence and cleanup.
 // ---------------------------------------------------------------------------
 console.log('10. no warnings');
-check('no run above made the host log a warning', () => {
+await check('no run above made the host log a warning', async () => {
 	assert.deepEqual(logs, [], 'host logged: ' + logs.join(' | '));
 	return passed + ' checks, ' + logs.length + ' log lines';
 });

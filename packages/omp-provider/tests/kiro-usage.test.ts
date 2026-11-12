@@ -8,6 +8,8 @@ vi.mock("ns-kiro-core", () => ({
   fetchKiroUsage: vi.fn(),
 }));
 
+const accountResetMs = Date.parse("2026-10-01T00:00:00.000Z");
+
 const bucket = (overrides: Partial<KiroProviderUsageBucket> = {}): KiroProviderUsageBucket => ({
   id: "CREDIT",
   label: "Credits",
@@ -16,13 +18,15 @@ const bucket = (overrides: Partial<KiroProviderUsageBucket> = {}): KiroProviderU
   limit: 1000,
   usedDisplay: "120",
   limitDisplay: "1000",
-  unit: "credit",
+  unit: "CREDITS",
+  unitKind: "credits",
   ...overrides,
 });
 
 const usage = (overrides: Partial<KiroProviderUsage> = {}): KiroProviderUsage => ({
   subscriptionTitle: "Kiro Pro",
   resetAt: "2026-10-01T00:00:00.000Z",
+  resetAtMs: accountResetMs,
   daysUntilReset: 27,
   manageUrl: "https://app.kiro.dev/account/usage",
   usageBuckets: [bucket()],
@@ -48,28 +52,25 @@ describe("toUsageReport", () => {
     expect(toUsageReport("kiro", usage()).limits[0]?.window).toEqual({
       id: "billing-period",
       label: "Billing period",
-      resetsAt: Date.parse("2026-10-01T00:00:00.000Z"),
+      resetsAt: accountResetMs,
     });
   });
 
   it("omits the window when neither the bucket nor the account has a reset", () => {
-    expect(toUsageReport("kiro", usage({ resetAt: undefined })).limits[0]?.window).toBeUndefined();
+    const noReset = usage({ resetAt: undefined, resetAtMs: undefined });
+    expect(toUsageReport("kiro", noReset).limits[0]?.window).toBeUndefined();
   });
 
-  it("reports an unknown unit rather than guessing", () => {
-    const report = toUsageReport("kiro", usage({ usageBuckets: [bucket({ unit: "widget" })] }));
+  it("reports an unknown unit when the core found no name for a bucket", () => {
+    const report = toUsageReport("kiro", usage({ usageBuckets: [bucket({ unitKind: undefined })] }));
     expect(report.limits[0]?.amount.unit).toBe("unknown");
   });
 
-  it("treats a CREDIT bucket whose unit is missing or INVOCATIONS as credits", () => {
-    expect(toUsageReport("kiro", usage({ usageBuckets: [bucket({ unit: undefined })] })).limits[0]?.amount.unit).toBe(
-      "credits",
-    );
-    expect(
-      toUsageReport("kiro", usage({ usageBuckets: [bucket({ unit: "INVOCATIONS" })] })).limits[0]?.amount.unit,
-    ).toBe("credits");
-    const unnamed = usage({ usageBuckets: [bucket({ unit: undefined, resourceType: undefined })] });
-    expect(toUsageReport("kiro", unnamed).limits[0]?.amount.unit).toBe("unknown");
+  it("carries the unit the core normalized, not the raw wire string", () => {
+    const raw = usage({ usageBuckets: [bucket({ unit: "INVOCATIONS", unitKind: "credits" })] });
+    expect(toUsageReport("kiro", raw).limits[0]?.amount.unit).toBe("credits");
+    const seats = usage({ usageBuckets: [bucket({ unit: "COUNT", unitKind: "unknown" })] });
+    expect(toUsageReport("kiro", seats).limits[0]?.amount.unit).toBe("unknown");
   });
 
   it("marks a fully consumed bucket exhausted and everything else ok", () => {
