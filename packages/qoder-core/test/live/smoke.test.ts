@@ -17,12 +17,12 @@ function authLikelyPresent(): boolean {
 }
 
 describe.runIf(LIVE)("qoder live smoke", () => {
-  it("returns the bootstrap model catalog", async () => {
-    const auth = resolveQoderAuth();
-    expect(auth).toBeDefined();
-    const ids = await fetchQoderModels({ auth });
-    expect(ids.length).toBeGreaterThan(0);
-    console.info(`[live] qoder: ${ids.length} model id(s)`);
+  it("lists the account models from the server", async () => {
+    expect(resolveQoderAuth()).toBeDefined();
+    const list = await fetchQoderModels();
+    expect(list.source).toBe("server");
+    expect(list.models.length).toBeGreaterThan(0);
+    console.info(`[live] qoder: ${list.models.length} model id(s)`);
   });
 
   it("streams a one-line reply", async () => {

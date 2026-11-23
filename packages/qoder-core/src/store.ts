@@ -45,8 +45,26 @@ type QoderPrepareInfer = (
   sourceLen: number,
 ) => void;
 
+type QoderPrepareRequest = (
+  retptr: number,
+  ctx: number,
+  endpointPtr: number,
+  endpointLen: number,
+  pathPtr: number,
+  pathLen: number,
+  methodPtr: number,
+  methodLen: number,
+  authPtr: number,
+  authLen: number,
+  bodyPtr: number,
+  bodyLen: number,
+  headersPtr: number,
+  headersLen: number,
+) => void;
+
 interface QoderAuthExports {
   memory: WasmMemory;
+  qodercontext_prepareRequest: QoderPrepareRequest;
   credential_storage_decrypt: RetptrFn;
   credential_storage_encrypt: RetptrFn;
   model_cache_decrypt: RetptrFn;
@@ -218,6 +236,7 @@ function loadExports(): QoderAuthExports {
     "model_cache_decrypt",
     "qodercontext_new",
     "qodercontext_prepareInferRequest",
+    "qodercontext_prepareRequest",
     "requestresult_url",
     "requestresult_body",
     "requestresult_headers",
@@ -428,6 +447,76 @@ export function signQoderInferRequest(
       const body = wasmResultString(exports, exports.requestresult_body, result);
       if (!url || body === undefined) throw new Error("qoder infer signer returned an empty request");
       return { url, headers: signatureHeaders(exports, result), body };
+    } finally {
+      exports.__wbg_requestresult_free(result, 0);
+    }
+  } finally {
+    exports.__wbg_qodercontext_free(ctx, 0);
+  }
+}
+
+function callPrepareRequest(
+  exports: QoderAuthExports,
+  ctx: number,
+  endpoint: string,
+  path: string,
+  method: string,
+  authType: string,
+  body: string | undefined,
+): number {
+  const retptr = exports.__wbindgen_add_to_stack_pointer(-16);
+  try {
+    const [endpointPtr, endpointLen] = passStringToWasm(exports, endpoint);
+    const [pathPtr, pathLen] = passStringToWasm(exports, path);
+    const [methodPtr, methodLen] = passStringToWasm(exports, method);
+    const [authPtr, authLen] = passStringToWasm(exports, authType);
+    const [bodyPtr, bodyLen] = body === undefined ? [0, 0] : passStringToWasm(exports, body);
+    exports.qodercontext_prepareRequest(
+      retptr,
+      ctx,
+      endpointPtr,
+      endpointLen,
+      pathPtr,
+      pathLen,
+      methodPtr,
+      methodLen,
+      authPtr,
+      authLen,
+      bodyPtr,
+      bodyLen,
+      0,
+      0,
+    );
+    const view = new Int32Array(exports.memory.buffer, retptr, 4);
+    if ((view[2] ?? 0) !== 0) throw takeObject(view[1] ?? 0);
+    return (view[0] ?? 0) >>> 0;
+  } finally {
+    exports.__wbindgen_add_to_stack_pointer(16);
+  }
+}
+
+/**
+ * Sign a non-infer request (`qodercontext_prepareRequest`), as qodercli does
+ * for `models.list`. `authType` is `auth` for logged-in calls.
+ */
+export function signQoderRequest(
+  endpoint: string,
+  path: string,
+  method: string,
+  authType: "auth" | "sign",
+  body: string | undefined,
+  identity: QoderSigningIdentity,
+  cosyVersion: string,
+): QoderInferSignature {
+  const exports = loadExports();
+  const ctx = callContextNew(exports, identity, cosyVersion);
+  try {
+    const result = callPrepareRequest(exports, ctx, endpoint, path, method, authType, body);
+    try {
+      const url = wasmResultString(exports, exports.requestresult_url, result);
+      if (!url) throw new Error("qoder request signer returned an empty url");
+      const signedBody = wasmResultString(exports, exports.requestresult_body, result);
+      return { url, headers: signatureHeaders(exports, result), body: signedBody ?? "" };
     } finally {
       exports.__wbg_requestresult_free(result, 0);
     }

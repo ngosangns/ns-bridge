@@ -30,7 +30,13 @@ export {
   readQoderCatalog,
 } from "./catalog.js";
 export { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js";
-export { fetchQoderModels, type QoderVendorCatalogTarget, qoderVendorCatalogFile } from "./models-api.js";
+export {
+  fetchQoderModels,
+  type QoderModelList,
+  type QoderModelSource,
+  type QoderVendorCatalogTarget,
+  qoderVendorCatalogFile,
+} from "./models-api.js";
 export type {
   QoderWireAssistantMessage,
   QoderWireContentPart,

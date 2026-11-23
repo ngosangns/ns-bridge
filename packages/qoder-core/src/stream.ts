@@ -32,7 +32,7 @@ export interface StreamQoderOptions {
 }
 
 /** Cosy-Version the live qodercli 1.1.83 signer puts on infer requests. */
-const QODER_WIRE_VERSION = "1.1.83";
+export const QODER_WIRE_VERSION = "1.1.83";
 const QODER_INFER_ORIGIN = "https://api2.qoder.sh";
 const ANONYMOUS_SIGNING_IDENTITY: QoderSigningIdentity = {
   machineId: "00000000-0000-0000-0000-000000000000",

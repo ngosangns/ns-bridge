@@ -1,7 +1,7 @@
 /**
  * Qoder provider registration for Pi (provider id: "qoder").
  * Auth: `qodercli login` or QODER_PERSONAL_ACCESS_TOKEN.
- * Models: qodercli's model cache with TTL disk cache + bootstrap fallback.
+ * Models: the model server's `models.list` with TTL disk cache + bootstrap fallback.
  * Streaming: one agent-sdk query per host turn; the host runs the tools.
  */
 
@@ -115,7 +115,17 @@ export async function refreshQoderModels(
         error: "no Qoder auth: run `qodercli login` or set QODER_PERSONAL_ACCESS_TOKEN",
       };
     }
-    const catalog = specsToCatalog(await fetchQoderModels({ auth }));
+    const list = await fetchQoderModels();
+    const catalog = specsToCatalog(list.models);
+    if (list.source !== "server") {
+      // A local snapshot is shown but never stored: it would overwrite a good cache with a stale list.
+      return {
+        models: catalogToProviderModels(catalog),
+        fromCache: false,
+        source: "fallback",
+        error: `model server unavailable (${list.error ?? "unknown error"}); showing ${list.source} list`,
+      };
+    }
     cache.store(QODER_PROVIDER_ID, catalog, { version: "qoder-cli-v1" });
     return { models: catalogToProviderModels(catalog), fromCache: false, source: "live" };
   } catch (err) {

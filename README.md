@@ -74,9 +74,12 @@ ns-bridge models refresh qoder
 ```
 
 The refresh writes `~/.pi/agent/cache/ns-pi-provider/qoder.models.json` from
-the model cache qodercli keeps at `~/.qoder/.models/` (display names, image
-input, reasoning efforts and the default context tier), falling back to the
-bootstrap list when the CLI never ran. The direct wire rejects request bodies
+the model server's `models.list`, the same signed call qodercli makes (display
+names, image input, reasoning efforts and the default context tier). It prints
+`source=live` only for that answer. If the server is unreachable or the login
+expired, it prints the reason, shows the model cache qodercli keeps at
+`~/.qoder/.models/` or the bootstrap list, and leaves the existing
+`qoder.models.json` untouched. The direct wire rejects request bodies
 over 256 KiB, so the catalog advertises a 65,536-token window and hosts compact
 around 49,152; the vendor's 200K/1M tiers never fit on this wire. Pi shows the
 effort ladder as `thinkingLevelMap`; OMP shows it as per-model effort levels and

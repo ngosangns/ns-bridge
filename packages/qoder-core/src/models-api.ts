@@ -1,17 +1,21 @@
-// ABOUTME: The Qoder model list. The vendor has no open list endpoint, so read
-// the model cache qodercli decrypted into `~/.qoder/.models/<uid>/catalog-v*`
-// and take its display names, vision input, reasoning efforts and context tier.
+// ABOUTME: The Qoder model list. Asks the model server with the signed
+// `models.list` call qodercli makes; falls back to the cache qodercli decrypts
+// into `~/.qoder/.models/<uid>/catalog-v*`, then to the bootstrap list.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { qoderConfigDir, type ResolvedQoderAuth } from "./auth.js";
+import { qoderConfigDir } from "./auth.js";
 import {
   type QoderModelSpec,
   qoderBootstrapModels,
   qoderModelInfosFromVendorCatalog,
   qoderModelsFromModelInfos,
 } from "./catalog.js";
-import { decryptQoderModelCache } from "./store.js";
+import { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js";
+import { decryptQoderModelCache, readQoderSigningIdentity, signQoderRequest } from "./store.js";
+import { QODER_WIRE_VERSION, qoderWireUrl } from "./stream.js";
+
+const QODER_MODEL_LIST_PATH = "/algo/api/v2/model/list?Encode=1";
 
 export interface QoderVendorCatalogTarget {
   file: string;
@@ -84,17 +88,72 @@ export function qoderVendorCatalogFile(configDir: string): QoderVendorCatalogTar
   return { file, uid: dir.slice(root.length + 1), ...(scene ? { scene } : {}) };
 }
 
-export async function fetchQoderModels(
-  _options: { auth?: ResolvedQoderAuth; signal?: AbortSignal } = {},
-): Promise<QoderModelSpec[]> {
-  try {
-    const target = qoderVendorCatalogFile(qoderConfigDir());
-    if (!target) return qoderBootstrapModels();
-    const plain = decryptQoderModelCache(readFileSync(target.file, "utf8"), target.uid);
-    return qoderModelsFromModelInfos(qoderModelInfosFromVendorCatalog(plain, target.scene));
-  } catch {
-    // No CLI cache, an undecryptable one, or a catalog shape we don't know:
-    // hosts still get a usable picker from the bootstrap list.
-    return qoderBootstrapModels();
+export type QoderModelSource = "server" | "catalog" | "bootstrap";
+
+export interface QoderModelList {
+  models: QoderModelSpec[];
+  /** `server` is the only source that reflects the account's current models. */
+  source: QoderModelSource;
+  /** Why the server list was not used. Absent when `source` is `server`. */
+  error?: string;
+}
+
+const MODEL_LIST_TIMEOUT_MS = 10_000;
+
+async function fetchServerModels(signal: AbortSignal | undefined): Promise<QoderModelSpec[]> {
+  const identity = readQoderSigningIdentity(qoderConfigDir());
+  if (!identity) throw new QoderAuthError();
+  const signed = signQoderRequest(
+    qoderWireUrl(process.env.QODER_MODEL_SERVER_HOST),
+    QODER_MODEL_LIST_PATH,
+    "GET",
+    "auth",
+    undefined,
+    identity,
+    QODER_WIRE_VERSION,
+  );
+  const timeout = AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS);
+  const response = await fetch(signed.url, {
+    method: "GET",
+    headers: signed.headers,
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
+  const text = await response.text();
+  if (response.status === 401 || response.status === 403) {
+    throw new QoderAuthError(`${QODER_LOGIN_MESSAGE} (HTTP ${response.status}: ${text.slice(0, 200)})`);
   }
+  if (!response.ok) throw new QoderApiError(`models.list failed: HTTP ${response.status}: ${text.slice(0, 200)}`);
+  const infos = qoderModelInfosFromVendorCatalog(text);
+  if (infos.length === 0) throw new QoderApiError("models.list returned no models for the assistant scene");
+  return qoderModelsFromModelInfos(infos);
+}
+
+function readLocalCatalog(): QoderModelSpec[] | undefined {
+  const target = qoderVendorCatalogFile(qoderConfigDir());
+  if (!target) return undefined;
+  const plain = decryptQoderModelCache(readFileSync(target.file, "utf8"), target.uid);
+  return qoderModelsFromModelInfos(qoderModelInfosFromVendorCatalog(plain, target.scene));
+}
+
+/**
+ * The account's models. Asks the model server first, the same signed
+ * `models.list` call qodercli makes. If that fails, falls back to the
+ * catalog qodercli last cached, then to the bootstrap list. `source` says
+ * which one answered, so callers never present a stale snapshot as current.
+ */
+export async function fetchQoderModels(options: { signal?: AbortSignal } = {}): Promise<QoderModelList> {
+  let error: string;
+  try {
+    return { models: await fetchServerModels(options.signal), source: "server" };
+  } catch (err) {
+    if (options.signal?.aborted) throw err;
+    error = err instanceof Error ? err.message : String(err);
+  }
+  try {
+    const models = readLocalCatalog();
+    if (models) return { models, source: "catalog", error };
+  } catch {
+    // An undecryptable cache or an unknown shape: the bootstrap list still serves.
+  }
+  return { models: qoderBootstrapModels(), source: "bootstrap", error };
 }
