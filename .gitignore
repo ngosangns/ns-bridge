@@ -22,3 +22,4 @@ id_ed25519
 
 # MCP configs are derived from mcp-catalog.json (synca mcp import --scope project)
 /.mcp.json
+.delta/
