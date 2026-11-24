@@ -458,6 +458,17 @@ export function hasCachedKiroProfileCatalog(profileArn: string): boolean {
 }
 
 /**
+ * Whether a login in `region` already has a non-empty disk catalog, fresh or not.
+ * A pinned profile with no entry falls back to that login's own region catalog.
+ * The bootstrap list is not a disk catalog.
+ */
+export function hasCachedKiroCatalog(region: string): boolean {
+  const cache = readManagementCache();
+  const models = activeCacheEntry(cache, region)?.models ?? cache?.regions[region]?.models;
+  return Array.isArray(models) && models.length > 0;
+}
+
+/**
  * The catalog a login in `region` runs on now: the pinned profile's when the
  * user pinned one, otherwise the login's own. A pinned profile that was never
  * fetched has no entry, which reads as stale and triggers a refresh.

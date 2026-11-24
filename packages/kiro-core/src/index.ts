@@ -35,6 +35,7 @@ export {
 export { type KiroProfile, listKiroProfiles, resolveKiroProfileArn } from "./management.js";
 export {
   getCachedModels,
+  hasCachedKiroCatalog,
   hasCachedKiroProfileCatalog,
   isCacheStale,
   KIRO_MANAGEMENT_CACHE_PATH,

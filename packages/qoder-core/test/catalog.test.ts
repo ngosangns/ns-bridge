@@ -1,12 +1,15 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   QODER_DEFAULT_CONTEXT_WINDOW,
   QODER_DEFAULT_MAX_TOKENS,
-  QODER_WIRE_CONTEXT_WINDOW,
   qoderBootstrapModels,
   qoderModelFromInfo,
   qoderModelInfosFromVendorCatalog,
   qoderModelsFromModelInfos,
+  resolveQoderModelSpec,
 } from "../src/catalog.js";
 
 describe("qoderModelFromInfo", () => {
@@ -43,14 +46,12 @@ describe("qoderModelFromInfo", () => {
   it("never lets the tier exceed the input the model accepts", () => {
     expect(
       qoderModelFromInfo({ ...ultimate, defaultContextWindow: 400_000, maxInputTokens: 180_000 }).contextWindow,
-    ).toBe(QODER_WIRE_CONTEXT_WINDOW);
+    ).toBe(180_000);
     expect(qoderModelFromInfo({ ...ultimate, defaultContextWindow: 30_000 }).contextWindow).toBe(30_000);
   });
 
-  it("caps the window at what the direct wire can carry", () => {
-    // The model server rejects any body over 256 KiB, so a 200K tier never fits.
-    expect(QODER_WIRE_CONTEXT_WINDOW).toBe(65_536);
-    expect(qoderModelFromInfo(ultimate).contextWindow).toBe(QODER_WIRE_CONTEXT_WINDOW);
+  it("keeps the default tier when it sits under the input ceiling", () => {
+    expect(qoderModelFromInfo(ultimate).contextWindow).toBe(200_000);
   });
 
   it("marks a model text-only and non-reasoning when the server says neither", () => {
@@ -77,7 +78,7 @@ describe("qoderModelFromInfo", () => {
   it("ignores a zero or negative limit instead of publishing it", () => {
     // The server reports `maxInputTokens: 0` for kmodel. A zero window would break compaction.
     const kimi = qoderModelFromInfo({ value: "kmodel", maxInputTokens: 0, defaultContextWindow: 200_000 });
-    expect(kimi.contextWindow).toBe(QODER_WIRE_CONTEXT_WINDOW);
+    expect(kimi.contextWindow).toBe(200_000);
   });
 });
 
@@ -158,13 +159,42 @@ describe("qoderModelInfosFromVendorCatalog", () => {
     expect(qoderModelInfosFromVendorCatalog("{}")).toEqual([]);
   });
 
-  it("yields wire-sized windows through the spec mapping", () => {
+  it("yields the default tier through the spec mapping", () => {
     const models = qoderModelsFromModelInfos(qoderModelInfosFromVendorCatalog(catalog));
     expect(models.find((model) => model.id === "dfmodel")).toMatchObject({
-      contextWindow: QODER_WIRE_CONTEXT_WINDOW,
+      contextWindow: 200_000,
       input: ["text", "image"],
       efforts: ["low", "high", "max"],
     });
+  });
+});
+
+describe("resolveQoderModelSpec", () => {
+  it("prefers a refreshed disk row and falls back to bootstrap when the id is absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "qoder-catalog-"));
+    writeFileSync(
+      join(dir, "qoder.models.json"),
+      JSON.stringify({
+        version: "1",
+        fetchedAt: 1,
+        models: [
+          {
+            id: "qmodel_latest",
+            name: "Qwen3.7-Max",
+            reasoning: true,
+            input: ["text"],
+            contextWindow: 180_000,
+            maxTokens: 8192,
+          },
+        ],
+      }),
+    );
+    expect(resolveQoderModelSpec("qmodel_latest", dir)).toMatchObject({
+      contextWindow: 180_000,
+      reasoning: true,
+    });
+    expect(resolveQoderModelSpec("efficient", dir)?.id).toBe("efficient");
+    expect(resolveQoderModelSpec("missing", dir)).toBeUndefined();
   });
 });
 

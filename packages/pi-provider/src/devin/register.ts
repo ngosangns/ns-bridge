@@ -38,6 +38,7 @@ import {
   getCachedModels,
   isCacheStale,
   loginDevinWithPkce,
+  readDevinDiskModels,
   refreshDevinToken,
   resolveDevinCredentials,
   streamDevinWithCapacityRetry,
@@ -236,15 +237,13 @@ function providerConfig(models: PiDevinModel[], apiKey?: string) {
     // When CLI credentials.toml (or env) already has a token, set apiKey so Pi
     // marks the provider configured for --list-models without /login.
     ...(apiKey ? { apiKey } : {}),
-    // OMP awaits fetchDynamicModels at startup and caches a returned list as
-    // authoritative for 24h. Read the disk cache at call time: a stale catalog
-    // answers null so that lock is not taken, and a refresh that has since
-    // landed is what gets stored. `models` above is what the host shows until then.
+    // OMP 19.1.1 reads `.length` on this return, so null throws during discovery.
+    // A catalog file on disk is returned even past the 24h TTL. A missing or
+    // empty file stays null so the bootstrap seed is not pinned for a day.
     fetchDynamicModels: async () => {
-      if (isCacheStale()) return null;
-      const latest = getCachedModels().map(toPiDevinModel);
-      // An empty list would replace the registered models. Null leaves them.
-      return latest.length > 0 ? latest : null;
+      const latest = readDevinDiskModels();
+      if (!latest || latest.length === 0) return null;
+      return latest.map(toPiDevinModel);
     },
     async refreshModels() {
       // Pi may ask for a network refresh while opening a session. The catalog

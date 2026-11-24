@@ -126,7 +126,10 @@ export function reduceWireChunk(state: WireReduceState, chunk: unknown): QoderSt
   if (!hasChoices && record.raw_usage === undefined && record.usage === undefined) return [];
   ensureStart(state, events);
   if (typeof record.id === "string" && record.id) state.responseId = record.id;
-  if (typeof record.model === "string" && record.model) state.upstreamModel = record.model;
+  // The server stamps every chunk `model: "auto"` whichever model was requested.
+  // That string is the router, not the model that answered, so it must not
+  // replace the id the host asked for. A later chunk that names a real id still wins.
+  if (typeof record.model === "string" && record.model && record.model !== "auto") state.upstreamModel = record.model;
 
   if (record.raw_usage !== undefined || record.usage !== undefined) {
     const raw = (record.raw_usage ?? record.usage) as unknown;

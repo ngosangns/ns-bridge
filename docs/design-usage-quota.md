@@ -11,8 +11,8 @@ Sections 2, 4 and 5 shipped as written.
 ## Goal
 
 The usage panel must show the credit quota the provider actually reports, not only a
-budget number the operator typed into `~/.ns-bridge/credit-budgets.json`. Kiro and
-Devin expose account quota. Grok and Qoder do not.
+budget number the operator typed into `~/.ns-bridge/credit-budgets.json`. Kiro,
+Devin, and Qoder expose account quota. Grok does not.
 
 ## Existing facts this design builds on
 

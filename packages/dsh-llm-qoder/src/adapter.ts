@@ -27,8 +27,8 @@ function reserveField(model: { contextWindow: number; maxTokens: number; compact
 
 /**
  * Tokens `dsh-compaction-basic` subtracts from the reported window by default.
- * A catalog window of 65,536 leaves a negative pressure budget, so the
- * pre-step compact is rejected and the turn is sent whole.
+ * Inflation applies only when the catalog window does not clear that headroom
+ * plus the reserved output. A 200K tier already clears it.
  */
 const DSH_COMPACTION_HEADROOM_TOKENS = 65_536;
 

@@ -16,8 +16,6 @@ export {
   QODER_DEFAULT_CONTEXT_WINDOW,
   QODER_DEFAULT_MAX_TOKENS,
   QODER_DEFAULT_MODEL_ID,
-  QODER_WIRE_BODY_LIMIT_BYTES,
-  QODER_WIRE_CONTEXT_WINDOW,
   type QoderCatalogSnapshot,
   type QoderModelInfoFields,
   type QoderModelSpec,
@@ -49,6 +47,12 @@ export type {
   QoderWireUserMessage,
 } from "./prompt.js";
 export { toQoderWireMessages } from "./prompt.js";
+export {
+  type FetchQoderQuotaOptions,
+  fetchQoderQuota,
+  type QoderQuota,
+  type QoderQuotaBucket,
+} from "./quota.js";
 export { createWireReduceState, finishWireReduce, reduceWireChunk, type WireReduceState } from "./reduce.js";
 export { qoderSessionId } from "./session.js";
 export { qoderWireUrl, type StreamQoderOptions, streamQoder } from "./stream.js";

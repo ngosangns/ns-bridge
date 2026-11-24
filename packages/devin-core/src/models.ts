@@ -119,6 +119,13 @@ export function getCachedModels(): DevinModelSpec[] {
   return withCompaction(loadCacheFile()?.models ?? devinModels);
 }
 
+/** The on-disk catalog, compacted. Undefined when the file is missing or unreadable. */
+export function readDevinDiskModels(): DevinModelSpec[] | undefined {
+  const models = loadCacheFile()?.models;
+  if (!models) return undefined;
+  return withCompaction(models);
+}
+
 /** Whether the on-disk catalog is older than the refresh TTL (or absent). */
 export function isCacheStale(now = Date.now()): boolean {
   const cache = loadCacheFile();

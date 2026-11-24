@@ -83,4 +83,15 @@ describe("wire reduce", () => {
     expect(reduceWireChunk(state, "junk")).toEqual([]);
     expect(reduceWireChunk(state, null)).toEqual([]);
   });
+
+  it("ignores the router stamp auto and keeps a later real model id", () => {
+    const stamped = createWireReduceState();
+    reduceWireChunk(stamped, { model: "auto", choices: [{ delta: { content: "Hi" } }] });
+    expect(finishWireReduce(stamped).at(-1)).not.toHaveProperty("upstreamModel");
+
+    const named = createWireReduceState();
+    reduceWireChunk(named, { model: "auto", choices: [{ delta: { content: "a" } }] });
+    reduceWireChunk(named, { model: "dfmodel", choices: [{ delta: { content: "b" } }] });
+    expect(finishWireReduce(named).at(-1)).toMatchObject({ upstreamModel: "dfmodel" });
+  });
 });

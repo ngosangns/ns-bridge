@@ -29,6 +29,7 @@ import {
   getCachedModels,
   getKiroEndpoints,
   getKiroRegionFromEndpoint,
+  hasCachedKiroCatalog,
   isCacheStale,
   type KiroCredentials,
   type KiroModel,
@@ -190,13 +191,12 @@ export async function registerKiroProvider(pi: ExtensionAPI): Promise<void> {
     authHeader: false,
     streamSimple: streamKiroForPi,
     models: current.models,
-    // OMP awaits this during startup and then treats a list as authoritative
-    // for 24h. Read the disk cache at call time so a refresh that finished
-    // after this config was built is what gets stored. Null leaves `models`
-    // in place and does not lock a stale catalog.
+    // OMP 19.1.1 reads `.length` on this return, so null throws during discovery.
+    // A disk catalog is returned even past the 1h TTL. No disk entry stays null
+    // so the bootstrap list is not pinned as authoritative for 24h.
     fetchDynamicModels: async () => {
       const latest = localKiroCatalog();
-      if (latest.models.length === 0 || isCacheStale(latest.region)) return null;
+      if (latest.models.length === 0 || !hasCachedKiroCatalog(latest.region)) return null;
       return latest.models;
     },
     async refreshModels() {

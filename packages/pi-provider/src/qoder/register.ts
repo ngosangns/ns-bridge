@@ -141,9 +141,12 @@ function createProviderConfig(models: ProviderModelConfig[]) {
     api: QODER_API,
     models,
     streamSimple: streamQoderForPi,
+    // OMP 19.1.1 reads `.length` on this return, so null throws during discovery.
+    // A disk snapshot, fresh or past the 15-minute TTL, is a real catalog. The
+    // bootstrap list stays null so it is not pinned as authoritative for 24h.
     fetchDynamicModels: async () => {
       const latest = await refreshQoderModels({ allowNetwork: false });
-      if (!latest.fromCache || latest.models.length === 0) return null;
+      if (latest.source !== "cache" || latest.models.length === 0) return null;
       return latest.models;
     },
     async refreshModels() {

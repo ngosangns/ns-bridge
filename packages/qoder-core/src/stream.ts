@@ -4,12 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { recordUsage } from "ns-core-utils";
 import { qoderConfigDir, type ResolvedQoderAuth, requireQoderAuth } from "./auth.js";
-import {
-  QODER_DEFAULT_CONTEXT_WINDOW,
-  QODER_DEFAULT_MAX_TOKENS,
-  QODER_WIRE_BODY_LIMIT_BYTES,
-  qoderBootstrapModels,
-} from "./catalog.js";
+import { QODER_DEFAULT_CONTEXT_WINDOW, QODER_DEFAULT_MAX_TOKENS, resolveQoderModelSpec } from "./catalog.js";
 import { QODER_LOGIN_MESSAGE, QoderApiError, QoderAuthError } from "./errors.js";
 import { toQoderWireMessages } from "./prompt.js";
 import { createWireReduceState, finishWireReduce, reduceWireChunk } from "./reduce.js";
@@ -76,59 +71,6 @@ function machineOs(): string {
   return `${arch}_${process.platform}`;
 }
 
-/**
- * Estimate the serialized byte size of a Qoder request body.
- * This is a rough approximation used for trimming decisions.
- */
-function estimateQoderBodyBytes(payload: Record<string, unknown>): number {
-  try {
-    return Buffer.byteLength(JSON.stringify(payload));
-  } catch {
-    return Number.MAX_SAFE_INTEGER;
-  }
-}
-
-/**
- * Trim oldest messages from the payload until it fits within the wire body limit.
- * Preserves tool call pairs (assistant with tool_calls + corresponding tool results).
- * Keeps the system message and at least the last user message.
- *
- * Modeled after Grok's `fitResponsesBody()` in packages/grok-core/src/request.ts.
- */
-export function fitQoderBody(payload: Record<string, unknown>): Record<string, unknown> {
-  const messages = payload.messages as unknown[] | undefined;
-  if (!Array.isArray(messages) || messages.length <= 1) return payload;
-  if (estimateQoderBodyBytes(payload) <= QODER_WIRE_BODY_LIMIT_BYTES) return payload;
-
-  const kept = messages.slice();
-  while (kept.length > 1 && estimateQoderBodyBytes({ ...payload, messages: kept }) > QODER_WIRE_BODY_LIMIT_BYTES) {
-    const dropped = kept[0] as { role?: unknown; tool_calls?: unknown[] };
-    kept.shift();
-
-    // If we dropped an assistant message with tool_calls, also drop the
-    // corresponding tool result messages to keep pairs together.
-    if (dropped?.role === "assistant" && Array.isArray(dropped.tool_calls) && dropped.tool_calls.length > 0) {
-      const toolCallIds = new Set(
-        dropped.tool_calls
-          .map((tc) => (tc && typeof tc === "object" && "id" in tc ? (tc as { id?: unknown }).id : undefined))
-          .filter((id): id is string => typeof id === "string"),
-      );
-      // Drop tool result messages that correspond to the dropped tool calls
-      while (kept.length > 1) {
-        const next = kept[0] as { role?: unknown; tool_call_id?: unknown };
-        if (next?.role === "tool" && typeof next.tool_call_id === "string" && toolCallIds.has(next.tool_call_id)) {
-          kept.shift();
-          toolCallIds.delete(next.tool_call_id);
-          if (toolCallIds.size === 0) break;
-        } else {
-          break;
-        }
-      }
-    }
-  }
-  return { ...payload, messages: kept };
-}
-
 function toWireTool(tool: QoderTool): Record<string, unknown> {
   return {
     type: "function",
@@ -161,7 +103,7 @@ function lastUserText(messages: readonly QoderMessage[]): string {
 
 function buildRequestBody(options: StreamQoderOptions, sessionId: string | undefined): QoderRequestBody {
   const requestId = randomUUID();
-  const spec = qoderBootstrapModels().find((model) => model.id === options.model);
+  const spec = resolveQoderModelSpec(options.model);
   const text = lastUserText(options.messages);
   const maxTokens = spec?.maxTokens ?? QODER_DEFAULT_MAX_TOKENS;
   const payload: Record<string, unknown> = {
@@ -289,6 +231,13 @@ function unwrapWireChunk(chunk: unknown): unknown {
       // The status line is enough when the envelope body is not JSON.
     }
     const status = typeof record.statusCode === "string" ? record.statusCode : String(record.statusCodeValue);
+    // The server names an oversized body PAYLOAD_TOO_LARGE. Phrase it as a
+    // context overflow so a host that compacts on that wording retries smaller.
+    if (status === "PAYLOAD_TOO_LARGE") {
+      throw new QoderApiError(
+        `Qoder prompt is too long for this model's context window (${status}${detail ? `: ${detail}` : ""})`,
+      );
+    }
     throw new QoderApiError(`Qoder model server rejected the request (${status}${detail ? `: ${detail}` : ""})`);
   }
   try {
@@ -387,16 +336,7 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
   if ((payload.messages as unknown[]).length === 0) throw new QoderApiError("Qoder prompt is empty");
 
   const fetchImpl = options.fetchImpl ?? fetch;
-  const fittedPayload = fitQoderBody(payload);
-  const body = JSON.stringify(fittedPayload);
-  const bodyBytes = Buffer.byteLength(body);
-  // The model server answers HTTP 500 with {"error":"internal server error"}
-  // for every body over this cap, which a host cannot tell from an outage.
-  if (bodyBytes > QODER_WIRE_BODY_LIMIT_BYTES) {
-    throw new QoderApiError(
-      `Qoder prompt is too long for this model's context window (${bodyBytes} bytes > ${QODER_WIRE_BODY_LIMIT_BYTES} bytes)`,
-    );
-  }
+  const body = JSON.stringify(payload);
   const origin = qoderWireUrl(process.env.QODER_MODEL_SERVER_HOST, options.endpoint);
   const identity = readQoderSigningIdentity(qoderConfigDir()) ?? ANONYMOUS_SIGNING_IDENTITY;
   const signed = signQoderInferRequest(origin, body, options.model, "system", identity, QODER_WIRE_VERSION);
@@ -435,8 +375,7 @@ async function* streamQoderResponse(options: StreamQoderOptions): AsyncGenerator
 }
 
 export function streamQoder(options: StreamQoderOptions): AsyncGenerator<QoderStreamEvent> {
-  const contextWindow =
-    qoderBootstrapModels().find((model) => model.id === options.model)?.contextWindow ?? QODER_DEFAULT_CONTEXT_WINDOW;
+  const contextWindow = resolveQoderModelSpec(options.model)?.contextWindow ?? QODER_DEFAULT_CONTEXT_WINDOW;
   return recordUsage(streamQoderResponse(options), {
     vendor: "qoder",
     model: options.model,

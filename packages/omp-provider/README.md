@@ -83,8 +83,9 @@ ignored (the Pi adapter reads the same file and still uses them).
      Pi shape (`systemPrompt: string`, no developer role) before
      `streamSimple`.
    - Pi's `refreshModels` hook is exposed as OMP's `fetchDynamicModels`. Both
-     read the catalog file. A fresh file is returned; a stale or empty file
-     returns null so OMP keeps the models already registered.
+     read the catalog file. A file on disk is returned even past its TTL. A
+     missing, empty, or bootstrap-only list returns null. OMP 19.1.1 throws
+     when that return is null.
    - Pi `$ENV` / `$$` apiKey syntax is translated to OMP's.
    - Unsupported events (`session_info_changed`) are no-ops; OMP's
      `session_switch` / `session_branch` also fire Pi's `session_start`
@@ -100,8 +101,8 @@ ignored (the Pi adapter reads the same file and still uses them).
   `ns-bridge models list` and `ns-bridge providers status omp` cover the status.
 - **Catalog files** — the models OMP shows are the ones already on disk.
   `ns-bridge models refresh` writes them. `fetchDynamicModels` returns
-  a fresh file, or null when the file is missing, empty, or past its TTL, and
-  does not call the vendor.
+  that file even past its TTL, or null when the file is missing or empty,
+  and does not call the vendor. A returned list is what OMP pins for 24h.
 - **Kiro catalog** — with no saved catalog snapshot, `kiro`
   registers zero models.
 - **Bundled Pi adapter** — the build bundles the workspace's

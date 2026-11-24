@@ -105,9 +105,9 @@ export async function refreshArnictModels(
       };
     }
     if (options.allowNetwork !== true) {
-      // A file past the 15-minute TTL is still the list the picker should show.
-      // fromCache stays false so OMP does not lock that snapshot, or the
-      // bootstrap below, as its 24-hour catalog.
+      // A file past the 15-minute TTL is still the list the picker shows.
+      // source stays "cache" so discovery can return it. The bootstrap below
+      // is "fallback" and is not handed to OMP.
       const stale = lookup.snapshot;
       if (stale && stale.models.length > 0) {
         return {
@@ -158,13 +158,12 @@ function createProviderConfig(models: ProviderModelConfig[]) {
     api: ARNICT_API,
     models,
     streamSimple: streamArnictForPi,
-    // OMP awaits this at startup and caches a non-null list for 24h. Only a
-    // TTL hit is returned. An expired disk snapshot is already on `models`
-    // for the picker, and the bootstrap fallback is not stored, so both stay
-    // null here and do not become that authoritative list.
+    // OMP 19.1.1 reads `.length` on this return, so null throws during discovery.
+    // A disk snapshot, fresh or past the 15-minute TTL, is a real catalog. The
+    // bootstrap list stays null so it is not pinned as authoritative for 24h.
     fetchDynamicModels: async () => {
       const latest = await refreshArnictModels({ allowNetwork: false });
-      if (!latest.fromCache || latest.models.length === 0) return null;
+      if (latest.source !== "cache" || latest.models.length === 0) return null;
       return latest.models;
     },
     async refreshModels() {

@@ -79,9 +79,11 @@ names, image input, reasoning efforts and the default context tier). It prints
 `source=live` only for that answer. If the server is unreachable or the login
 expired, it prints the reason, shows the model cache qodercli keeps at
 `~/.qoder/.models/` or the bootstrap list, and leaves the existing
-`qoder.models.json` untouched. The direct wire rejects request bodies
-over 256 KiB, so the catalog advertises a 65,536-token window and hosts compact
-around 49,152; the vendor's 200K/1M tiers never fit on this wire. Pi shows the
+`qoder.models.json` untouched. The catalog advertises each model's default
+context tier from `models.list` (200K on the `is_default` tier, otherwise the
+smaller of that tier and `max_input_tokens`). A body the server rejects as
+`PAYLOAD_TOO_LARGE` is reported as a context overflow so the host can compact
+and retry. Pi shows the
 effort ladder as `thinkingLevelMap`; OMP shows it as per-model effort levels and
 compacts on the catalog's threshold.
 

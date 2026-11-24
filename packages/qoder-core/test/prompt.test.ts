@@ -28,7 +28,7 @@ describe("toQoderWireMessages", () => {
       { role: "user", content: "Run read" },
       {
         role: "assistant",
-        content: null,
+        content: "",
         tool_calls: [{ id: "c1", type: "function", function: { name: "read", arguments: '{"path":"x"}' } }],
       },
       { role: "tool", tool_call_id: "c1", content: "file body" },

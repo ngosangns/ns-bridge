@@ -67,6 +67,7 @@ export {
   devinModels,
   getCachedModels,
   isCacheStale,
+  readDevinDiskModels,
   resolveDevinModel,
   updateDevinModelsCache,
 } from "./models.js";

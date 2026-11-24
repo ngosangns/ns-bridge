@@ -25,6 +25,7 @@ import type { BridgeEffort } from "ns-bridge-core";
 import { toOmpThinking } from "ns-bridge-core/pi";
 
 import { kiroUsageProvider } from "./kiro-usage.js";
+import { qoderUsageProvider } from "./qoder-usage.js";
 
 export type AnyRecord = Record<string, unknown>;
 
@@ -158,11 +159,11 @@ type PiRefreshModels = (args: {
  * Build OMP's `fetchDynamicModels(apiKey)` from a Pi `refreshModels` hook.
  *
  * The call OMP awaits at startup asks for the list already in memory
- * (`allowNetwork: false`). A `null` result is passed through: OMP treats that
- * as "no dynamic list" and keeps the registered `models`, instead of caching
- * an empty or bootstrap list as authoritative for a day. Providers that can
- * answer from a fresh disk cache should set their own `fetchDynamicModels`.
- * `mapModels` rewrites array results (never a `null`) before they reach OMP.
+ * (`allowNetwork: false`). OMP 19.1.1 reads `.length` on the fetcher's return
+ * before it can treat null as "no catalog", so a provider with a disk snapshot
+ * returns that array from its own `fetchDynamicModels`. This helper still
+ * passes an explicit null through. `mapModels` rewrites array results before
+ * they reach OMP.
  */
 export function toFetchDynamicModels(
   refreshModels: PiRefreshModels,
@@ -186,8 +187,8 @@ export function toFetchDynamicModels(
  * Adapt one Pi `registerProvider` config to OMP's `ProviderConfig`.
  * `providerName` is the id the config registers under; arnict and qoder rows are
  * remapped onto OMP's compaction rule (see {@link mapModelsForOmp}) — kiro rows
- * already carry OMP-shaped windows. Kiro's Pi config has no `usage` field;
- * OMP's Usage panel reads that field, so a missing one is filled here.
+ * already carry OMP-shaped windows. Kiro and Qoder Pi configs have no `usage`
+ * field. OMP's Usage panel reads that field, so a missing one is filled here.
  */
 export function adaptProviderConfig(
   config: AnyRecord,
@@ -233,6 +234,9 @@ export function adaptProviderConfig(
 
   if (providerName === "kiro" && next.usage == null) {
     next.usage = kiroUsageProvider;
+  }
+  if (providerName === "qoder" && next.usage == null) {
+    next.usage = qoderUsageProvider;
   }
 
   return next;

@@ -1,7 +1,8 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { devinModels } from "ns-devin-core";
+import { KIRO_MANAGEMENT_CACHE_PATH } from "ns-kiro-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const child = vi.hoisted(() => ({
@@ -36,9 +37,12 @@ vi.mock("ns-kiro-core", async () => {
   };
 });
 
+import { registerArnictProvider } from "../src/arnict/register.js";
 import { registerDevinProvider } from "../src/devin/register.js";
 import { registerGrokProvider } from "../src/grok/register.js";
 import { registerKiroProvider } from "../src/kiro/register.js";
+import { registerQoderProvider } from "../src/qoder/register.js";
+import { resetDefaultCatalogCache } from "../src/shared/catalog-cache.js";
 
 const envKeys = [
   "KIRO_API_KEY",
@@ -48,6 +52,7 @@ const envKeys = [
   "GROK_BIN",
   "NS_DEVIN_MODEL_CACHE",
   "NS_BRIDGE_BACKGROUND_REFRESH",
+  "ARNICT_API_KEY",
 ] as const;
 const saved: Record<string, string | undefined> = {};
 
@@ -158,7 +163,96 @@ describe("catalog refresh does not block host startup", () => {
     const latest = (await fetchDynamicModels()) as { id: string }[];
     expect(latest).not.toEqual([]);
     expect(latest.map((model) => model.id)).toContain("from-disk-only");
+
+    // Older than the 24h TTL. OMP still needs the array. Null throws on `.length`.
+    writeFileSync(
+      process.env.NS_DEVIN_MODEL_CACHE,
+      JSON.stringify({ fetchedAt: Date.now() - 25 * 60 * 60 * 1000, models: [fromDisk] }),
+    );
+    const stale = (await fetchDynamicModels()) as { id: string }[] | null;
+    expect(stale).not.toBeNull();
+    expect(stale?.map((model) => model.id)).toContain("from-disk-only");
     expect(child.execFile).not.toHaveBeenCalled();
+    expectNoBlockingSpawn();
+  });
+
+  it("returns a stale Kiro disk catalog and null when that file is missing", async () => {
+    rememberEnv();
+    process.env.KIRO_API_KEY = "ksk_test";
+    const api = { registerProvider: vi.fn(), registerCommand: vi.fn(), on: vi.fn() };
+    await finishes(registerKiroProvider(api as never));
+    const fetchDynamicModels = api.registerProvider.mock.calls.at(-1)?.[1].fetchDynamicModels as () => Promise<unknown>;
+    await expect(fetchDynamicModels()).resolves.toBeNull();
+
+    const model = {
+      id: "disk-only-kiro",
+      kiroModelId: "disk-only-kiro",
+      name: "Disk only",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200_000,
+      maxTokens: 8192,
+    };
+    writeFileSync(
+      KIRO_MANAGEMENT_CACHE_PATH,
+      JSON.stringify({
+        version: 1,
+        source: "ns-kiro-provider-management",
+        regions: {
+          "us-east-1": {
+            region: "us-east-1",
+            fetchedAt: Date.now() - 2 * 60 * 60 * 1000,
+            models: [model],
+          },
+        },
+      }),
+    );
+    const latest = (await fetchDynamicModels()) as { id: string }[] | null;
+    expect(Array.isArray(latest)).toBe(true);
+    expect(latest?.map((row) => row.id)).toEqual(["disk-only-kiro"]);
+    expect(child.execFile).not.toHaveBeenCalled();
+    expectNoBlockingSpawn();
+  });
+
+  it.each([
+    ["qoder", registerQoderProvider],
+    ["grok", registerGrokProvider],
+    ["arnict", registerArnictProvider],
+  ] as const)("returns a stale %s disk catalog and null when that file is missing", async (providerId, register) => {
+    rememberEnv();
+    if (providerId === "arnict") process.env.ARNICT_API_KEY = "test-key";
+    resetDefaultCatalogCache();
+    const api = { registerProvider: vi.fn(), registerCommand: vi.fn(), on: vi.fn() };
+    await finishes(register(api as never));
+    const fetchDynamicModels = api.registerProvider.mock.calls.at(-1)?.[1].fetchDynamicModels as () => Promise<unknown>;
+    await expect(fetchDynamicModels()).resolves.toBeNull();
+
+    const dir = join(homedir(), ".pi", "agent", "cache", "ns-pi-provider");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${providerId}.models.json`),
+      JSON.stringify({
+        version: "1",
+        fetchedAt: Date.now() - 20 * 60 * 1000,
+        models: [
+          {
+            id: `stale-${providerId}`,
+            name: `Stale ${providerId}`,
+            api: "test",
+            provider: providerId,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200_000,
+            maxTokens: 8192,
+          },
+        ],
+      }),
+    );
+    resetDefaultCatalogCache();
+    const latest = (await fetchDynamicModels()) as { id: string }[] | null;
+    expect(Array.isArray(latest)).toBe(true);
+    expect(latest?.map((row) => row.id)).toContain(`stale-${providerId}`);
     expectNoBlockingSpawn();
   });
 

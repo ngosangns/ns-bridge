@@ -11,6 +11,13 @@ describe("toLlmError", () => {
     expect(toLlmError(error).code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE);
   });
 
+  it("classifies a PAYLOAD_TOO_LARGE envelope as a context overflow", () => {
+    const error = new QoderApiError(
+      "Qoder prompt is too long for this model's context window (PAYLOAD_TOO_LARGE: Error in upstream response)",
+    );
+    expect(toLlmError(error).code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE);
+  });
+
   it("leaves the model server's generic HTTP 500 as a provider error", () => {
     const error = new QoderApiError('Qoder model server returned HTTP 500: {"error":"internal server error"}');
     expect(toLlmError(error).code).toBe("PROVIDER_ERROR");

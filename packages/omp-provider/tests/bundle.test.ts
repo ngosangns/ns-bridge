@@ -75,6 +75,13 @@ describe("dist/index.js on a fake OMP API", () => {
     expect(usage?.id).toBe("kiro");
     expect(typeof usage?.fetchUsage).toBe("function");
     expect(usage?.validatesCredentials).toBe(true);
+
+    const qoder = pi.providers.get("qoder");
+    if (qoder === undefined) throw new Error("qoder provider was not registered");
+    const qoderUsage = qoder.usage as { id?: string; fetchUsage?: unknown; validatesCredentials?: boolean } | undefined;
+    expect(qoderUsage?.id).toBe("qoder");
+    expect(typeof qoderUsage?.fetchUsage).toBe("function");
+    expect(qoderUsage?.validatesCredentials).toBe(false);
     // No credential/saved catalog in the temp HOME → zero models (ns-pi-provider >= 0.2.0).
     expect(Array.isArray(kiro.models)).toBe(true);
     // `$KIRO_ACCESS_TOKEN` is unset → no bogus literal key; OMP falls back to /login.

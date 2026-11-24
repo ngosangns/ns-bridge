@@ -1,6 +1,7 @@
 // ABOUTME: Qoder model catalog contract and bootstrap tiers.
 
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CompactionBudget } from "ns-core-utils";
 import { compactionBudget } from "ns-core-utils";
@@ -13,15 +14,11 @@ export const QODER_DEFAULT_MODEL_ID = "auto";
 export const QODER_DEFAULT_MAX_TOKENS = 16_384;
 
 /**
- * The model-server shim answers HTTP 500 for any request body above 256 KiB,
- * whatever the model's tier. The vendor catalog advertises 200K/400K/1M
- * windows, but a 200K-token prompt serializes to ~800 KiB, so those tiers
- * cannot cross this wire. Advertise the window a request can actually fill
- * (~4 bytes/token) so hosts compact before the 500.
+ * Shared window when a catalog entry names none. The model server's default
+ * context tier is 200K. Hosts compact against this until a refresh writes the
+ * account's list.
  */
-export const QODER_WIRE_BODY_LIMIT_BYTES = 262_144;
-export const QODER_WIRE_CONTEXT_WINDOW = QODER_WIRE_BODY_LIMIT_BYTES / 4;
-export const QODER_DEFAULT_CONTEXT_WINDOW = QODER_WIRE_CONTEXT_WINDOW;
+export const QODER_DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export interface QoderModelSpec {
   id: string;
@@ -101,6 +98,22 @@ export function qoderCatalogPath(cacheDir: string): string {
   return join(cacheDir, QODER_CATALOG_FILE);
 }
 
+/** Directory `ns-bridge models refresh` writes, unless the env override is set. */
+export function qoderCatalogCacheDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  const override = env[QODER_CATALOG_CACHE_DIR_ENV]?.trim();
+  return override || join(home, ".pi", "agent", "cache", "ns-pi-provider");
+}
+
+/**
+ * The spec a request should send for `modelId`. A refreshed disk row wins,
+ * because the bootstrap list omits ids the server added later and carries no
+ * reasoning or image flags. The bootstrap row is the fallback.
+ */
+export function resolveQoderModelSpec(modelId: string, cacheDir = qoderCatalogCacheDir()): QoderModelSpec | undefined {
+  const listed = readQoderCatalog({ cacheDir });
+  return listed.find((model) => model.id === modelId) ?? qoderBootstrapModels().find((model) => model.id === modelId);
+}
+
 export function readQoderCatalog(options: { cacheDir: string }): QoderModelSpec[] {
   try {
     const raw = readFileSync(qoderCatalogPath(options.cacheDir), "utf8");
@@ -139,10 +152,9 @@ function positive(value: unknown): value is number {
 }
 
 /**
- * One server entry as a spec. Every field comes from the entry: Qoder serves a
+ * One server entry as a spec. Every field comes from the entry. Qoder serves a
  * default window tier next to the largest input it accepts, so the window is
- * the smaller of the two, capped at what our wire can carry (see
- * QODER_WIRE_BODY_LIMIT_BYTES). A field the server leaves out falls back to the
+ * the smaller of the two. A field the server leaves out falls back to the
  * shared default.
  */
 export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
@@ -166,7 +178,7 @@ export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
     name: info.displayName ?? QODER_MODEL_DISPLAY_NAMES[info.value] ?? info.value,
     reasoning: info.isReasoning === true || efforts.length > 0,
     input: info.isVl === true ? ["text", "image"] : ["text"],
-    contextWindow: Math.min(declared, QODER_WIRE_CONTEXT_WINDOW),
+    contextWindow: declared,
     maxTokens: positive(info.maxOutputTokens) ? info.maxOutputTokens : QODER_DEFAULT_MAX_TOKENS,
     ...(efforts.length > 0 ? { efforts } : {}),
   };

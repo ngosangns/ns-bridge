@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { QoderApiError } from "../src/errors.js";
-import { fitQoderBody, streamQoder } from "../src/stream.js";
+import { streamQoder } from "../src/stream.js";
 import type { QoderStreamEvent } from "../src/types.js";
 
 const AUTH = { mode: "pat" as const, token: "test-token" };
@@ -54,48 +54,57 @@ function textOf(events: readonly QoderStreamEvent[], type: "text_delta" | "think
 }
 
 describe("qoder wire stream", () => {
-  it("refuses a body over the 256 KiB wire cap before calling the server", async () => {
-    let called = false;
-    const events = streamQoder({
-      model: "efficient",
-      messages: [{ role: "user", content: [{ type: "text", text: "x".repeat(300_000) }] }],
-      auth: AUTH,
-      fetchImpl: async () => {
-        called = true;
-        return new Response("", { status: 500 });
-      },
-    });
-    await expect(events.next()).rejects.toSatisfy(
-      (error: unknown) =>
-        error instanceof QoderApiError && /prompt is too long for this model's context window/.test(error.message),
-    );
-    expect(called).toBe(false);
+  it("sends a body over 256 KiB to the server", async () => {
+    const previousConfig = process.env.QODER_CONFIG_DIR;
+    const previousCatalog = process.env.NS_QODER_CATALOG_CACHE_DIR;
+    process.env.QODER_CONFIG_DIR = "/tmp/ns-qoder-no-store";
+    process.env.NS_QODER_CATALOG_CACHE_DIR = "/tmp/ns-qoder-catalog-missing";
+    let bodyBytes = 0;
+    try {
+      const events = streamQoder({
+        model: "efficient",
+        messages: [{ role: "user", content: [{ type: "text", text: "x".repeat(100_000) }] }],
+        auth: AUTH,
+        fetchImpl: async (_input, init) => {
+          bodyBytes = Buffer.byteLength(String(init?.body ?? ""));
+          return new Response("", { status: 500 });
+        },
+      });
+      await expect(events.next()).rejects.toBeInstanceOf(QoderApiError);
+      expect(bodyBytes).toBeGreaterThan(262_144);
+    } finally {
+      if (previousConfig === undefined) delete process.env.QODER_CONFIG_DIR;
+      else process.env.QODER_CONFIG_DIR = previousConfig;
+      if (previousCatalog === undefined) delete process.env.NS_QODER_CATALOG_CACHE_DIR;
+      else process.env.NS_QODER_CATALOG_CACHE_DIR = previousCatalog;
+    }
   });
 
-  it("trims oldest messages to fit the wire cap and keeps tool-call pairs", () => {
-    const bigChunk = "x".repeat(100_000);
-    const messages = [
-      { role: "user", content: [{ type: "text", text: "oldest" }] },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "calling tool" }],
-        tool_calls: [{ id: "call_1", type: "function", function: { name: "bash", arguments: "{}" } }],
-      },
-      { role: "tool", tool_call_id: "call_1", content: bigChunk },
-      { role: "user", content: [{ type: "text", text: bigChunk }] },
-      { role: "assistant", content: [{ type: "text", text: bigChunk }] },
-      { role: "user", content: [{ type: "text", text: "latest" }] },
-    ];
-    const payload = { messages, model: "efficient" };
-    const fitted = fitQoderBody(payload) as { messages: typeof messages };
-    const fittedSize = Buffer.byteLength(JSON.stringify(fitted));
-    expect(fittedSize).toBeLessThanOrEqual(262_144);
-    // The oldest user message, the assistant that called the tool, and the tool result must be gone.
-    expect(fitted.messages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: bigChunk }] });
-    expect(fitted.messages).not.toContainEqual(expect.objectContaining({ role: "tool" }));
-    expect(fitted.messages).not.toContainEqual(expect.objectContaining({ tool_calls: expect.any(Array) }));
-    // The latest user message must remain.
-    expect(fitted.messages.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: "latest" }] });
+  it("reports an oversized-body envelope as a context overflow", async () => {
+    const previous = process.env.QODER_CONFIG_DIR;
+    process.env.QODER_CONFIG_DIR = "/tmp/ns-qoder-no-store";
+    const envelope = JSON.stringify({
+      body: JSON.stringify({ code: "PAYLOAD_TOO_LARGE", message: "Error in upstream response" }),
+      statusCodeValue: 413,
+      statusCode: "PAYLOAD_TOO_LARGE",
+    });
+    try {
+      const events = streamQoder({
+        model: "efficient",
+        messages: MESSAGES,
+        auth: AUTH,
+        fetchImpl: async () => new Response(wireText([envelope]), { status: 200 }),
+      });
+      await expect(events.next()).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof QoderApiError &&
+          error.message.startsWith("Qoder prompt is too long for this model's context window") &&
+          error.message.includes("PAYLOAD_TOO_LARGE"),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.QODER_CONFIG_DIR;
+      else process.env.QODER_CONFIG_DIR = previous;
+    }
   });
 
   it("recovers a frame the server wrapped with a raw newline inside a string", async () => {

@@ -101,7 +101,9 @@ function toWireMessage(message: QoderMessage): QoderWireMessage | undefined {
   if (!text && toolCalls.length === 0) return undefined;
   return {
     role: "assistant",
-    content: text || null,
+    // Kimi, DeepSeek-Flash and MiniMax reject a tool-only turn whose content is
+    // null. An empty string is the same "no text" and those models accept it.
+    content: text || "",
     ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
   };
 }

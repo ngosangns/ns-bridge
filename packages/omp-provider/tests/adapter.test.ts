@@ -224,15 +224,17 @@ describe("kiro usage", () => {
     expect(typeof usage?.fetchUsage).toBe("function");
 
     const qoder = adaptProviderConfig({ models: [] }, {}, "qoder");
-    expect(qoder).not.toHaveProperty("usage");
+    const qoderUsage = qoder.usage as { id?: string; validatesCredentials?: boolean } | undefined;
+    expect(qoderUsage?.id).toBe("qoder");
+    expect(qoderUsage?.validatesCredentials).toBe(false);
     const arnict = adaptProviderConfig({ models: [] }, {}, "arnict");
     expect(arnict).not.toHaveProperty("usage");
   });
 
   it("keeps a usage provider the caller already supplied", () => {
     const supplied = { id: "custom" };
-    const adapted = adaptProviderConfig({ models: [], usage: supplied }, {}, "kiro");
-    expect(adapted.usage).toBe(supplied);
+    expect(adaptProviderConfig({ models: [], usage: supplied }, {}, "kiro").usage).toBe(supplied);
+    expect(adaptProviderConfig({ models: [], usage: supplied }, {}, "qoder").usage).toBe(supplied);
   });
 });
 
