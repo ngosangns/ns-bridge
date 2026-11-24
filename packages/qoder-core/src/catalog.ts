@@ -152,10 +152,10 @@ function positive(value: unknown): value is number {
 }
 
 /**
- * One server entry as a spec. Every field comes from the entry. Qoder serves a
- * default window tier next to the largest input it accepts, so the window is
- * the smaller of the two. A field the server leaves out falls back to the
- * shared default.
+ * One server entry as a spec. The window is `max_input_tokens`. The server
+ * accepts that much and does not enforce the default tier, and hosts compact
+ * from this number. The tier is only the fallback when that ceiling is missing
+ * or zero. Anything else the server leaves out uses the shared default.
  */
 export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
   const efforts = (Array.isArray(info.efforts) ? info.efforts : [])
@@ -169,10 +169,7 @@ export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
     });
   const tier = positive(info.defaultContextWindow) ? info.defaultContextWindow : undefined;
   const maxInput = positive(info.maxInputTokens) ? info.maxInputTokens : undefined;
-  const declared =
-    tier !== undefined && maxInput !== undefined
-      ? Math.min(tier, maxInput)
-      : (tier ?? maxInput ?? QODER_DEFAULT_CONTEXT_WINDOW);
+  const declared = maxInput ?? tier ?? QODER_DEFAULT_CONTEXT_WINDOW;
   const base: QoderModelSpec = {
     id: info.value,
     name: info.displayName ?? QODER_MODEL_DISPLAY_NAMES[info.value] ?? info.value,

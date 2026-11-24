@@ -38,20 +38,22 @@ describe("qoderModelFromInfo", () => {
     });
   });
 
-  it("uses the default context tier, not the largest input the model accepts", () => {
-    // A request gets the tier. Sizing the window on the 1M ceiling would compact far too late.
+  it("uses the largest input the model accepts, not the default tier", () => {
+    // The server accepts a prompt past the default tier. Hosts compact from this window.
+    expect(qoderModelFromInfo(ultimate).contextWindow).toBe(1_000_000);
     expect(qoderModelFromInfo({ ...ultimate, maxInputTokens: 50_000 }).contextWindow).toBe(50_000);
   });
 
-  it("never lets the tier exceed the input the model accepts", () => {
+  it("keeps a smaller input ceiling when the default tier is larger", () => {
     expect(
       qoderModelFromInfo({ ...ultimate, defaultContextWindow: 400_000, maxInputTokens: 180_000 }).contextWindow,
     ).toBe(180_000);
-    expect(qoderModelFromInfo({ ...ultimate, defaultContextWindow: 30_000 }).contextWindow).toBe(30_000);
   });
 
-  it("keeps the default tier when it sits under the input ceiling", () => {
-    expect(qoderModelFromInfo(ultimate).contextWindow).toBe(200_000);
+  it("uses the default tier when the server gives no positive input ceiling", () => {
+    expect(qoderModelFromInfo({ ...ultimate, maxInputTokens: 0, defaultContextWindow: 30_000 }).contextWindow).toBe(
+      30_000,
+    );
   });
 
   it("marks a model text-only and non-reasoning when the server says neither", () => {
@@ -159,13 +161,14 @@ describe("qoderModelInfosFromVendorCatalog", () => {
     expect(qoderModelInfosFromVendorCatalog("{}")).toEqual([]);
   });
 
-  it("yields the default tier through the spec mapping", () => {
+  it("publishes max_input_tokens as the window and keeps the tier when that ceiling is absent", () => {
     const models = qoderModelsFromModelInfos(qoderModelInfosFromVendorCatalog(catalog));
     expect(models.find((model) => model.id === "dfmodel")).toMatchObject({
-      contextWindow: 200_000,
+      contextWindow: 1_000_000,
       input: ["text", "image"],
       efforts: ["low", "high", "max"],
     });
+    expect(models.find((model) => model.id === "auto")?.contextWindow).toBe(200_000);
   });
 });
 
