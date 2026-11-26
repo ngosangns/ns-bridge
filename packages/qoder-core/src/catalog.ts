@@ -141,6 +141,8 @@ export interface QoderModelInfoFields {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   defaultContextWindow?: number;
+  /** Largest `context_config` tier. Included in the window even when it is not the default. */
+  largestContextWindow?: number;
   efforts?: string[];
 }
 
@@ -152,10 +154,10 @@ function positive(value: unknown): value is number {
 }
 
 /**
- * One server entry as a spec. The window is `max_input_tokens`. The server
- * accepts that much and does not enforce the default tier, and hosts compact
- * from this number. The tier is only the fallback when that ceiling is missing
- * or zero. Anything else the server leaves out uses the shared default.
+ * One server entry as a spec. The window is the greatest positive bound among
+ * `max_input_tokens` and the `context_config` tiers. Hosts compact from this
+ * number. A missing or zero bound is ignored. Anything else the server leaves
+ * out uses the shared default.
  */
 export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
   const efforts = (Array.isArray(info.efforts) ? info.efforts : [])
@@ -167,9 +169,8 @@ export function qoderModelFromInfo(info: QoderModelInfoFields): QoderModelSpec {
       };
       return rank(a) - rank(b);
     });
-  const tier = positive(info.defaultContextWindow) ? info.defaultContextWindow : undefined;
-  const maxInput = positive(info.maxInputTokens) ? info.maxInputTokens : undefined;
-  const declared = maxInput ?? tier ?? QODER_DEFAULT_CONTEXT_WINDOW;
+  const bounds = [info.maxInputTokens, info.largestContextWindow, info.defaultContextWindow].filter(positive);
+  const declared = bounds.length > 0 ? Math.max(...bounds) : QODER_DEFAULT_CONTEXT_WINDOW;
   const base: QoderModelSpec = {
     id: info.value,
     name: info.displayName ?? QODER_MODEL_DISPLAY_NAMES[info.value] ?? info.value,
@@ -197,15 +198,22 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/** The default tier's token count, or undefined when the catalog lists no default. */
-function defaultTierTokens(contextConfig: unknown): number | undefined {
+/** The default tier and the largest tier. A tier without a positive count is ignored. */
+function offeredTierTokens(contextConfig: unknown): { defaultTier?: number; largest?: number } {
   const tiers = asRecord(contextConfig);
-  if (!tiers) return undefined;
+  if (!tiers) return {};
+  let defaultTier: number | undefined;
+  let largest: number | undefined;
   for (const tier of Object.values(tiers)) {
     const record = asRecord(tier);
-    if (record?.is_default === true && positive(record.token_count)) return record.token_count;
+    if (!record || !positive(record.token_count)) continue;
+    if (largest === undefined || record.token_count > largest) largest = record.token_count;
+    if (record.is_default === true) defaultTier = record.token_count;
   }
-  return undefined;
+  return {
+    ...(defaultTier !== undefined ? { defaultTier } : {}),
+    ...(largest !== undefined ? { largest } : {}),
+  };
 }
 
 function effortNames(thinkingConfig: unknown): string[] {
@@ -218,7 +226,7 @@ function infoFromVendorEntry(entry: unknown): QoderModelInfoFields | undefined {
   const value = nonEmptyString(record?.key);
   if (!record || !value) return undefined;
   const maxInput = positive(record.max_input_tokens) ? record.max_input_tokens : undefined;
-  const tier = defaultTierTokens(record.context_config);
+  const tiers = offeredTierTokens(record.context_config);
   const efforts = effortNames(record.thinking_config);
   const displayName = nonEmptyString(record.display_name);
   return {
@@ -229,7 +237,8 @@ function infoFromVendorEntry(entry: unknown): QoderModelInfoFields | undefined {
     isReasoning: record.is_reasoning === true,
     isVl: record.is_vl === true,
     ...(maxInput !== undefined ? { maxInputTokens: maxInput } : {}),
-    ...(tier !== undefined ? { defaultContextWindow: tier } : {}),
+    ...(tiers.defaultTier !== undefined ? { defaultContextWindow: tiers.defaultTier } : {}),
+    ...(tiers.largest !== undefined ? { largestContextWindow: tiers.largest } : {}),
     ...(efforts.length > 0 ? { efforts } : {}),
   };
 }

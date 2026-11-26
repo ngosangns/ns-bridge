@@ -69,7 +69,7 @@ default, and no table in this repo names a model's capabilities.
 | Vendor | Source | Fields taken from it |
 |---|---|---|
 | Kiro | `ListAvailableModels` | id, name, `tokenLimits`, effort schema, `supportedInputTypes` (image input), `rateMultiplier` and `rateUnit`. `kiro-cli chat --list-models` is the fallback for a rate the entry omits. |
-| Qoder | SDK `getAvailableModels()` | id, `displayName`, `isReasoning`, `isVl` (image input), `defaultContextWindow` (capped by `maxInputTokens`), `maxOutputTokens`, `efforts` |
+| Qoder | `models.list` and the qodercli catalog cache | id, `displayName`, `isReasoning`, `isVl` (image input), window (greatest of `maxInputTokens` and the `context_config` tiers), `maxOutputTokens`, `efforts` |
 | Grok | `grok models` and `~/.grok/models_cache.json` | id, `name`, `context_window`, `max_completion_tokens`, `supports_reasoning_effort` |
 | Devin | `GetCliModelConfigs` | id, label, window, rates, effort and fast-mode families, thinking support |
 | Arnict | `GET /v1/models` | ids only. Everything else is `ARNICT_KNOWN_MODELS`, copied from arnict.com/docs/pricing. |

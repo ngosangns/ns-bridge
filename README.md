@@ -79,9 +79,9 @@ names, image input, reasoning efforts and each model's input ceiling). It prints
 `source=live` only for that answer. If the server is unreachable or the login
 expired, it prints the reason, shows the model cache qodercli keeps at
 `~/.qoder/.models/` or the bootstrap list, and leaves the existing
-`qoder.models.json` untouched. The catalog window is `max_input_tokens`. The
-default tier is only the fallback when that ceiling is missing or zero. Hosts
-compact against this window. A body the server rejects as `PAYLOAD_TOO_LARGE`
+`qoder.models.json` untouched. The catalog window is the greatest of
+`max_input_tokens` and every `context_config` tier. A missing or zero bound is
+ignored. Hosts compact against this window. A body the server rejects as `PAYLOAD_TOO_LARGE`
 is reported as a context overflow so the host can compact and retry. Pi shows the
 effort ladder as `thinkingLevelMap`; OMP shows it as per-model effort levels and
 compacts on the catalog's threshold.

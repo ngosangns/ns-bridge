@@ -38,16 +38,21 @@ describe("qoderModelFromInfo", () => {
     });
   });
 
-  it("uses the largest input the model accepts, not the default tier", () => {
-    // The server accepts a prompt past the default tier. Hosts compact from this window.
+  it("uses the greatest offered bound, so a larger tier wins over a smaller ceiling", () => {
+    // Hosts compact from this window. A tier the catalog lists is a bound the server has offered.
     expect(qoderModelFromInfo(ultimate).contextWindow).toBe(1_000_000);
-    expect(qoderModelFromInfo({ ...ultimate, maxInputTokens: 50_000 }).contextWindow).toBe(50_000);
-  });
-
-  it("keeps a smaller input ceiling when the default tier is larger", () => {
     expect(
       qoderModelFromInfo({ ...ultimate, defaultContextWindow: 400_000, maxInputTokens: 180_000 }).contextWindow,
-    ).toBe(180_000);
+    ).toBe(400_000);
+    expect(
+      qoderModelFromInfo({
+        ...ultimate,
+        value: "kmodel_latest",
+        maxInputTokens: 180_000,
+        defaultContextWindow: 200_000,
+        largestContextWindow: 1_000_000,
+      }).contextWindow,
+    ).toBe(1_000_000);
   });
 
   it("uses the default tier when the server gives no positive input ceiling", () => {
@@ -125,6 +130,19 @@ describe("qoderModelInfosFromVendorCatalog", () => {
         context_config: { "200K": { token_count: 200_000, is_default: true } },
         thinking_config: { enabled: { efforts: { high: { is_default: true }, low: {}, max: {} } } },
       },
+      {
+        key: "kmodel_latest",
+        enable: true,
+        display_name: "Kimi-K3.1-Pro",
+        is_vl: true,
+        is_reasoning: true,
+        max_input_tokens: 180_000,
+        context_config: {
+          "1M": { token_count: 1_000_000 },
+          "200K": { token_count: 200_000, is_default: true },
+          "400K": { token_count: 400_000 },
+        },
+      },
       { enable: false, display_name: "no key" },
     ],
     chat: [{ key: "chat-only", enable: true }],
@@ -132,7 +150,11 @@ describe("qoderModelInfosFromVendorCatalog", () => {
 
   it("takes the scene the CLI serves, not whichever list is first", () => {
     expect(qoderModelInfosFromVendorCatalog(catalog, "chat").map((info) => info.value)).toEqual(["chat-only"]);
-    expect(qoderModelInfosFromVendorCatalog(catalog).map((info) => info.value)).toEqual(["auto", "dfmodel"]);
+    expect(qoderModelInfosFromVendorCatalog(catalog).map((info) => info.value)).toEqual([
+      "auto",
+      "dfmodel",
+      "kmodel_latest",
+    ]);
   });
 
   it("maps the vendor fields onto the catalog entry", () => {
@@ -161,14 +183,15 @@ describe("qoderModelInfosFromVendorCatalog", () => {
     expect(qoderModelInfosFromVendorCatalog("{}")).toEqual([]);
   });
 
-  it("publishes max_input_tokens as the window and keeps the tier when that ceiling is absent", () => {
+  it("publishes the greatest catalog bound as the window", () => {
     const models = qoderModelsFromModelInfos(qoderModelInfosFromVendorCatalog(catalog));
     expect(models.find((model) => model.id === "dfmodel")).toMatchObject({
       contextWindow: 1_000_000,
       input: ["text", "image"],
       efforts: ["low", "high", "max"],
     });
-    expect(models.find((model) => model.id === "auto")?.contextWindow).toBe(200_000);
+    expect(models.find((model) => model.id === "auto")?.contextWindow).toBe(1_000_000);
+    expect(models.find((model) => model.id === "kmodel_latest")?.contextWindow).toBe(1_000_000);
   });
 });
 

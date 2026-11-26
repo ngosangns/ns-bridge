@@ -83,7 +83,7 @@ function toWireMessage(message: QoderMessage): QoderWireMessage | undefined {
       .map(() => "[image attached]")
       .join("\n");
     const body = [text, note].filter(Boolean).join("\n");
-    if (!body) return undefined;
+    // Kimi rejects a tool_call that has no tool message. An empty result is still that message.
     return { role: "tool", tool_call_id: message.toolCallId, content: body };
   }
   const { text } = userContent(message.content);

@@ -63,4 +63,28 @@ describe("toQoderWireMessages", () => {
     ]);
     expect(messages).toEqual([{ role: "assistant", content: "Done" }]);
   });
+
+  it("keeps an empty tool result paired with its tool call", () => {
+    const messages = toQoderWireMessages([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "read:2", name: "read", arguments: { path: "c.txt" } }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "read:2",
+        toolName: "read",
+        isError: false,
+        content: [{ type: "text", text: "" }],
+      },
+    ]);
+    expect(messages).toEqual([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "read:2", type: "function", function: { name: "read", arguments: '{"path":"c.txt"}' } }],
+      },
+      { role: "tool", tool_call_id: "read:2", content: "" },
+    ]);
+  });
 });
